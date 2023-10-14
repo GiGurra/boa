@@ -19,6 +19,7 @@ parameter fields, and boa will take care of the rest.
         * `[required] (env: FOO)` in the help text
         * You can complement this with your own help text
     * You can opt out of auto generation, or cherry pick and/or add your own auto generation logic
+* Validates all inputs before the `Run` function is invoked
 
 ## Usage
 
