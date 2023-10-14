@@ -22,6 +22,8 @@ parameter fields, and boa will take care of the rest.
 
 ## Usage
 
+`go get github.com/GiGurra/boa@v0.0.1`
+
 Short Example:
 
 ```go
