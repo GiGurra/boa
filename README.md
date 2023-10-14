@@ -76,12 +76,12 @@ Output for `go run ./cmd/testmain/ subcommand1 --help` on the above:
 a subcommand
 
 Usage:
-hello-world subcommand1 [flags]
+  hello-world subcommand1 [flags]
 
 Flags:
---bar int       [required] (env: BAR) (default 4)
---foo string   a foo [required] (env: FOO)
--h, --help         help for subcommand1`
+      --bar int       [required] (env: BAR) (default 4)
+      --foo string   a foo [required] (env: FOO)
+  -h, --help         help for subcommand1
 ```
 
 ## Missing features
