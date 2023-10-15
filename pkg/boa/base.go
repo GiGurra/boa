@@ -638,7 +638,7 @@ func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags
 		// check if field is a param
 		param, ok := fieldValue.Interface().(Param)
 		if !ok {
-			fmt.Printf("WARNING: field %s is not a param. It will be ignored", field.Name)
+			fmt.Printf("WARNING: field %s is not a param. It will be ignored\n", field.Name)
 			continue // not a param
 		}
 
