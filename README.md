@@ -19,6 +19,7 @@ The primary goal of Boa is to maintain a declarative approach. In its simplest f
     * You can opt out of auto generation, override specific properties, and cherry-pick and/or add your own auto-generation logic.
 * **Input Validation**: Boa validates all inputs before the `Run` function is invoked.
 * **Config Flexibility**: Use explicit fields for config or tags as per your preference.
+* **Cobra Compatibility**: Mix and match Boa with regular Cobra code as you see fit. Boa works with regular Cobra commands.
 
 ## Installation
 
