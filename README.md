@@ -18,7 +18,8 @@ parameter fields, and boa will take care of the rest.
         * `FOO` env var mapping
         * `[required] (env: FOO)` in the help text
         * You can complement this with your own help text, custom generation logic, etc
-    * You can opt out of auto generation, override specific properties, and cherry-pick and/or add your own auto generation logic
+    * You can opt out of auto generation, override specific properties, and cherry-pick and/or add your own auto
+      generation logic
 * Validates all inputs before the `Run` function is invoked
 * Use explicit fields for config or tags, you decide
 
@@ -65,9 +66,24 @@ func main() {
 		},
 	}.ToApp()
 }
-
 ```
 
+Help output for the above:
+
+```
+A generic cli tool that has a longer description. See the README.MD for more information
+
+Usage:
+  hello-world [flags]
+
+Flags:
+  -b, --bar int        [required] (env: BAR)
+      --baz string     [required] (env: BAZ)
+      --f-b string     (env: F_B)
+      --file string    [required] (env: FILE)
+  -f, --foo string     [required] (env: FOO)
+  -h, --help          help for hello-world
+```
 
 ### Sub-commands and tags
 
@@ -133,7 +149,6 @@ Flags:
       --foo string   a foo [required] (env: FOO)
   -h, --help         help for subcommand1
 ```
-
 
 ### Sub-commands, tags and explicit fields
 
