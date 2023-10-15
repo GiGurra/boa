@@ -433,13 +433,14 @@ func kebabCaseToUpperSnakeCase(in string) string {
 }
 
 type Wrap struct {
-	Use         string
-	Short       string
-	Long        string
-	SubCommands []*cobra.Command
-	Params      any
-	ParamEnrich ParamEnricher
-	Run         func(cmd *cobra.Command, args []string)
+	Use            string
+	Short          string
+	Long           string
+	SubCommands    []*cobra.Command
+	Params         any
+	ParamEnrich    ParamEnricher
+	Run            func(cmd *cobra.Command, args []string)
+	UseCobraErrLog bool
 }
 
 func (b Wrap) WithSubCommands(cmd ...*cobra.Command) Wrap {
@@ -449,10 +450,11 @@ func (b Wrap) WithSubCommands(cmd ...*cobra.Command) Wrap {
 
 func (b Wrap) ToCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   b.Use,
-		Short: b.Short,
-		Long:  b.Long,
-		Run:   b.Run,
+		Use:           b.Use,
+		Short:         b.Short,
+		Long:          b.Long,
+		Run:           b.Run,
+		SilenceErrors: !b.UseCobraErrLog,
 	}
 
 	for _, subcommand := range b.SubCommands {
