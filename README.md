@@ -88,6 +88,8 @@ Flags:
 
 ### Sub-commands and tags
 
+Most customization is available through field tags:
+
 ```go
 package main
 
@@ -152,6 +154,8 @@ Flags:
 ```
 
 ### Sub-commands, tags and explicit fields
+
+Some customization is only available through explicit field definitions:
 
 ```go
 package main
