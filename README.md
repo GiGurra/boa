@@ -24,7 +24,7 @@ parameter fields, and boa will take care of the rest.
 
 ## Usage
 
-`go get github.com/GiGurra/boa@v0.0.3`
+`go get github.com/GiGurra/boa@v0.0.4`
 
 Short Example:
 
