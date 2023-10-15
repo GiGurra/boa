@@ -24,7 +24,7 @@ parameter fields, and boa will take care of the rest.
 
 ## Usage
 
-`go get github.com/GiGurra/boa@v0.0.5`
+`go get github.com/GiGurra/boa@v0.0.6`
 
 Example just using tags:
 
@@ -40,9 +40,9 @@ import (
 var params = struct {
 	Foo  boa.Required[string] `descr:"a foo"`
 	Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X" default:"4"`
-	Path boa.Required[string] `positional:"true"`
-	Baz  boa.Required[string] `positional:"true" default:"cba"`
-	FB   boa.Optional[string] `positional:"true"`
+	Path boa.Required[string] `pos:"true"`
+	Baz  boa.Required[string] `pos:"true" default:"cba"`
+	FB   boa.Optional[string] `pos:"true"`
 }{}
 
 func main() {
@@ -105,9 +105,9 @@ import (
 var subCommand1Params = struct {
 	Foo  boa.Required[string]
 	Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X" default:"111"`
-	Path boa.Required[string] `positional:"true"`
+	Path boa.Required[string] `pos:"true"`
 	Baz  boa.Required[string]
-	FB   boa.Optional[string] `positional:"true"`
+	FB   boa.Optional[string] `pos:"true"`
 }{
 	Foo: boa.Required[string]{Descr: "a foo"},                                                          // add additional info if you like. This means we get "a foo [required] (env: FOO)" in the help text
 	Bar: boa.Required[int]{Default: boa.Default(4), CustomValidator: func(x int) error { return nil }}, // optional custom validation logic

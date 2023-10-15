@@ -465,10 +465,13 @@ func (b Wrap) ToCmd() *cobra.Command {
 
 		// look in tags for info about positional args
 		err := foreachParam(b.Params, func(param Param, _ string, tags reflect.StructTag) error {
-			if tags.Get("positional") == "true" {
+			if tags.Get("positional") == "true" || tags.Get("pos") == "true" {
 				param.setPositional(true)
 			}
 			if descr := tags.Get("descr"); descr != "" {
+				param.setDescription(descr)
+			}
+			if descr := tags.Get("description"); descr != "" {
 				param.setDescription(descr)
 			}
 			if env := tags.Get("env"); env != "" {

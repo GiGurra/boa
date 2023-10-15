@@ -9,9 +9,9 @@ import (
 var subCommand1Params = struct {
 	Foo  boa.Required[string] `descr:"a foo"`
 	Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X" default:"4"`
-	Path boa.Required[string] `positional:"true"`
-	Baz  boa.Required[string] `positional:"true" default:"cba"`
-	FB   boa.Optional[string] `positional:"true"`
+	Path boa.Required[string] `pos:"true"`
+	Baz  boa.Required[string] `pos:"true" default:"cba"`
+	FB   boa.Optional[string] `pos:"true"`
 }{}
 
 func main() {
