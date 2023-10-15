@@ -137,6 +137,13 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 		descr = fmt.Sprintf("%s (%s)", descr, strings.Join(extraInfos, ", "))
 	}
 
+	if f.hasDefaultValue() && f.GetKind() == reflect.Bool {
+		// cobra doesn't show if the default is false. So we must do it ourselves
+		if f.defaultValueStr() == "false" {
+			descr = fmt.Sprintf("%s (default false)", descr)
+		}
+	}
+
 	f.setParentCmd(cmd)
 
 	if f.isPositional() {
