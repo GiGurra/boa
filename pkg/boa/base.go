@@ -7,11 +7,12 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
 type SupportedTypes interface {
-	string | int | int32 | int64 | bool | float64 | float32
+	string | int | int32 | int64 | bool | float64 | float32 | time.Time
 }
 
 type Param interface {
@@ -19,6 +20,7 @@ type Param interface {
 	GetName() string
 	GetEnv() string
 	GetKind() reflect.Kind
+	GetType() reflect.Type
 	SetDefault(any)
 	SetEnv(string)
 	SetShort(string)
@@ -62,6 +64,20 @@ func validate(structPtr any) error {
 		}
 		if param.IsRequired() && !hasValue(param) {
 			return fmt.Errorf("missing required param '%s'%s", param.GetName(), envHint)
+		}
+
+		// special types validation, e.g. only time.Time so far
+		if hasValue(param) {
+			if param.GetKind() == reflect.Struct {
+				if param.GetType().String() == "time.Time" {
+					strVal := *param.valuePtrF().(*string)
+					res, err := parsePtr(param.GetName(), param.GetType(), param.GetKind(), strVal)
+					if err != nil {
+						return fmt.Errorf("invalid value for param '%s': %s", param.GetName(), err.Error())
+					}
+					param.setValuePtr(res)
+				}
+			}
 		}
 
 		if err := param.customValidatorOfPtr()(param.valuePtrF()); err != nil {
@@ -224,6 +240,17 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 			def = *reflect.ValueOf(f.defaultValuePtr()).Interface().(*bool)
 		}
 		f.setValuePtr(cmd.Flags().BoolP(f.GetName(), f.GetShort(), def, descr))
+	case reflect.Struct:
+		if f.GetType().String() == "time.Time" {
+			if f.hasDefaultValue() {
+				def := *reflect.ValueOf(f.defaultValuePtr()).Interface().(*time.Time)
+				f.setValuePtr(cmd.Flags().StringP(f.GetName(), f.GetShort(), def.Format(time.RFC3339), descr))
+			} else {
+				f.setValuePtr(cmd.Flags().StringP(f.GetName(), f.GetShort(), "", descr))
+			}
+		} else {
+			return fmt.Errorf("general structs not yet supported: " + f.GetKind().String())
+		}
 	case reflect.Slice:
 		fallthrough
 	case reflect.Array:
@@ -262,7 +289,7 @@ func readEnv(f Param) error {
 
 func readFrom(f Param, strVal string) error {
 
-	ptr, err := parseKindPtr(f.GetName(), f.GetKind(), strVal)
+	ptr, err := parsePtr(f.GetName(), f.GetType(), f.GetKind(), strVal)
 	if err != nil {
 		return err
 	}
@@ -272,7 +299,12 @@ func readFrom(f Param, strVal string) error {
 	return nil
 }
 
-func parseKindPtr(name string, kind reflect.Kind, strVal string) (any, error) {
+func parsePtr(
+	name string,
+	tpe reflect.Type,
+	kind reflect.Kind,
+	strVal string,
+) (any, error) {
 
 	switch kind {
 	case reflect.String:
@@ -315,6 +347,16 @@ func parseKindPtr(name string, kind reflect.Kind, strVal string) (any, error) {
 			return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
 		}
 		return &parsedBool, nil
+	case reflect.Struct:
+		if tpe.String() == "time.Time" {
+			parsedTime, err := time.Parse(time.RFC3339, strVal)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
+			}
+			return &parsedTime, nil
+		} else {
+			return nil, fmt.Errorf("general structs not yet supported: " + tpe.String())
+		}
 	case reflect.Slice:
 		fallthrough
 	case reflect.Array:
@@ -484,7 +526,7 @@ func (b Wrap) ToCmd() *cobra.Command {
 				param.SetName(name)
 			}
 			if defaultPtr := tags.Get("default"); defaultPtr != "" {
-				ptr, err := parseKindPtr(param.GetName(), param.GetKind(), defaultPtr)
+				ptr, err := parsePtr(param.GetName(), param.GetType(), param.GetKind(), defaultPtr)
 				if err != nil {
 					return fmt.Errorf("invalid default value for param %s: %s", param.GetName(), err.Error())
 				}

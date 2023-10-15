@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/GiGurra/boa/pkg/boa"
 	"github.com/spf13/cobra"
+	"time"
 )
 
 var params = struct {
@@ -12,6 +13,7 @@ var params = struct {
 	File boa.Required[string]
 	Baz  boa.Required[string]
 	FB   boa.Optional[string]
+	Time boa.Optional[time.Time]
 }{}
 
 func main() {

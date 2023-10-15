@@ -25,7 +25,7 @@ The primary goal of Boa is to maintain a declarative approach. In its simplest f
 
 To install Boa, use the following command:
 
-`go get github.com/GiGurra/boa@v0.0.8`
+`go get github.com/GiGurra/boa@v0.0.9`
 
 ## Usage
 
@@ -227,7 +227,6 @@ Flags:
 
 ## Missing features
 
-- [ ] Date/Time
 - [ ] Slices
 - [ ] Nested config
 - [ ] Probably lots

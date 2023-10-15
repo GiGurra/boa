@@ -144,8 +144,12 @@ func (f *Required[T]) defaultValueStr() string {
 }
 
 func (f *Required[T]) GetKind() reflect.Kind {
+	return f.GetType().Kind()
+}
+
+func (f *Required[T]) GetType() reflect.Type {
 	var zero T
-	return reflect.TypeOf(zero).Kind()
+	return reflect.TypeOf(zero)
 }
 
 func (f *Required[T]) setParentCmd(cmd *cobra.Command) {
