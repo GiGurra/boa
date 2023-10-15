@@ -1,33 +1,34 @@
 # BOA
 
-Boa is a small cute cli and env var parameter utility. It extends/wraps/constrains/simplifies parts of
-github.com/spf13/cobra for building dead simple and declarative cli interfaces.
+Boa is a compact CLI and environment variable parameter utility. It enhances and simplifies aspects of `github.com/spf13/cobra`, facilitating the creation of straightforward and declarative CLI interfaces.
 
-Boa tries to be as declarative as possible. For the simplest case, all you need to do is to define a struct with
-parameter fields, and boa will take care of the rest.
+The primary goal of Boa is to maintain a declarative approach. In its simplest form, you only need to define a struct with parameter fields, and Boa handles the rest.
 
-## Convenience
+## Features
 
-* Fully declarative for definition and validation.
-* True optional values and knowledge if a field was set. Opt-in default values built into the type system
-    * A `boa.Required[string]`'s `.Value()` is type aware and returns a `string`
-    * A `boa.Optional[string]`'s `.Value()` is type aware and returns a `*string`
-* Generates flag/param properties from field name, type, tags and more.
-    * example: `Foo boa.Required[string]` will generate
+* **Declarative Design**: Boa allows for fully declarative definition and validation.
+* **Optional Values**: Boa supports true optional values and provides knowledge if a field was set. It also offers opt-in default values built into the type system.
+    * A `boa.Required[string]`'s `.Value()` is type aware and returns a `string`.
+    * A `boa.Optional[string]`'s `.Value()` is type aware and returns a `*string`.
+* **Auto-Generated Properties**: Boa generates flag/param properties from field name, type, tags, and more.
+    * For instance, `Foo boa.Required[string]` will generate:
         * flags `--foo` (and short version `-f` if it is not already taken)
         * `FOO` env var mapping
         * `[required] (env: FOO)` in the help text
-        * You can complement this with your own help text, custom generation logic, etc
-    * You can opt out of auto generation, override specific properties, and cherry-pick and/or add your own auto
-      generation logic
-* Validates all inputs before the `Run` function is invoked
-* Use explicit fields for config or tags, you decide
+        * You can supplement this with your own help text, custom generation logic, etc.
+    * You can opt out of auto generation, override specific properties, and cherry-pick and/or add your own auto-generation logic.
+* **Input Validation**: Boa validates all inputs before the `Run` function is invoked.
+* **Config Flexibility**: Use explicit fields for config or tags as per your preference.
 
 ## Installation
+
+To install Boa, use the following command:
 
 `go get github.com/GiGurra/boa@v0.0.8`
 
 ## Usage
+
+Refer to the code snippets provided below for minimum setup, sub-commands and tags, and sub-commands, tags and explicit fields.
 
 ### Minimum setup
 
