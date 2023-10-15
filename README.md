@@ -79,9 +79,6 @@ func main() {
 	}.ToApp()
 }
 
-
-Output for `go run ./cmd/testmain/ subcommand1 --help` on the above:
-
 ```
 
 Help output for the above:
