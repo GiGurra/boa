@@ -137,10 +137,15 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 		descr = fmt.Sprintf("%s (%s)", descr, strings.Join(extraInfos, ", "))
 	}
 
-	if f.hasDefaultValue() && f.GetKind() == reflect.Bool {
-		// cobra doesn't show if the default is false. So we must do it ourselves
-		if f.defaultValueStr() == "false" {
-			descr = fmt.Sprintf("%s (default false)", descr)
+	if f.hasDefaultValue() {
+		if f.GetKind() == reflect.Bool {
+			// cobra doesn't show if the default is false. So we must do it ourselves
+			if f.defaultValueStr() == "false" {
+				descr = fmt.Sprintf("%s (default false)", descr)
+			}
+		} else if f.defaultValueStr() == "" {
+			// cobra doesn't show explicitly empty defaults. So we must do it ourselves
+			descr = fmt.Sprintf("%s (default \"\")", descr)
 		}
 	}
 
