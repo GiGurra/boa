@@ -26,7 +26,48 @@ parameter fields, and boa will take care of the rest.
 
 `go get github.com/GiGurra/boa@v0.0.8`
 
-Example just using tags:
+Minimum setup:
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/GiGurra/boa/pkg/boa"
+	"github.com/spf13/cobra"
+)
+
+var params = struct {
+	Foo  boa.Required[string]
+	Bar  boa.Required[int]
+	File boa.Required[string]
+	Baz  boa.Required[string]
+	FB   boa.Optional[string]
+}{}
+
+func main() {
+	boa.Wrap{
+		Use:    "hello-world",
+		Short:  "a generic cli tool",
+		Long:   `A generic cli tool that has a longer description. See the README.MD for more information`,
+		Params: &params,
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf(
+				"Hello world from subcommand1 with params: %s, %d, %s, %s, %v\n",
+				params.Foo.Value(),  // string
+				params.Bar.Value(),  // int
+				params.File.Value(), // string
+				params.Baz.Value(),  // string
+				params.FB.Value(),   // *string
+			)
+		},
+	}.ToApp()
+}
+
+```
+
+
+Example using subcommands and tags:
 
 ```go
 package main
