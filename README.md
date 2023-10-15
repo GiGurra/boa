@@ -90,12 +90,12 @@ Help output for the above:
 a subcommand
 
 Usage:
-hello-world subcommand1 <path> <baz> [f-b] [flags]
+  hello-world subcommand1 <path> <baz> [f-b] [flags]
 
 Flags:
---bar int      a bar [required] (env: BAR_X) (default 111)
---foo string   a foo [required] (env: FOO)
--h, --help         help for subcommand1
+      --bar int      a bar [required] (env: BAR_X) (default 111)
+      --foo string   a foo [required] (env: FOO)
+  -h, --help         help for subcommand1
 ```
 
 Example just using tags:
