@@ -13,10 +13,15 @@ type Optional[T SupportedTypes] struct {
 	Default         *T
 	Descr           string
 	CustomValidator func(T) error
+	Positional      bool
 	validated       bool
 	setByEnv        bool
 	valuePtr        any
 	parent          *cobra.Command
+}
+
+func (f *Optional[T]) isPositional() bool {
+	return f.Positional
 }
 
 func (f *Optional[T]) SetDefault(val any) {

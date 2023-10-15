@@ -37,6 +37,7 @@ type Param interface {
 	setParentCmd(cmd *cobra.Command)
 	setValuePtr(any)
 	markSetFromEnv()
+	isPositional() bool
 }
 
 func Default[T SupportedTypes](val T) *T {
@@ -52,7 +53,9 @@ func validate(structPtr any) {
 			envHint = fmt.Sprintf(" (env: %s)", param.GetEnv())
 		}
 
-		readEnv(param)
+		if err := readEnv(param); err != nil {
+			panic(err)
+		}
 		if param.IsRequired() && !hasValue(param) {
 			fmt.Printf("Error: required param '%s'%s was not set\n", param.GetName(), envHint)
 			panic("required param not set")
@@ -67,7 +70,23 @@ func validate(structPtr any) {
 	})
 }
 
-func connect(f Param, cmd *cobra.Command) {
+func doParsePositional(f Param, strVal string) error {
+	if strVal == "" && f.IsRequired() {
+		if f.hasDefaultValue() || f.wasSetByEnv() {
+			return nil
+		} else {
+			return fmt.Errorf("empty positional arg: %s", f.GetName())
+		}
+	}
+
+	if err := readFrom(f, strVal); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func connect(f Param, cmd *cobra.Command, posArgs []Param) {
 
 	if f.GetName() == "" {
 		panic(fmt.Errorf("invalid conf for param '%s': long param name cannot be empty", f.GetName()))
@@ -97,6 +116,52 @@ func connect(f Param, cmd *cobra.Command) {
 	}
 
 	f.setParentCmd(cmd)
+
+	if f.isPositional() {
+		startSign := func() string {
+			if f.IsRequired() {
+				return "<"
+			} else {
+				return "["
+			}
+		}()
+		endSign := func() string {
+			if f.IsRequired() {
+				return ">"
+			} else {
+				return "]"
+			}
+		}()
+		cmd.Use += " " + startSign + f.GetName() + endSign
+
+		if cmd.Args == nil {
+			cmd.Args = func(cmd *cobra.Command, args []string) error {
+				return nil
+			}
+		}
+		// Add the positional arg to the Args function
+		oldFn := cmd.Args
+		cmd.Args = func(cmd *cobra.Command, args []string) error {
+			if err := oldFn(cmd, args); err != nil {
+				return err
+			}
+			posArgIndex := -1
+			for i, posArg := range posArgs {
+				if posArg.GetName() == f.GetName() {
+					posArgIndex = i
+				}
+			}
+			if posArgIndex == -1 {
+				return fmt.Errorf("positional arg %s not found", f.GetName())
+			}
+			if posArgIndex >= len(args) {
+				return fmt.Errorf("missing positional arg %s", f.GetName())
+			}
+			return doParsePositional(f, args[posArgIndex])
+		}
+		return // no need to attach cobra flags
+	}
+
 	switch f.GetKind() {
 	case reflect.String:
 		def := ""
@@ -151,72 +216,83 @@ func connect(f Param, cmd *cobra.Command) {
 	}
 }
 
-func readEnv(f Param) {
+func readEnv(f Param) error {
 	if f.GetEnv() == "" {
-		return
+		return nil
 	}
 
 	if f.wasSetByFlag() {
-		return
+		return nil
 	}
 
 	envVal := os.Getenv(f.GetEnv())
 	if envVal == "" {
-		return
+		return nil
 	}
+
+	err := readFrom(f, envVal)
+	if err != nil {
+		return err
+	}
+
+	f.markSetFromEnv()
+	return nil
+}
+
+func readFrom(f Param, strVal string) error {
 
 	switch f.GetKind() {
 	case reflect.String:
-		f.setValuePtr(&envVal)
+		f.setValuePtr(&strVal)
 	case reflect.Int:
-		parsedInt, err := strconv.Atoi(envVal)
+		parsedInt, err := strconv.Atoi(strVal)
 		if err != nil {
-			panic(fmt.Errorf("invalid env value for param %s: %s", f.GetName(), err.Error()))
+			return fmt.Errorf("invalid value for param %s: %s", f.GetName(), err.Error())
 		}
 		f.setValuePtr(&parsedInt)
 	case reflect.Int32:
-		parsedInt64, err := strconv.ParseInt(envVal, 10, 32)
+		parsedInt64, err := strconv.ParseInt(strVal, 10, 32)
 		if err != nil {
-			panic(fmt.Errorf("invalid env value for param %s: %s", f.GetName(), err.Error()))
+			return fmt.Errorf("invalid value for param %s: %s", f.GetName(), err.Error())
 		}
 		parsedInt32 := int32(parsedInt64)
 		f.setValuePtr(&parsedInt32)
 	case reflect.Int64:
-		parsedInt64, err := strconv.ParseInt(envVal, 10, 64)
+		parsedInt64, err := strconv.ParseInt(strVal, 10, 64)
 		if err != nil {
-			panic(fmt.Errorf("invalid env value for param %s: %s", f.GetName(), err.Error()))
+			return fmt.Errorf("invalid value for param %s: %s", f.GetName(), err.Error())
 		}
 		f.setValuePtr(&parsedInt64)
 	case reflect.Float32:
-		parsedFloat64, err := strconv.ParseFloat(envVal, 32)
+		parsedFloat64, err := strconv.ParseFloat(strVal, 32)
 		if err != nil {
-			panic(fmt.Errorf("invalid env value for param %s: %s", f.GetName(), err.Error()))
+			return fmt.Errorf("invalid value for param %s: %s", f.GetName(), err.Error())
 		}
 		parsedFloat32 := float32(parsedFloat64)
 		f.setValuePtr(&parsedFloat32)
 	case reflect.Float64:
-		parsedFloat64, err := strconv.ParseFloat(envVal, 64)
+		parsedFloat64, err := strconv.ParseFloat(strVal, 64)
 		if err != nil {
-			panic(fmt.Errorf("invalid env value for param %s: %s", f.GetName(), err.Error()))
+			return fmt.Errorf("invalid value for param %s: %s", f.GetName(), err.Error())
 		}
 		f.setValuePtr(&parsedFloat64)
 	case reflect.Bool:
-		parsedBool, err := strconv.ParseBool(envVal)
+		parsedBool, err := strconv.ParseBool(strVal)
 		if err != nil {
-			panic(fmt.Errorf("invalid env value for param %s: %s", f.GetName(), err.Error()))
+			return fmt.Errorf("invalid value for param %s: %s", f.GetName(), err.Error())
 		}
 		f.setValuePtr(&parsedBool)
 	case reflect.Slice:
 		fallthrough
 	case reflect.Array:
-		panic("arrays or slices not yet supported param type: " + f.GetKind().String())
+		return fmt.Errorf("arrays or slices not yet supported param type: " + f.GetKind().String())
 	case reflect.Pointer:
-		panic("pointers not yet supported param type: " + f.GetKind().String())
+		return fmt.Errorf("pointers not yet supported param type: " + f.GetKind().String())
 	default:
-		panic("unsupported param type: %s" + f.GetKind().String())
+		return fmt.Errorf("unsupported param type: %s" + f.GetKind().String())
 	}
 
-	f.markSetFromEnv()
+	return nil
 }
 
 func hasValue(f Param) bool {
@@ -350,8 +426,26 @@ func (b Wrap) ToCmd() *cobra.Command {
 			b.ParamEnrich(processed, param, paramFieldName)
 			processed = append(processed, param)
 		})
+
+		positional := make([]Param, 0)
+		for _, param := range processed {
+			if param.isPositional() {
+				positional = append(positional, param)
+			}
+		}
+
+		// Check that no required positional arg exists after on optional positional arg
+		for i, param := range positional {
+			if param.IsRequired() && i >= 1 {
+				prev := positional[i-1]
+				if !prev.IsRequired() {
+					panic(fmt.Errorf("required positional arg %s must come before optional positional arg %s", param.GetName(), prev.GetName()))
+				}
+			}
+		}
+
 		foreachParam(b.Params, func(param Param, _ string) {
-			connect(param, cmd)
+			connect(param, cmd, positional)
 		})
 	}
 

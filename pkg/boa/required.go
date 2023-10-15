@@ -13,10 +13,15 @@ type Required[T SupportedTypes] struct {
 	Default         *T
 	Descr           string
 	CustomValidator func(T) error
+	Positional      bool
 	validated       bool
 	setByEnv        bool
 	valuePtr        any
 	parent          *cobra.Command
+}
+
+func (f *Required[T]) isPositional() bool {
+	return f.Positional
 }
 
 // SetDefault Only to be used from ParamEnrichers. Use the regular parameters to set the default with type safety otherwise.
