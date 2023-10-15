@@ -480,6 +480,9 @@ func (b Wrap) ToCmd() *cobra.Command {
 			if shrt := tags.Get("short"); shrt != "" {
 				param.SetShort(shrt)
 			}
+			if name := tags.Get("name"); name != "" {
+				param.SetName(name)
+			}
 			if defaultPtr := tags.Get("default"); defaultPtr != "" {
 				ptr, err := parseKindPtr(param.GetName(), param.GetKind(), defaultPtr)
 				if err != nil {
