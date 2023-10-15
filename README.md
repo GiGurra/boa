@@ -54,13 +54,13 @@ func main() {
 			boa.Wrap{
 				Use:         "subcommand1",
 				Short:       "a subcommand",
-				Params:      &subCommand1Params,
+				Params:      &params,
 				ParamEnrich: boa.ParamEnricherCombine(boa.ParamEnricherName, boa.ParamEnricherEnv),
 				Run: func(cmd *cobra.Command, args []string) {
-					p1 := subCommand1Params.Foo.Value()
-					p2 := subCommand1Params.Bar.Value()
-					p3 := subCommand1Params.Path.Value()
-					p4 := subCommand1Params.Baz.Value()
+					p1 := params.Foo.Value()
+					p2 := params.Bar.Value()
+					p3 := params.Path.Value()
+					p4 := params.Baz.Value()
 					fmt.Printf("Hello world from subcommand1 with params: %s, %d, %s, %s\n", p1, p2, p3, p4)
 				},
 			}.ToCmd(),
@@ -102,7 +102,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var subCommand1Params = struct {
+var params = struct {
 	Foo  boa.Required[string]
 	Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X" default:"111"`
 	Path boa.Required[string] `pos:"true"`
@@ -123,13 +123,13 @@ func main() {
 			boa.Wrap{
 				Use:         "subcommand1",
 				Short:       "a subcommand",
-				Params:      &subCommand1Params,
+				Params:      &params,
 				ParamEnrich: boa.ParamEnricherCombine(boa.ParamEnricherName, boa.ParamEnricherEnv),
 				Run: func(cmd *cobra.Command, args []string) {
-					p1 := subCommand1Params.Foo.Value()
-					p2 := subCommand1Params.Bar.Value()
-					p3 := subCommand1Params.Path.Value()
-					p4 := subCommand1Params.Baz.Value()
+					p1 := params.Foo.Value()
+					p2 := params.Bar.Value()
+					p3 := params.Path.Value()
+					p4 := params.Baz.Value()
 					fmt.Printf("Hello world from subcommand1 with params: %s, %d, %s, %s\n", p1, p2, p3, p4)
 				},
 			}.ToCmd(),
