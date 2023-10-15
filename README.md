@@ -53,7 +53,7 @@ func main() {
 		Params: &params,
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Printf(
-				"Hello world from subcommand1 with params: %s, %d, %s, %s, %v\n",
+				"Hello world with params: %s, %d, %s, %s, %v\n",
 				params.Foo.Value(),  // string
 				params.Bar.Value(),  // int
 				params.File.Value(), // string
