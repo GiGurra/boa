@@ -18,7 +18,7 @@ parameter fields, and boa will take care of the rest.
         * `FOO` env var mapping
         * `[required] (env: FOO)` in the help text
         * You can complement this with your own help text, custom generation logic, etc
-    * You can opt out of auto generation, and cherry-pick and/or add your own auto generation logic
+    * You can opt out of auto generation, override specific properties, and cherry-pick and/or add your own auto generation logic
 * Validates all inputs before the `Run` function is invoked
 * Use explicit fields for config or tags, you decide
 
