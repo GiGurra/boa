@@ -510,22 +510,22 @@ func (b Wrap) ToCmd() *cobra.Command {
 			if tags.Get("positional") == "true" || tags.Get("pos") == "true" {
 				param.setPositional(true)
 			}
-			if descr := tags.Get("descr"); descr != "" {
+			if descr, ok := tags.Lookup("descr"); ok {
 				param.setDescription(descr)
 			}
-			if descr := tags.Get("description"); descr != "" {
+			if descr, ok := tags.Lookup("description"); ok {
 				param.setDescription(descr)
 			}
-			if env := tags.Get("env"); env != "" {
+			if env, ok := tags.Lookup("env"); ok {
 				param.SetEnv(env)
 			}
-			if shrt := tags.Get("short"); shrt != "" {
+			if shrt, ok := tags.Lookup("short"); ok {
 				param.SetShort(shrt)
 			}
-			if name := tags.Get("name"); name != "" {
+			if name, ok := tags.Lookup("name"); ok {
 				param.SetName(name)
 			}
-			if defaultPtr := tags.Get("default"); defaultPtr != "" {
+			if defaultPtr, ok := tags.Lookup("default"); ok {
 				ptr, err := parsePtr(param.GetName(), param.GetType(), param.GetKind(), defaultPtr)
 				if err != nil {
 					return fmt.Errorf("invalid default value for param %s: %s", param.GetName(), err.Error())
