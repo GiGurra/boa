@@ -404,6 +404,9 @@ var (
 		if param.GetShort() == "" && param.GetName() != "" {
 			// check that no other param has the same short name
 			wantShort := string(param.GetName()[0])
+			if wantShort == "h" {
+				return nil // don't override help h
+			}
 			shortAvailable := true
 			for _, other := range alreadyProcessed {
 				if other.GetShort() == wantShort {
