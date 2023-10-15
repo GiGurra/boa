@@ -22,11 +22,13 @@ parameter fields, and boa will take care of the rest.
 * Validates all inputs before the `Run` function is invoked
 * Use explicit fields for config or tags, you decide
 
-## Usage
+## Installation
 
 `go get github.com/GiGurra/boa@v0.0.8`
 
-Minimum setup:
+## Usage
+
+### Minimum setup
 
 ```go
 package main
@@ -67,7 +69,7 @@ func main() {
 ```
 
 
-Example using subcommands and tags:
+### Sub-commands and tags
 
 ```go
 package main
@@ -132,7 +134,8 @@ Flags:
   -h, --help         help for subcommand1
 ```
 
-Example using both tags and explicit fields:
+
+### Sub-commands, tags and explicit fields
 
 ```go
 package main
