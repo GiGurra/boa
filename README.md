@@ -84,6 +84,8 @@ Output for `go run ./cmd/testmain/ subcommand1 --help` on the above:
 
 ```
 
+Help output for the above:
+
 ```
 a subcommand
 
@@ -100,16 +102,15 @@ Example just using tags:
 
 ```go
 var subCommand1Params = struct {
-	Foo  boa.Required[string] `descr:"a foo"`
-	Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X" default:"4"`
-	Path boa.Required[string] `positional:"true"`
-	Baz  boa.Required[string] `positional:"true" default:"cba"`
-	FB   boa.Optional[string] `positional:"true"`
+Foo  boa.Required[string] `descr:"a foo"`
+Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X" default:"4"`
+Path boa.Required[string] `positional:"true"`
+Baz  boa.Required[string] `positional:"true" default:"cba"`
+FB   boa.Optional[string] `positional:"true"`
 }{}
 ```
 
-
-Output for `go run ./cmd/testmain2/ subcommand1 --help` on the above:
+Help output for the above:
 
 ```
 a subcommand
