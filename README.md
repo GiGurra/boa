@@ -226,6 +226,7 @@ Flags:
 
 ## Missing features
 
+- [ ] Date/Time inputs
 - [ ] Slices
 - [ ] Nested config
 - [ ] Probably lots
