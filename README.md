@@ -12,13 +12,13 @@ parameter fields, and boa will take care of the rest.
 * True optional values and knowledge if a field was set. Opt-in default values built into the type system
     * A `boa.Required[string]`'s `.Value()` is type aware and returns a `string`
     * A `boa.Optional[string]`'s `.Value()` is type aware and returns a `*string`
-* Generated `--param-name`, `-p`, `[required] (env: ..) (default ...)` from field name and type.
+* Generates flag/param properties from field name, type, tags and more.
     * example: `Foo boa.Required[string]` will generate
-        * `--foo`, and `-f` if it is available
-        * `FOO` env var
+        * flags `--foo` (and short version `-f` if it is not already taken)
+        * `FOO` env var mapping
         * `[required] (env: FOO)` in the help text
-        * You can complement this with your own help text
-    * You can opt out of auto generation, or cherry-pick and/or add your own auto generation logic
+        * You can complement this with your own help text, custom generation logic, etc
+    * You can opt out of auto generation, and cherry-pick and/or add your own auto generation logic
 * Validates all inputs before the `Run` function is invoked
 * Use explicit fields for config or tags, you decide
 
