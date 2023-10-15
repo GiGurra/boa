@@ -16,8 +16,17 @@ type Required[T SupportedTypes] struct {
 	Positional      bool
 	validated       bool
 	setByEnv        bool
+	setPositionally bool
 	valuePtr        any
 	parent          *cobra.Command
+}
+
+func (f *Required[T]) wasSetPositionally() bool {
+	return f.setPositionally
+}
+
+func (f *Required[T]) markSetPositionally() {
+	f.setPositionally = true
 }
 
 func (f *Required[T]) isPositional() bool {
@@ -72,11 +81,15 @@ func (f *Required[T]) customValidatorOfPtr() func(any) error {
 	}
 }
 
-func (f *Required[T]) wasSetByFlag() bool {
+func (f *Required[T]) wasSetOnCli() bool {
 	if f.parent == nil {
 		panic("flag has no parent command. Did you try to .validate() before .ToCmd()?")
 	}
-	return f.parent.Flags().Changed(f.Name)
+	if f.Positional {
+		return f.wasSetPositionally()
+	} else {
+		return f.parent.Flags().Changed(f.Name)
+	}
 }
 
 func (f *Required[T]) GetShort() string {

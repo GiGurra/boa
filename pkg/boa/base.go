@@ -28,7 +28,7 @@ type Param interface {
 	IsRequired() bool
 	valuePtrF() any
 	parentCmd() *cobra.Command
-	wasSetByFlag() bool
+	wasSetOnCli() bool
 	wasSetByEnv() bool
 	customValidatorOfPtr() func(any) error
 	markValidated()
@@ -38,6 +38,8 @@ type Param interface {
 	setValuePtr(any)
 	markSetFromEnv()
 	isPositional() bool
+	wasSetPositionally() bool
+	markSetPositionally()
 }
 
 func Default[T SupportedTypes](val T) *T {
@@ -82,6 +84,8 @@ func doParsePositional(f Param, strVal string) error {
 	if err := readFrom(f, strVal); err != nil {
 		return err
 	}
+
+	f.markSetPositionally()
 
 	return nil
 }
@@ -152,10 +156,23 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) {
 				}
 			}
 			if posArgIndex == -1 {
-				return fmt.Errorf("positional arg %s not found", f.GetName())
+				if f.IsRequired() {
+					return fmt.Errorf("positional arg '%s' not found. This is a bug in boa", f.GetName())
+				} else {
+					return nil
+				}
 			}
 			if posArgIndex >= len(args) {
-				return fmt.Errorf("missing positional arg %s", f.GetName())
+				if f.IsRequired() {
+					if f.hasDefaultValue() {
+						f.setValuePtr(f.defaultValuePtr())
+						return nil
+					} else {
+						return fmt.Errorf("missing positional arg '%s'", f.GetName())
+					}
+				} else {
+					return nil
+				}
 			}
 			return doParsePositional(f, args[posArgIndex])
 		}
@@ -221,7 +238,7 @@ func readEnv(f Param) error {
 		return nil
 	}
 
-	if f.wasSetByFlag() {
+	if f.wasSetOnCli() {
 		return nil
 	}
 
@@ -296,7 +313,7 @@ func readFrom(f Param, strVal string) error {
 }
 
 func hasValue(f Param) bool {
-	return f.wasSetByEnv() || f.wasSetByFlag() || f.hasDefaultValue()
+	return f.wasSetByEnv() || f.wasSetOnCli() || f.hasDefaultValue()
 }
 
 type ParamEnricher func(alreadyProcessed []Param, param Param, paramFieldName string)
@@ -336,7 +353,7 @@ var (
 		}
 	}
 	ParamEnricherEnv ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) {
-		if param.GetEnv() == "" && param.GetName() != "" {
+		if param.GetEnv() == "" && param.GetName() != "" && !param.isPositional() {
 			param.SetEnv(kebabCaseToUpperSnakeCase(param.GetName()))
 		}
 	}
@@ -518,7 +535,7 @@ func (b Wrap) ToAppH(handler Handler) {
 		if handler.Failure != nil {
 			handler.Failure(err)
 		} else {
-			fmt.Printf("error executing command: %v", err)
+			fmt.Printf("error executing command: %v\n", err)
 			os.Exit(1)
 		}
 	} else {

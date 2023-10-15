@@ -9,11 +9,13 @@ import (
 var subCommand1Params = struct {
 	Foo  boa.Required[string]
 	Bar  boa.Required[int]
-	Path boa.Required[int]
+	Path boa.Required[string]
+	Baz  boa.Required[string]
 }{
 	Foo:  boa.Required[string]{Descr: "a foo"},                                                          // add additional info if you like. This means we get "a foo [required] (env: FOO)" in the help text
 	Bar:  boa.Required[int]{Default: boa.Default(4), CustomValidator: func(x int) error { return nil }}, // optional custom validation logic
-	Path: boa.Required[int]{Positional: true},                                                           // positional arguments
+	Path: boa.Required[string]{Positional: true},
+	Baz:  boa.Required[string]{Positional: true, Default: boa.Default("cba")}, // positional arguments
 }
 
 func main() {
@@ -30,7 +32,9 @@ func main() {
 				Run: func(cmd *cobra.Command, args []string) {
 					p1 := subCommand1Params.Foo.Value()
 					p2 := subCommand1Params.Bar.Value()
-					fmt.Printf("Hello world from subcommand1 with params: %s, %d\n", p1, p2)
+					p3 := subCommand1Params.Path.Value()
+					p4 := subCommand1Params.Baz.Value()
+					fmt.Printf("Hello world from subcommand1 with params: %s, %d, %s, %s\n", p1, p2, p3, p4)
 				},
 			}.ToCmd(),
 			boa.Wrap{
