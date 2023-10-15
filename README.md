@@ -79,6 +79,21 @@ func main() {
 	}.ToApp()
 }
 
+
+Output for `go run ./cmd/testmain/ subcommand1 --help` on the above:
+
+```
+a subcommand
+
+Usage:
+hello-world subcommand1 <path> <baz> [f-b] [flags]
+
+Flags:
+--bar int      a bar [required] (env: BAR_X) (default 111)
+--foo string   a foo [required] (env: FOO)
+-h, --help         help for subcommand1
+```
+
 ```
 
 Example just using tags:
@@ -94,7 +109,7 @@ var subCommand1Params = struct {
 ```
 
 
-Output for `go run ./cmd/testmain/ subcommand1 --help` on the above:
+Output for `go run ./cmd/testmain2/ subcommand1 --help` on the above:
 
 ```
 a subcommand
@@ -103,7 +118,7 @@ Usage:
   hello-world subcommand1 <path> <baz> [f-b] [flags]
 
 Flags:
-      --bar int      a bar [required] (env: BAR_X) (default 111)
+      --bar int      a bar [required] (env: BAR_X) (default 4)
       --foo string   a foo [required] (env: FOO)
   -h, --help         help for subcommand1
 ```
