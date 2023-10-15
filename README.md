@@ -126,4 +126,6 @@ Flags:
 
 ## Missing features
 
+- [ ] Slices
+- [ ] Nested config
 - [ ] Probably lots
