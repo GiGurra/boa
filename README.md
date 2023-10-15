@@ -129,3 +129,7 @@ Flags:
 - [ ] Slices
 - [ ] Nested config
 - [ ] Probably lots
+
+## State
+
+- [x] Very early. Use at your own risk.
