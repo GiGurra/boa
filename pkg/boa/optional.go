@@ -72,6 +72,14 @@ func (f *Optional[T]) markValidated() {
 	f.validated = true
 }
 
+func (f *Optional[T]) setPositional(state bool) {
+	f.Positional = state
+}
+
+func (f *Optional[T]) setDescription(state string) {
+	f.Descr = state
+}
+
 func (f *Optional[T]) customValidatorOfPtr() func(any) error {
 	return func(val any) error {
 		if f.CustomValidator == nil {

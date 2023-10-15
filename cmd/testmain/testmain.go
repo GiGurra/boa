@@ -8,14 +8,13 @@ import (
 
 var subCommand1Params = struct {
 	Foo  boa.Required[string]
-	Bar  boa.Required[int]
-	Path boa.Required[string]
+	Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X"`
+	Path boa.Required[string] `positional:"true"`
 	Baz  boa.Required[string]
 }{
-	Foo:  boa.Required[string]{Descr: "a foo"},                                                          // add additional info if you like. This means we get "a foo [required] (env: FOO)" in the help text
-	Bar:  boa.Required[int]{Default: boa.Default(4), CustomValidator: func(x int) error { return nil }}, // optional custom validation logic
-	Path: boa.Required[string]{Positional: true},
-	Baz:  boa.Required[string]{Positional: true, Default: boa.Default("cba")}, // positional arguments
+	Foo: boa.Required[string]{Descr: "a foo"},                                                          // add additional info if you like. This means we get "a foo [required] (env: FOO)" in the help text
+	Bar: boa.Required[int]{Default: boa.Default(4), CustomValidator: func(x int) error { return nil }}, // optional custom validation logic
+	Baz: boa.Required[string]{Positional: true, Default: boa.Default("cba")},                           // positional arguments
 }
 
 func main() {

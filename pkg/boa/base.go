@@ -40,6 +40,8 @@ type Param interface {
 	isPositional() bool
 	wasSetPositionally() bool
 	markSetPositionally()
+	setPositional(bool)
+	setDescription(descr string)
 }
 
 func Default[T SupportedTypes](val T) *T {
@@ -48,7 +50,7 @@ func Default[T SupportedTypes](val T) *T {
 
 func validate(structPtr any) {
 
-	foreachParam(structPtr, func(param Param, _ string) {
+	foreachParam(structPtr, func(param Param, _ string, _ reflect.StructTag) {
 
 		envHint := ""
 		if param.GetEnv() != "" {
@@ -435,11 +437,28 @@ func (b Wrap) ToCmd() *cobra.Command {
 	}
 
 	if b.Params != nil {
+
+		// look in tags for info about positional args
+		foreachParam(b.Params, func(param Param, _ string, tags reflect.StructTag) {
+			if tags.Get("positional") == "true" {
+				param.setPositional(true)
+			}
+			if descr := tags.Get("descr"); descr != "" {
+				param.setDescription(descr)
+			}
+			if env := tags.Get("env"); env != "" {
+				param.SetEnv(env)
+			}
+			if shrt := tags.Get("short"); shrt != "" {
+				param.SetShort(shrt)
+			}
+		})
+
 		if b.ParamEnrich == nil {
 			b.ParamEnrich = ParamEnricherDefault
 		}
 		processed := make([]Param, 0)
-		foreachParam(b.Params, func(param Param, paramFieldName string) {
+		foreachParam(b.Params, func(param Param, paramFieldName string, _ reflect.StructTag) {
 			b.ParamEnrich(processed, param, paramFieldName)
 			processed = append(processed, param)
 		})
@@ -461,7 +480,7 @@ func (b Wrap) ToCmd() *cobra.Command {
 			}
 		}
 
-		foreachParam(b.Params, func(param Param, _ string) {
+		foreachParam(b.Params, func(param Param, _ string, _ reflect.StructTag) {
 			connect(param, cmd, positional)
 		})
 	}
@@ -488,7 +507,7 @@ type Handler struct {
 	Success func()
 }
 
-func foreachParam(structPtr any, f func(param Param, paramFieldName string)) {
+func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags reflect.StructTag)) {
 
 	if reflect.TypeOf(structPtr).Kind() != reflect.Ptr {
 		panic("expected pointer to struct")
@@ -511,7 +530,7 @@ func foreachParam(structPtr any, f func(param Param, paramFieldName string)) {
 			continue // not a param
 		}
 
-		f(param, field.Name)
+		f(param, field.Name, field.Tag)
 	}
 }
 

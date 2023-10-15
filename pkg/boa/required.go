@@ -68,6 +68,14 @@ func (f *Required[T]) Value() T {
 	return *f.valuePtr.(*T)
 }
 
+func (f *Required[T]) setDescription(state string) {
+	f.Descr = state
+}
+
+func (f *Required[T]) setPositional(state bool) {
+	f.Positional = state
+}
+
 func (f *Required[T]) markValidated() {
 	f.validated = true
 }
