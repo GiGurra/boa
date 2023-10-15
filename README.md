@@ -83,6 +83,8 @@ func main() {
 Output for `go run ./cmd/testmain/ subcommand1 --help` on the above:
 
 ```
+
+```
 a subcommand
 
 Usage:
@@ -92,8 +94,6 @@ Flags:
 --bar int      a bar [required] (env: BAR_X) (default 111)
 --foo string   a foo [required] (env: FOO)
 -h, --help         help for subcommand1
-```
-
 ```
 
 Example just using tags:
