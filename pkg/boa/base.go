@@ -48,9 +48,9 @@ func Default[T SupportedTypes](val T) *T {
 	return &val
 }
 
-func validate(structPtr any) {
+func validate(structPtr any) error {
 
-	foreachParam(structPtr, func(param Param, _ string, _ reflect.StructTag) {
+	return foreachParam(structPtr, func(param Param, _ string, _ reflect.StructTag) error {
 
 		envHint := ""
 		if param.GetEnv() != "" {
@@ -58,19 +58,19 @@ func validate(structPtr any) {
 		}
 
 		if err := readEnv(param); err != nil {
-			panic(err)
+			return err
 		}
 		if param.IsRequired() && !hasValue(param) {
-			fmt.Printf("Error: required param '%s'%s was not set\n", param.GetName(), envHint)
-			panic("required param not set")
+			return fmt.Errorf("missing required param '%s'%s", param.GetName(), envHint)
 		}
 
 		if err := param.customValidatorOfPtr()(param.valuePtrF()); err != nil {
-			fmt.Printf("Error: param '%s'%s is invalid: %s\n", param.GetName(), envHint, err.Error())
-			panic("invalid param")
+			return fmt.Errorf("invalid value for param '%s': %s", param.GetName(), err.Error())
 		}
 
 		param.markValidated()
+
+		return nil
 	})
 }
 
@@ -92,18 +92,18 @@ func doParsePositional(f Param, strVal string) error {
 	return nil
 }
 
-func connect(f Param, cmd *cobra.Command, posArgs []Param) {
+func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 
 	if f.GetName() == "" {
 		panic(fmt.Errorf("invalid conf for param '%s': long param name cannot be empty", f.GetName()))
 	}
 
 	if f.GetShort() == "h" {
-		panic(fmt.Errorf("invalid conf for param '%s': short param cannot be 'h'. It collides with -h for help", f.GetName()))
+		return fmt.Errorf("invalid conf for param '%s': short param cannot be 'h'. It collides with -h for help", f.GetName())
 	}
 
 	if f.GetName() == "help" {
-		panic(fmt.Errorf("invalid conf for param '%s': name cannot be 'help'. It collides with the standard help param", f.GetName()))
+		return fmt.Errorf("invalid conf for param '%s': name cannot be 'help'. It collides with the standard help param", f.GetName())
 	}
 
 	extraInfos := make([]string, 0)
@@ -178,7 +178,7 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) {
 			}
 			return doParsePositional(f, args[posArgIndex])
 		}
-		return // no need to attach cobra flags
+		return nil // no need to attach cobra flags
 	}
 
 	switch f.GetKind() {
@@ -227,12 +227,14 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) {
 	case reflect.Slice:
 		fallthrough
 	case reflect.Array:
-		panic("arrays or slices not yet supported param type: " + f.GetKind().String())
+		return fmt.Errorf("arrays or slices not yet supported param type: " + f.GetKind().String())
 	case reflect.Pointer:
-		panic("pointers not yet supported param type: " + f.GetKind().String())
+		return fmt.Errorf("pointers not yet supported param type: " + f.GetKind().String())
 	default:
-		panic("unsupported param type: %s" + f.GetKind().String())
+		return fmt.Errorf("unsupported param type: %s" + f.GetKind().String())
 	}
+
+	return nil
 }
 
 func readEnv(f Param) error {
@@ -328,28 +330,35 @@ func hasValue(f Param) bool {
 	return f.wasSetByEnv() || f.wasSetOnCli() || f.hasDefaultValue()
 }
 
-type ParamEnricher func(alreadyProcessed []Param, param Param, paramFieldName string)
+type ParamEnricher func(alreadyProcessed []Param, param Param, paramFieldName string) error
 
 func ParamEnricherCombine(enrichers ...ParamEnricher) ParamEnricher {
-	return func(alreadyProcessed []Param, param Param, paramFieldName string) {
+	return func(alreadyProcessed []Param, param Param, paramFieldName string) error {
 		for _, enricher := range enrichers {
-			enricher(alreadyProcessed, param, paramFieldName)
+			err := enricher(alreadyProcessed, param, paramFieldName)
+			if err != nil {
+				return err
+			}
 		}
+		return nil
 	}
 }
 
+//goland:noinspection GoUnusedGlobalVariable
 var (
-	ParamEnricherBool ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) {
+	ParamEnricherBool ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) error {
 		if param.GetKind() == reflect.Bool && !param.hasDefaultValue() {
 			param.SetDefault(Default(false))
 		}
+		return nil
 	}
-	ParamEnricherName ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) {
+	ParamEnricherName ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) error {
 		if param.GetName() == "" {
 			param.SetName(camelToKebabCase(paramFieldName))
 		}
+		return nil
 	}
-	ParamEnricherShort ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) {
+	ParamEnricherShort ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) error {
 		if param.GetShort() == "" && param.GetName() != "" {
 			// check that no other param has the same short name
 			wantShort := string(param.GetName()[0])
@@ -363,28 +372,32 @@ var (
 				param.SetShort(wantShort)
 			}
 		}
+		return nil
 	}
-	ParamEnricherEnv ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) {
+	ParamEnricherEnv ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) error {
 		if param.GetEnv() == "" && param.GetName() != "" && !param.isPositional() {
 			param.SetEnv(kebabCaseToUpperSnakeCase(param.GetName()))
 		}
+		return nil
 	}
 
-	ParamEnricherDefault ParamEnricher = ParamEnricherCombine(
+	ParamEnricherDefault = ParamEnricherCombine(
 		ParamEnricherName,
 		ParamEnricherShort,
 		ParamEnricherEnv,
 		ParamEnricherBool,
 	)
 
-	ParamEnricherNone ParamEnricher = ParamEnricherCombine()
+	ParamEnricherNone = ParamEnricherCombine()
 )
 
+//goland:noinspection GoUnusedExportedFunction
 func ParamEnricherEnvPrefix(prefix string) ParamEnricher {
-	return func(alreadyProcessed []Param, param Param, paramFieldName string) {
+	return func(alreadyProcessed []Param, param Param, paramFieldName string) error {
 		if param.GetEnv() != "" {
 			param.SetEnv(prefix + "_" + param.GetEnv())
 		}
+		return nil
 	}
 }
 
@@ -449,7 +462,7 @@ func (b Wrap) ToCmd() *cobra.Command {
 	if b.Params != nil {
 
 		// look in tags for info about positional args
-		foreachParam(b.Params, func(param Param, _ string, tags reflect.StructTag) {
+		err := foreachParam(b.Params, func(param Param, _ string, tags reflect.StructTag) error {
 			if tags.Get("positional") == "true" {
 				param.setPositional(true)
 			}
@@ -465,20 +478,32 @@ func (b Wrap) ToCmd() *cobra.Command {
 			if defaultPtr := tags.Get("default"); defaultPtr != "" {
 				ptr, err := parseKindPtr(param.GetName(), param.GetKind(), defaultPtr)
 				if err != nil {
-					panic(fmt.Errorf("invalid default value for param %s: %s", param.GetName(), err.Error()))
+					return fmt.Errorf("invalid default value for param %s: %s", param.GetName(), err.Error())
 				}
 				param.SetDefault(ptr)
 			}
+			return nil
 		})
+
+		if err != nil {
+			panic(fmt.Errorf("error parsing tags: %s", err.Error()))
+		}
 
 		if b.ParamEnrich == nil {
 			b.ParamEnrich = ParamEnricherDefault
 		}
 		processed := make([]Param, 0)
-		foreachParam(b.Params, func(param Param, paramFieldName string, _ reflect.StructTag) {
-			b.ParamEnrich(processed, param, paramFieldName)
+		err = foreachParam(b.Params, func(param Param, paramFieldName string, _ reflect.StructTag) error {
+			err := b.ParamEnrich(processed, param, paramFieldName)
+			if err != nil {
+				return err
+			}
 			processed = append(processed, param)
+			return nil
 		})
+		if err != nil {
+			panic(fmt.Errorf("error enriching params: %s", err.Error()))
+		}
 
 		positional := make([]Param, 0)
 		for _, param := range processed {
@@ -497,22 +522,27 @@ func (b Wrap) ToCmd() *cobra.Command {
 			}
 		}
 
-		foreachParam(b.Params, func(param Param, _ string, _ reflect.StructTag) {
-			connect(param, cmd, positional)
+		err = foreachParam(b.Params, func(param Param, _ string, _ reflect.StructTag) error {
+			err := connect(param, cmd, positional)
+			if err != nil {
+				return err
+			}
+			return nil
 		})
+
+		if err != nil {
+			panic(fmt.Errorf("error connecting params: %s", err.Error()))
+		}
 	}
 
 	// now wrap the run function of the command to validate the flags
-	oldRun := cmd.Run
-	if oldRun != nil {
-		cmd.Run = func(cmd *cobra.Command, args []string) {
-			if b.Params != nil {
-				validate(b.Params)
-			}
-			if oldRun != nil {
-				oldRun(cmd, args)
+	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+		if b.Params != nil {
+			if err := validate(b.Params); err != nil {
+				return err
 			}
 		}
+		return nil
 	}
 
 	return cmd
@@ -524,14 +554,14 @@ type Handler struct {
 	Success func()
 }
 
-func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags reflect.StructTag)) {
+func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags reflect.StructTag) error) error {
 
 	if reflect.TypeOf(structPtr).Kind() != reflect.Ptr {
-		panic("expected pointer to struct")
+		return fmt.Errorf("expected pointer to struct")
 	}
 
 	if reflect.TypeOf(structPtr).Elem().Kind() != reflect.Struct {
-		panic("expected pointer to struct")
+		return fmt.Errorf("expected pointer to struct")
 	}
 
 	// use reflection to iterate over all fields of the struct
@@ -547,8 +577,13 @@ func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags
 			continue // not a param
 		}
 
-		f(param, field.Name, field.Tag)
+		err := f(param, field.Name, field.Tag)
+		if err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
 func (b Wrap) ToApp() {
