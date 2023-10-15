@@ -38,7 +38,7 @@ import (
 
 var subCommand1Params = struct {
 	Foo  boa.Required[string]
-	Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X"`
+	Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X" default:"111"`
 	Path boa.Required[string] `positional:"true"`
 	Baz  boa.Required[string]
 	FB   boa.Optional[string] `positional:"true"`
@@ -52,7 +52,7 @@ func main() {
 	boa.Wrap{
 		Use:   "hello-world",
 		Short: "a generic cli tool",
-		Long:  `A generic cli tool that has a longer description. See the README.MD for more information`,
+		Long:  `A generic cli tool that has a longer description.See the README.MD for more information`,
 		SubCommands: []*cobra.Command{
 			boa.Wrap{
 				Use:         "subcommand1",

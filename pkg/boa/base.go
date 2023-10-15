@@ -260,58 +260,68 @@ func readEnv(f Param) error {
 
 func readFrom(f Param, strVal string) error {
 
-	switch f.GetKind() {
+	ptr, err := parseKindPtr(f.GetName(), f.GetKind(), strVal)
+	if err != nil {
+		return err
+	}
+
+	f.setValuePtr(ptr)
+
+	return nil
+}
+
+func parseKindPtr(name string, kind reflect.Kind, strVal string) (any, error) {
+
+	switch kind {
 	case reflect.String:
-		f.setValuePtr(&strVal)
+		return &strVal, nil
 	case reflect.Int:
 		parsedInt, err := strconv.Atoi(strVal)
 		if err != nil {
-			return fmt.Errorf("invalid value for param %s: %s", f.GetName(), err.Error())
+			return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
 		}
-		f.setValuePtr(&parsedInt)
+		return &parsedInt, nil
 	case reflect.Int32:
 		parsedInt64, err := strconv.ParseInt(strVal, 10, 32)
 		if err != nil {
-			return fmt.Errorf("invalid value for param %s: %s", f.GetName(), err.Error())
+			return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
 		}
 		parsedInt32 := int32(parsedInt64)
-		f.setValuePtr(&parsedInt32)
+		return &parsedInt32, nil
 	case reflect.Int64:
 		parsedInt64, err := strconv.ParseInt(strVal, 10, 64)
 		if err != nil {
-			return fmt.Errorf("invalid value for param %s: %s", f.GetName(), err.Error())
+			return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
 		}
-		f.setValuePtr(&parsedInt64)
+		return &parsedInt64, nil
 	case reflect.Float32:
 		parsedFloat64, err := strconv.ParseFloat(strVal, 32)
 		if err != nil {
-			return fmt.Errorf("invalid value for param %s: %s", f.GetName(), err.Error())
+			return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
 		}
 		parsedFloat32 := float32(parsedFloat64)
-		f.setValuePtr(&parsedFloat32)
+		return &parsedFloat32, nil
 	case reflect.Float64:
 		parsedFloat64, err := strconv.ParseFloat(strVal, 64)
 		if err != nil {
-			return fmt.Errorf("invalid value for param %s: %s", f.GetName(), err.Error())
+			return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
 		}
-		f.setValuePtr(&parsedFloat64)
+		return &parsedFloat64, nil
 	case reflect.Bool:
 		parsedBool, err := strconv.ParseBool(strVal)
 		if err != nil {
-			return fmt.Errorf("invalid value for param %s: %s", f.GetName(), err.Error())
+			return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
 		}
-		f.setValuePtr(&parsedBool)
+		return &parsedBool, nil
 	case reflect.Slice:
 		fallthrough
 	case reflect.Array:
-		return fmt.Errorf("arrays or slices not yet supported param type: " + f.GetKind().String())
+		return nil, fmt.Errorf("arrays or slices not yet supported param type: " + kind.String())
 	case reflect.Pointer:
-		return fmt.Errorf("pointers not yet supported param type: " + f.GetKind().String())
+		return nil, fmt.Errorf("pointers not yet supported param type: " + kind.String())
 	default:
-		return fmt.Errorf("unsupported param type: %s" + f.GetKind().String())
+		return nil, fmt.Errorf("unsupported param type: %s" + kind.String())
 	}
-
-	return nil
 }
 
 func hasValue(f Param) bool {
@@ -451,6 +461,13 @@ func (b Wrap) ToCmd() *cobra.Command {
 			}
 			if shrt := tags.Get("short"); shrt != "" {
 				param.SetShort(shrt)
+			}
+			if defaultPtr := tags.Get("default"); defaultPtr != "" {
+				ptr, err := parseKindPtr(param.GetName(), param.GetKind(), defaultPtr)
+				if err != nil {
+					panic(fmt.Errorf("invalid default value for param %s: %s", param.GetName(), err.Error()))
+				}
+				param.SetDefault(ptr)
 			}
 		})
 
