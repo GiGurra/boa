@@ -11,6 +11,7 @@ var subCommand1Params = struct {
 	Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X"`
 	Path boa.Required[string] `positional:"true"`
 	Baz  boa.Required[string]
+	FB   boa.Optional[string] `positional:"true"`
 }{
 	Foo: boa.Required[string]{Descr: "a foo"},                                                          // add additional info if you like. This means we get "a foo [required] (env: FOO)" in the help text
 	Bar: boa.Required[int]{Default: boa.Default(4), CustomValidator: func(x int) error { return nil }}, // optional custom validation logic
