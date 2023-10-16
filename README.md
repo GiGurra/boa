@@ -25,7 +25,7 @@ The primary goal of Boa is to maintain a declarative approach. In its simplest f
 
 To install Boa, use the following command:
 
-`go get github.com/GiGurra/boa@v0.0.17`
+`go get github.com/GiGurra/boa@v0.0.18`
 
 ## Usage
 
@@ -42,13 +42,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var params = struct {
+var params struct {
 	Foo  boa.Required[string]
 	Bar  boa.Required[int]
 	File boa.Required[string]
 	Baz  boa.Required[string]
 	FB   boa.Optional[string]
-}{}
+}
 
 func main() {
 	boa.Wrap{
@@ -100,13 +100,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var params = struct {
+var params struct {
 	Foo  boa.Required[string] `descr:"a foo"`
 	Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X" default:"4"`
 	Path boa.Required[string] `pos:"true"`
 	Baz  boa.Required[string] `pos:"true" default:"cba"`
 	FB   boa.Optional[string] `pos:"true"`
-}{}
+}
 
 func main() {
 	boa.Wrap{
@@ -225,11 +225,56 @@ Flags:
   -h, --help         help for subcommand1
 ```
 
+### Composition
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/GiGurra/boa/pkg/boa"
+	"github.com/spf13/cobra"
+	"time"
+)
+
+var params1 struct {
+	Foo  boa.Required[string]
+	Bar  boa.Required[int]
+	File boa.Required[string]
+}
+
+var params2 struct {
+	Baz  boa.Required[string]
+	FB   boa.Optional[string]
+	Time boa.Optional[time.Time]
+}
+
+func main() {
+	boa.Wrap{
+		Use:    "hello-world",
+		Short:  "a generic cli tool",
+		Long:   `A generic cli tool that has a longer description. See the README.MD for more information`,
+		Params: boa.Compose(&params1, &params2),
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf(
+				"Hello world from subcommand1 with params: %s, %d, %s, %s, %v, %v\n",
+				params1.Foo.Value(),  // string
+				params1.Bar.Value(),  // int
+				params1.File.Value(), // string
+				params2.Baz.Value(),  // string
+				params2.FB.Value(),   // *string
+				params2.Time.Value(), // *time.Time
+			)
+		},
+	}.ToApp()
+}
+
+```
+
 ## Missing features
 
 - [ ] Slices
 - [ ] Nested config
-- [ ] Struct composition/reuse
 - [ ] Probably lots
 
 ## State

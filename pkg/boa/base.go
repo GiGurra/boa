@@ -507,6 +507,16 @@ func (b Wrap) WithSubCommands(cmd ...*cobra.Command) Wrap {
 	return b
 }
 
+func Compose(structs ...any) *Composition {
+	return &Composition{
+		StructPtrs: structs,
+	}
+}
+
+type Composition struct {
+	StructPtrs []any
+}
+
 func (b Wrap) ToCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           b.Use,
@@ -633,6 +643,15 @@ func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags
 		return fmt.Errorf("expected pointer to struct")
 	}
 
+	if c, ok := reflect.ValueOf(structPtr).Interface().(*Composition); ok {
+		for _, structPtr := range c.StructPtrs {
+			if err := foreachParam(structPtr, f); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	// use reflection to iterate over all fields of the struct
 	fields := reflect.TypeOf(structPtr).Elem()
 	rootValue := reflect.ValueOf(structPtr).Elem()
@@ -640,15 +659,15 @@ func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags
 		field := fields.Field(i)
 		fieldValue := rootValue.Field(i).Addr()
 		// check if field is a param
-		param, ok := fieldValue.Interface().(Param)
-		if !ok {
+		param, isParam := fieldValue.Interface().(Param)
+		if isParam {
+			err := f(param, field.Name, field.Tag)
+			if err != nil {
+				return err
+			}
+		} else {
 			fmt.Printf("WARNING: field %s is not a param. It will be ignored\n", field.Name)
 			continue // not a param
-		}
-
-		err := f(param, field.Name, field.Tag)
-		if err != nil {
-			return err
 		}
 	}
 
