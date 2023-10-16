@@ -32,5 +32,9 @@ func main() {
 				params.FB.Value(),   // *string
 			)
 		},
-	}.ToApp()
+	}.ToAppH(boa.Handler{
+		Failure: func(err error) {
+			fmt.Printf("Error: %v\n", err)
+		},
+	})
 }

@@ -12,7 +12,8 @@ import (
 )
 
 type SupportedTypes interface {
-	string | int | int32 | int64 | bool | float64 | float32 | time.Time
+	string | int | int32 | int64 | bool | float64 | float32 | time.Time |
+		[]int | []int32 | []int64 | []float32 | []float64 | []string
 }
 
 type Param interface {
@@ -107,6 +108,14 @@ func doParsePositional(f Param, strVal string) error {
 	f.markSetPositionally()
 
 	return nil
+}
+
+func toTypedSlice[T SupportedTypes](slice any) []T {
+	if slice == nil {
+		return nil
+	} else {
+		return slice.([]T)
+	}
 }
 
 func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
@@ -217,42 +226,49 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 			def = *reflect.ValueOf(f.defaultValuePtr()).Interface().(*string)
 		}
 		f.setValuePtr(cmd.Flags().StringP(f.GetName(), f.GetShort(), def, descr))
+		return nil
 	case reflect.Int:
 		def := 0
 		if f.hasDefaultValue() {
 			def = *reflect.ValueOf(f.defaultValuePtr()).Interface().(*int)
 		}
 		f.setValuePtr(cmd.Flags().IntP(f.GetName(), f.GetShort(), def, descr))
+		return nil
 	case reflect.Int32:
 		def := int32(0)
 		if f.hasDefaultValue() {
 			def = *reflect.ValueOf(f.defaultValuePtr()).Interface().(*int32)
 		}
 		f.setValuePtr(cmd.Flags().Int32P(f.GetName(), f.GetShort(), def, descr))
+		return nil
 	case reflect.Int64:
 		def := int64(0)
 		if f.hasDefaultValue() {
 			def = *reflect.ValueOf(f.defaultValuePtr()).Interface().(*int64)
 		}
 		f.setValuePtr(cmd.Flags().Int64P(f.GetName(), f.GetShort(), def, descr))
+		return nil
 	case reflect.Float64:
 		def := 0.0
 		if f.hasDefaultValue() {
 			def = *reflect.ValueOf(f.defaultValuePtr()).Interface().(*float64)
 		}
 		f.setValuePtr(cmd.Flags().Float64P(f.GetName(), f.GetShort(), def, descr))
+		return nil
 	case reflect.Float32:
 		def := float32(0.0)
 		if f.hasDefaultValue() {
 			def = *reflect.ValueOf(f.defaultValuePtr()).Interface().(*float32)
 		}
 		f.setValuePtr(cmd.Flags().Float32P(f.GetName(), f.GetShort(), def, descr))
+		return nil
 	case reflect.Bool:
 		def := false
 		if f.hasDefaultValue() {
 			def = *reflect.ValueOf(f.defaultValuePtr()).Interface().(*bool)
 		}
 		f.setValuePtr(cmd.Flags().BoolP(f.GetName(), f.GetShort(), def, descr))
+		return nil
 	case reflect.Struct:
 		if f.GetType().String() == "time.Time" {
 			if f.hasDefaultValue() {
@@ -261,20 +277,50 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 			} else {
 				f.setValuePtr(cmd.Flags().StringP(f.GetName(), f.GetShort(), "", descr))
 			}
+			return nil
 		} else {
 			return fmt.Errorf("general structs not yet supported: " + f.GetKind().String())
 		}
 	case reflect.Slice:
-		fallthrough
+
+		elemType := f.GetType().Elem()
+
+		var defaultValueSlice any = nil
+		var err error
+		if f.hasDefaultValue() {
+			defaultValueSlice = reflect.ValueOf(f.defaultValuePtr()).Elem().Interface()
+			// if it already has the correct type, dont repeat
+			if reflect.TypeOf(f.defaultValuePtr()).Elem().Kind() != reflect.Slice {
+				defaultValueSlice, err = parseSlice(f.GetName(), f.defaultValueStr(), elemType)
+				if err != nil {
+					return fmt.Errorf("default value for slice param '%s' is invalid: %s", f.GetName(), err.Error())
+				}
+				f.SetDefault(defaultValueSlice)
+			}
+		}
+
+		switch elemType.Kind() {
+		case reflect.String:
+			f.setValuePtr(cmd.Flags().StringSliceP(f.GetName(), f.GetShort(), toTypedSlice[string](defaultValueSlice), descr))
+		case reflect.Int:
+			f.setValuePtr(cmd.Flags().IntSliceP(f.GetName(), f.GetShort(), toTypedSlice[int](defaultValueSlice), descr))
+		case reflect.Int32:
+			f.setValuePtr(cmd.Flags().Int32SliceP(f.GetName(), f.GetShort(), toTypedSlice[int32](defaultValueSlice), descr))
+		case reflect.Int64:
+			f.setValuePtr(cmd.Flags().Int64SliceP(f.GetName(), f.GetShort(), toTypedSlice[int64](defaultValueSlice), descr))
+		case reflect.Float32:
+			f.setValuePtr(cmd.Flags().Float32SliceP(f.GetName(), f.GetShort(), toTypedSlice[float32](defaultValueSlice), descr))
+		case reflect.Float64:
+			f.setValuePtr(cmd.Flags().Float64SliceP(f.GetName(), f.GetShort(), toTypedSlice[float64](defaultValueSlice), descr))
+		}
+		return nil
 	case reflect.Array:
-		return fmt.Errorf("arrays or slices not yet supported param type: " + f.GetKind().String())
+		return fmt.Errorf("arrays are supported param type: " + f.GetKind().String())
 	case reflect.Pointer:
-		return fmt.Errorf("pointers not yet supported param type: " + f.GetKind().String())
+		return fmt.Errorf("pointers not supported param type: " + f.GetKind().String())
 	default:
 		return fmt.Errorf("unsupported param type: %s" + f.GetKind().String())
 	}
-
-	return nil
 }
 
 func readEnv(f Param) error {
@@ -310,6 +356,77 @@ func readFrom(f Param, strVal string) error {
 	f.setValuePtr(ptr)
 
 	return nil
+}
+
+func parseSlice(
+	name string,
+	strVal string,
+	elemType reflect.Type,
+) (any, error) {
+
+	// remove any brackets
+	strVal = strings.TrimSuffix(strings.TrimPrefix(strVal, "["), "]")
+
+	parts := strings.Split(strVal, ",")
+	for i, part := range parts {
+		parts[i] = strings.TrimSpace(part)
+	}
+	switch elemType.Kind() {
+	case reflect.String:
+		return &parts, nil
+	case reflect.Int:
+		out := make([]int, len(parts))
+		for i, part := range parts {
+			parsedInt, err := strconv.Atoi(part)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
+			}
+			out[i] = parsedInt
+		}
+		return &out, nil
+	case reflect.Int32:
+		out := make([]int32, len(parts))
+		for i, part := range parts {
+			parsedInt64, err := strconv.ParseInt(part, 10, 32)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
+			}
+			out[i] = int32(parsedInt64)
+		}
+		return &out, nil
+	case reflect.Int64:
+		out := make([]int64, len(parts))
+		for i, part := range parts {
+			parsedInt64, err := strconv.ParseInt(part, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
+			}
+			out[i] = parsedInt64
+		}
+		return &out, nil
+	case reflect.Float32:
+		out := make([]float32, len(parts))
+		for i, part := range parts {
+			parsedFloat64, err := strconv.ParseFloat(part, 32)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
+			}
+			out[i] = float32(parsedFloat64)
+		}
+		return &out, nil
+	case reflect.Float64:
+		out := make([]float64, len(parts))
+		for i, part := range parts {
+			parsedFloat64, err := strconv.ParseFloat(part, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
+			}
+			out[i] = parsedFloat64
+		}
+		return &out, nil
+	default:
+		return nil, fmt.Errorf("unsupported slice element type '%t'. Check parameter '%s'", elemType, name)
+	}
 }
 
 func parsePtr(
@@ -371,9 +488,9 @@ func parsePtr(
 			return nil, fmt.Errorf("general structs not yet supported: " + tpe.String())
 		}
 	case reflect.Slice:
-		fallthrough
+		return parseSlice(name, strVal, tpe.Elem())
 	case reflect.Array:
-		return nil, fmt.Errorf("arrays or slices not yet supported param type: " + kind.String())
+		return nil, fmt.Errorf("arrays not supported param type. Use a slice instead: " + kind.String())
 	case reflect.Pointer:
 		return nil, fmt.Errorf("pointers not yet supported param type: " + kind.String())
 	default:
