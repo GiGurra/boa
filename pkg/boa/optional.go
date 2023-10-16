@@ -61,7 +61,7 @@ func (f *Optional[T]) Value() *T {
 	if !f.validated {
 		panic(fmt.Errorf("flag %s was not validated. Cannot use flag before validation. Did you call Validate(..) on the parent struct", f.GetName()))
 	}
-	if hasValue(f) {
+	if HasValue(f) {
 		return f.valuePtr.(*T)
 	} else {
 		return nil

@@ -62,7 +62,7 @@ func (f *Required[T]) Value() T {
 	if !f.validated {
 		panic(fmt.Errorf("flag %s was not validated. Cannot use flag before validation. Did you call Validate(..) on the parent struct", f.GetName()))
 	}
-	if !hasValue(f) {
+	if !HasValue(f) {
 		panic(fmt.Errorf("tried to access flag.Value() of '%s', which was not set. This is a bug in util_cobra", f.GetName()))
 	}
 	return *f.valuePtr.(*T)

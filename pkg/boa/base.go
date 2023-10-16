@@ -62,12 +62,12 @@ func validate(structPtr any) error {
 		if err := readEnv(param); err != nil {
 			return err
 		}
-		if param.IsRequired() && !hasValue(param) {
+		if param.IsRequired() && !HasValue(param) {
 			return fmt.Errorf("missing required param '%s'%s", param.GetName(), envHint)
 		}
 
 		// special types validation, e.g. only time.Time so far
-		if hasValue(param) {
+		if HasValue(param) {
 			if param.GetKind() == reflect.Struct {
 				if param.GetType().String() == "time.Time" {
 					strVal := *param.valuePtrF().(*string)
@@ -380,7 +380,7 @@ func parsePtr(
 	}
 }
 
-func hasValue(f Param) bool {
+func HasValue(f Param) bool {
 	return f.wasSetByEnv() || f.wasSetOnCli() || f.hasDefaultValue()
 }
 
