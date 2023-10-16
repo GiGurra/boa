@@ -666,6 +666,15 @@ func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags
 				return err
 			}
 		} else {
+
+			// check if it is a struct
+			if field.Type.Kind() == reflect.Struct {
+				if err := foreachParam(fieldValue.Interface(), f); err != nil {
+					return err
+				}
+				continue
+			}
+
 			fmt.Printf("WARNING: field %s is not a param. It will be ignored\n", field.Name)
 			continue // not a param
 		}
