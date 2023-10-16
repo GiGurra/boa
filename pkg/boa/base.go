@@ -16,6 +16,7 @@ type SupportedTypes interface {
 }
 
 type Param interface {
+	HasValue() bool
 	GetShort() string
 	GetName() string
 	GetEnv() string

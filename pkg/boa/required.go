@@ -143,6 +143,10 @@ func (f *Required[T]) defaultValueStr() string {
 	return fmt.Sprintf("%v", *f.Default)
 }
 
+func (f *Required[T]) HasValue() bool {
+	return HasValue(f)
+}
+
 func (f *Required[T]) GetKind() reflect.Kind {
 	return f.GetType().Kind()
 }

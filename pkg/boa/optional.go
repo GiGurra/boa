@@ -72,6 +72,10 @@ func (f *Optional[T]) markValidated() {
 	f.validated = true
 }
 
+func (f *Optional[T]) HasValue() bool {
+	return HasValue(f)
+}
+
 func (f *Optional[T]) setPositional(state bool) {
 	f.Positional = state
 }
