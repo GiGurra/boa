@@ -25,7 +25,7 @@ The primary goal of Boa is to maintain a declarative approach. In its simplest f
 
 To install Boa, use the following command:
 
-`go get github.com/GiGurra/boa@v0.0.19`
+`go get github.com/GiGurra/boa@v0.0.20`
 
 ## Usage
 
@@ -295,7 +295,6 @@ func main() {
 
 ## Missing features
 
-- [ ] Slices
 - [ ] Nested config
 - [ ] Probably lots
 
