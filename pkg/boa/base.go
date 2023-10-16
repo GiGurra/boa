@@ -499,6 +499,7 @@ type Wrap struct {
 	ParamEnrich    ParamEnricher
 	Run            func(cmd *cobra.Command, args []string)
 	UseCobraErrLog bool
+	SortFlags      bool
 }
 
 func (b Wrap) WithSubCommands(cmd ...*cobra.Command) Wrap {
@@ -514,6 +515,8 @@ func (b Wrap) ToCmd() *cobra.Command {
 		Run:           b.Run,
 		SilenceErrors: !b.UseCobraErrLog,
 	}
+
+	cmd.Flags().SortFlags = b.SortFlags
 
 	for _, subcommand := range b.SubCommands {
 		cmd.AddCommand(subcommand)
