@@ -709,7 +709,11 @@ func (b Wrap) ToCmd() *cobra.Command {
 		}
 
 		// Check that no required positional arg exists after on optional positional arg
+		numReqPositional := 0
 		for i, param := range positional {
+			if param.IsRequired() {
+				numReqPositional++
+			}
 			if param.IsRequired() && i >= 1 {
 				prev := positional[i-1]
 				if !prev.IsRequired() {
@@ -717,6 +721,8 @@ func (b Wrap) ToCmd() *cobra.Command {
 				}
 			}
 		}
+
+		cmd.Args = cobra.RangeArgs(numReqPositional, len(positional))
 
 		err = foreachParam(b.Params, func(param Param, _ string, _ reflect.StructTag) error {
 			err := connect(param, cmd, positional)
