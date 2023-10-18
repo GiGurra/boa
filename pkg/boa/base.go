@@ -121,7 +121,7 @@ func toTypedSlice[T SupportedTypes](slice any) []T {
 func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 
 	if f.GetName() == "" {
-		panic(fmt.Errorf("invalid conf for param '%s': long param name cannot be empty", f.GetName()))
+		return fmt.Errorf("invalid conf for param '%s': long param name cannot be empty", f.GetName())
 	}
 
 	if f.GetShort() == "h" {
