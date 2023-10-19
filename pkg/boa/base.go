@@ -425,7 +425,7 @@ func parseSlice(
 		}
 		return &out, nil
 	default:
-		return nil, fmt.Errorf("unsupported slice element type '%t'. Check parameter '%s'", elemType, name)
+		return nil, fmt.Errorf("unsupported slice element type '%v'. Check parameter '%s'", elemType, name)
 	}
 }
 
