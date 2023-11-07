@@ -33,6 +33,14 @@ func (f *Optional[T]) GetOrElse(fallback T) T {
 	}
 }
 
+func (f *Optional[T]) GetOrElseF(fallback func() T) T {
+	if f.HasValue() {
+		return *f.Value()
+	} else {
+		return fallback()
+	}
+}
+
 func (f *Optional[T]) markSetPositionally() {
 	f.setPositionally = true
 }
