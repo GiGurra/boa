@@ -139,7 +139,7 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 		extraInfos = append(extraInfos, fmt.Sprintf("env: %s", f.GetEnv()))
 	}
 
-	if f.IsRequired() {
+	if f.IsRequired() && !f.hasDefaultValue() {
 		descr = fmt.Sprintf("%s [required]", descr)
 	}
 
