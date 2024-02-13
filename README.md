@@ -149,7 +149,7 @@ Usage:
   hello-world subcommand1 <path> <baz> [f-b] [flags]
 
 Flags:
-      --bar int      a bar [required] (env: BAR_X) (default 4)
+      --bar int      a bar (env: BAR_X) (default 4)
       --foo string   a foo [required] (env: FOO)
   -h, --help         help for subcommand1
 ```
@@ -220,7 +220,7 @@ Usage:
   hello-world subcommand1 <path> <baz> [f-b] [flags]
 
 Flags:
-      --bar int      a bar [required] (env: BAR_X) (default 111)
+      --bar int      a bar (env: BAR_X) (default 111)
       --foo string   a foo [required] (env: FOO)
   -h, --help         help for subcommand1
 ```
