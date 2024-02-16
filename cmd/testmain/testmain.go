@@ -20,9 +20,10 @@ var subCommand1Params = struct {
 
 func main() {
 	boa.Wrap{
-		Use:   "hello-world",
-		Short: "a generic cli tool",
-		Long:  `A generic cli tool that has a longer description.See the README.MD for more information`,
+		Use:     "hello-world",
+		Short:   "a generic cli tool",
+		Long:    `A generic cli tool that has a longer description.See the README.MD for more information`,
+		Version: "v1.2.3",
 		SubCommands: []*cobra.Command{
 			boa.Wrap{
 				Use:         "subcommand1",

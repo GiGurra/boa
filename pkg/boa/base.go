@@ -611,6 +611,7 @@ type Wrap struct {
 	Use            string
 	Short          string
 	Long           string
+	Version        string
 	SubCommands    []*cobra.Command
 	Params         any
 	ParamEnrich    ParamEnricher
@@ -644,6 +645,7 @@ func (b Wrap) ToCmd() *cobra.Command {
 	}
 
 	cmd.Flags().SortFlags = b.SortFlags
+	cmd.Version = b.Version
 
 	for _, subcommand := range b.SubCommands {
 		cmd.AddCommand(subcommand)
