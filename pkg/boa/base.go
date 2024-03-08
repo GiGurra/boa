@@ -364,6 +364,8 @@ func parseSlice(
 	elemType reflect.Type,
 ) (any, error) {
 
+	isEmptySlice := strVal == "[]"
+
 	// remove any brackets
 	strVal = strings.TrimSuffix(strings.TrimPrefix(strVal, "["), "]")
 
@@ -373,9 +375,19 @@ func parseSlice(
 	}
 	switch elemType.Kind() {
 	case reflect.String:
+
+		if isEmptySlice {
+			return []string{}, nil
+		}
+
 		return &parts, nil
 	case reflect.Int:
 		out := make([]int, len(parts))
+
+		if isEmptySlice {
+			return &out, nil
+		}
+
 		for i, part := range parts {
 			parsedInt, err := strconv.Atoi(part)
 			if err != nil {
@@ -386,6 +398,11 @@ func parseSlice(
 		return &out, nil
 	case reflect.Int32:
 		out := make([]int32, len(parts))
+
+		if isEmptySlice {
+			return &out, nil
+		}
+
 		for i, part := range parts {
 			parsedInt64, err := strconv.ParseInt(part, 10, 32)
 			if err != nil {
@@ -396,6 +413,11 @@ func parseSlice(
 		return &out, nil
 	case reflect.Int64:
 		out := make([]int64, len(parts))
+
+		if isEmptySlice {
+			return &out, nil
+		}
+
 		for i, part := range parts {
 			parsedInt64, err := strconv.ParseInt(part, 10, 64)
 			if err != nil {
@@ -406,6 +428,11 @@ func parseSlice(
 		return &out, nil
 	case reflect.Float32:
 		out := make([]float32, len(parts))
+
+		if isEmptySlice {
+			return &out, nil
+		}
+
 		for i, part := range parts {
 			parsedFloat64, err := strconv.ParseFloat(part, 32)
 			if err != nil {
@@ -416,6 +443,11 @@ func parseSlice(
 		return &out, nil
 	case reflect.Float64:
 		out := make([]float64, len(parts))
+
+		if isEmptySlice {
+			return &out, nil
+		}
+
 		for i, part := range parts {
 			parsedFloat64, err := strconv.ParseFloat(part, 64)
 			if err != nil {
