@@ -377,7 +377,7 @@ func parseSlice(
 	case reflect.String:
 
 		if isEmptySlice {
-			return []string{}, nil
+			return &[]string{}, nil
 		}
 
 		return &parts, nil
