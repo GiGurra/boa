@@ -35,7 +35,6 @@ type Param interface {
 	wasSetOnCli() bool
 	wasSetByEnv() bool
 	customValidatorOfPtr() func(any) error
-	markValidated()
 	hasDefaultValue() bool
 	defaultValueStr() string
 	setParentCmd(cmd *cobra.Command)
@@ -85,8 +84,6 @@ func validate(structPtr any) error {
 		if err := param.customValidatorOfPtr()(param.valuePtrF()); err != nil {
 			return fmt.Errorf("invalid value for param '%s': %s", param.GetName(), err.Error())
 		}
-
-		param.markValidated()
 
 		return nil
 	})

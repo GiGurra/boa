@@ -14,7 +14,6 @@ type Optional[T SupportedTypes] struct {
 	Descr           string
 	CustomValidator func(T) error
 	Positional      bool
-	validated       bool
 	setByEnv        bool
 	setPositionally bool
 	valuePtr        any
@@ -74,18 +73,11 @@ func (f *Optional[T]) markSetFromEnv() {
 }
 
 func (f *Optional[T]) Value() *T {
-	if !f.validated {
-		panic(fmt.Errorf("flag %s was not validated. Cannot use flag before validation. Did you call Validate(..) on the parent struct", f.GetName()))
-	}
 	if HasValue(f) {
 		return f.valuePtr.(*T)
 	} else {
 		return nil
 	}
-}
-
-func (f *Optional[T]) markValidated() {
-	f.validated = true
 }
 
 func (f *Optional[T]) HasValue() bool {

@@ -14,7 +14,6 @@ type Required[T SupportedTypes] struct {
 	Descr           string
 	CustomValidator func(T) error
 	Positional      bool
-	validated       bool
 	setByEnv        bool
 	setPositionally bool
 	valuePtr        any
@@ -59,9 +58,6 @@ func (f *Required[T]) markSetFromEnv() {
 }
 
 func (f *Required[T]) Value() T {
-	if !f.validated {
-		panic(fmt.Errorf("flag %s was not validated. Cannot use flag before validation. Did you call Validate(..) on the parent struct", f.GetName()))
-	}
 	if !HasValue(f) {
 		panic(fmt.Errorf("tried to access flag.Value() of '%s', which was not set. This is a bug in util_cobra", f.GetName()))
 	}
@@ -74,10 +70,6 @@ func (f *Required[T]) setDescription(state string) {
 
 func (f *Required[T]) setPositional(state bool) {
 	f.Positional = state
-}
-
-func (f *Required[T]) markValidated() {
-	f.validated = true
 }
 
 func (f *Required[T]) customValidatorOfPtr() func(any) error {
