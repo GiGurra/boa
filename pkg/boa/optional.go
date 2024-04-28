@@ -74,7 +74,15 @@ func (f *Optional[T]) markSetFromEnv() {
 
 func (f *Optional[T]) Value() *T {
 	if HasValue(f) {
-		return f.valuePtr.(*T)
+		if f.valuePtr != nil {
+			return f.valuePtr.(*T)
+		} else {
+			if f.hasDefaultValue() {
+				return f.Default
+			} else {
+				panic(fmt.Errorf("tried to access flag.Value() of '%s', which was not set. This is a bug in util_cobra", f.GetName()))
+			}
+		}
 	} else {
 		return nil
 	}

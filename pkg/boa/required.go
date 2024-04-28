@@ -61,7 +61,15 @@ func (f *Required[T]) Value() T {
 	if !HasValue(f) {
 		panic(fmt.Errorf("tried to access flag.Value() of '%s', which was not set. This is a bug in util_cobra", f.GetName()))
 	}
-	return *f.valuePtr.(*T)
+	if f.valuePtr != nil {
+		return *f.valuePtr.(*T)
+	} else {
+		if f.hasDefaultValue() {
+			return *f.Default
+		} else {
+			panic(fmt.Errorf("tried to access flag.Value() of '%s', which was not set. This is a bug in util_cobra", f.GetName()))
+		}
+	}
 }
 
 func (f *Required[T]) setDescription(state string) {
