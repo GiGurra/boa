@@ -110,14 +110,14 @@ func (f *Optional[T]) customValidatorOfPtr() func(any) error {
 }
 
 func (f *Optional[T]) wasSetOnCli() bool {
-	if f.parent == nil {
-		panic("flag has no parent command. Did you try to .validate() before .ToCmd()?")
-	}
-
 	if f.Positional {
 		return f.wasSetPositionally()
 	} else {
-		return f.parent.Flags().Changed(f.Name)
+		if f.parent == nil {
+			return false
+		} else {
+			return f.parent.Flags().Changed(f.Name)
+		}
 	}
 }
 
