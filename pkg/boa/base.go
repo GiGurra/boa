@@ -647,6 +647,8 @@ type Wrap struct {
 	Run            func(cmd *cobra.Command, args []string)
 	UseCobraErrLog bool
 	SortFlags      bool
+	ValidArgs      []string
+	ValidArgsFunc  func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
 }
 
 func (b Wrap) WithSubCommands(cmd ...*cobra.Command) Wrap {
@@ -666,11 +668,13 @@ type Composition struct {
 
 func (b Wrap) ToCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           b.Use,
-		Short:         b.Short,
-		Long:          b.Long,
-		Run:           b.Run,
-		SilenceErrors: !b.UseCobraErrLog,
+		Use:               b.Use,
+		Short:             b.Short,
+		Long:              b.Long,
+		Run:               b.Run,
+		SilenceErrors:     !b.UseCobraErrLog,
+		ValidArgs:         b.ValidArgs,
+		ValidArgsFunction: b.ValidArgsFunc,
 	}
 
 	cmd.Flags().SortFlags = b.SortFlags
