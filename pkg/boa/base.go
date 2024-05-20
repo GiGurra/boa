@@ -759,7 +759,9 @@ func (b Wrap) ToCmd() *cobra.Command {
 			}
 		}
 
-		cmd.Args = cobra.RangeArgs(numReqPositional, len(positional))
+		if cmd.Args == nil {
+			cmd.Args = cobra.RangeArgs(numReqPositional, len(positional))
+		}
 
 		err = foreachParam(b.Params, func(param Param, _ string, _ reflect.StructTag) error {
 			err := connect(param, cmd, positional)
