@@ -641,6 +641,7 @@ type Wrap struct {
 	Short          string
 	Long           string
 	Version        string
+	Args           cobra.PositionalArgs
 	SubCommands    []*cobra.Command
 	Params         any
 	ParamEnrich    ParamEnricher
@@ -672,6 +673,7 @@ func (b Wrap) ToCmd() *cobra.Command {
 		Short:             b.Short,
 		Long:              b.Long,
 		Run:               b.Run,
+		Args:              b.Args,
 		SilenceErrors:     !b.UseCobraErrLog,
 		ValidArgs:         b.ValidArgs,
 		ValidArgsFunction: b.ValidArgsFunc,
