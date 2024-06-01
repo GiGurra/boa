@@ -161,6 +161,23 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 
 	f.setParentCmd(cmd)
 
+	if f.GetAlternatives() != nil {
+		err := cmd.RegisterFlagCompletionFunc(f.GetName(), func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			return f.GetAlternatives(), cobra.ShellCompDirectiveDefault
+		})
+		if err != nil {
+			panic(fmt.Errorf("failed to register static flag completion func for flag '%s': %v", f.GetName(), err))
+		}
+	}
+	if f.GetAlternativesFunc() != nil {
+		err := cmd.RegisterFlagCompletionFunc(f.GetName(), func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			return f.GetAlternativesFunc()(cmd, args, toComplete), cobra.ShellCompDirectiveDefault
+		})
+		if err != nil {
+			panic(fmt.Errorf("failed to register dynamic flag completion func for flag '%s': %v", f.GetName(), err))
+		}
+	}
+
 	if f.isPositional() {
 		startSign := func() string {
 			if f.IsRequired() {
@@ -794,25 +811,6 @@ func (b Wrap) ToCmd() *cobra.Command {
 			err := connect(param, cmd, positional)
 			if err != nil {
 				return err
-			}
-
-			// Now connect alternatives
-
-			if param.GetAlternatives() != nil {
-				err := cmd.RegisterFlagCompletionFunc(param.GetName(), func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-					return param.GetAlternatives(), cobra.ShellCompDirectiveDefault
-				})
-				if err != nil {
-					panic(fmt.Errorf("failed to register static flag completion func for flag '%s': %v", param.GetName(), err))
-				}
-			}
-			if param.GetAlternativesFunc() != nil {
-				err := cmd.RegisterFlagCompletionFunc(param.GetName(), func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-					return param.GetAlternativesFunc()(cmd, args, toComplete), cobra.ShellCompDirectiveDefault
-				})
-				if err != nil {
-					panic(fmt.Errorf("failed to register dynamic flag completion func for flag '%s': %v", param.GetName(), err))
-				}
 			}
 
 			return nil
