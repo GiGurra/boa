@@ -219,6 +219,7 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 		return nil // no need to attach cobra flags
 	}
 
+	// Must happen last, because the flags must have been created
 	defer func() {
 		if f.GetAlternatives() != nil {
 			err := cmd.RegisterFlagCompletionFunc(f.GetName(), func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
