@@ -46,6 +46,8 @@ type Param interface {
 	markSetPositionally()
 	setPositional(bool)
 	setDescription(descr string)
+	GetAlternatives() []string
+	GetAlternativesFunc() func(cmd *cobra.Command, args []string, toComplete string) []string
 }
 
 func Default[T SupportedTypes](val T) *T {
@@ -793,6 +795,25 @@ func (b Wrap) ToCmd() *cobra.Command {
 			}
 			if alts, ok := tags.Lookup("alternatives"); ok {
 				setAlts(alts)
+			}
+
+			// Now connect alternatives
+
+			if param.GetAlternatives() != nil {
+				err := cmd.RegisterFlagCompletionFunc(param.GetName(), func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+					return param.GetAlternatives(), cobra.ShellCompDirectiveDefault
+				})
+				if err != nil {
+					panic(fmt.Errorf("failed to register static flag completion func for flag '%s': %v", param.GetName(), err))
+				}
+			}
+			if param.GetAlternativesFunc() != nil {
+				err := cmd.RegisterFlagCompletionFunc(param.GetName(), func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+					return param.GetAlternativesFunc()(cmd, args, toComplete), cobra.ShellCompDirectiveDefault
+				})
+				if err != nil {
+					panic(fmt.Errorf("failed to register dynamic flag completion func for flag '%s': %v", param.GetName(), err))
+				}
 			}
 
 			return nil

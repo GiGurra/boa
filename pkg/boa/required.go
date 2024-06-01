@@ -170,26 +170,16 @@ func (f *Required[T]) GetType() reflect.Type {
 
 func (f *Required[T]) setParentCmd(cmd *cobra.Command) {
 	f.parent = cmd
-	if cmd != nil {
-		if f.Alternatives != nil {
-			err := cmd.RegisterFlagCompletionFunc(f.Name, func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-				return f.Alternatives, cobra.ShellCompDirectiveDefault
-			})
-			if err != nil {
-				panic(fmt.Errorf("failed to register static flag completion func for flag '%s': %v", f.Name, err))
-			}
-		}
-		if f.AlternativesFunc != nil {
-			err := cmd.RegisterFlagCompletionFunc(f.Name, func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-				return f.AlternativesFunc(cmd, args, toComplete), cobra.ShellCompDirectiveDefault
-			})
-			if err != nil {
-				panic(fmt.Errorf("failed to register dynamic flag completion func for flag '%s': %v", f.Name, err))
-			}
-		}
-	}
 }
 
 func (f *Required[T]) setValuePtr(val any) {
 	f.valuePtr = val
+}
+
+func (f *Required[T]) GetAlternatives() []string {
+	return f.Alternatives
+}
+
+func (f *Required[T]) GetAlternativesFunc() func(cmd *cobra.Command, args []string, toComplete string) []string {
+	return f.AlternativesFunc
 }
