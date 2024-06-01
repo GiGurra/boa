@@ -159,6 +159,9 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 		}
 	}
 
+	if f.parentCmd() != nil {
+		return fmt.Errorf("param '%s' already connected to a command. Looks like you are trying to use the same parameter struct for two commands. This is not possible. Pleas instantiate one separate struct instance per command", f.GetName())
+	}
 	f.setParentCmd(cmd)
 
 	if f.isPositional() {
@@ -332,6 +335,10 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 			f.setValuePtr(cmd.Flags().Float32SliceP(f.GetName(), f.GetShort(), toTypedSlice[float32](defaultValueSlice), descr))
 		case reflect.Float64:
 			f.setValuePtr(cmd.Flags().Float64SliceP(f.GetName(), f.GetShort(), toTypedSlice[float64](defaultValueSlice), descr))
+		case reflect.Bool:
+			f.setValuePtr(cmd.Flags().BoolSliceP(f.GetName(), f.GetShort(), toTypedSlice[bool](defaultValueSlice), descr))
+		default:
+			return fmt.Errorf("unsupported slice element type '%v'. Check parameter '%s'", elemType, f.GetName())
 		}
 		return nil
 	case reflect.Array:

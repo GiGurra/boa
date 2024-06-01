@@ -6,11 +6,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var subCommand1Params = struct {
-	Foo boa.Required[string] `alts:"abc,cde,fgh"`
-}{}
-
 func main() {
+
+	var subCommand1Params = struct {
+		Foo boa.Required[string] `alts:"abc,cde,fgh"`
+	}{}
+
 	boa.Wrap{
 		Use:     "hello-world",
 		Short:   "a generic cli tool",

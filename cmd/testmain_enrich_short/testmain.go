@@ -7,16 +7,17 @@ import (
 	"time"
 )
 
-var params = struct {
-	Foo  boa.Required[string]
-	Bar  boa.Required[int]
-	File boa.Required[string]
-	Baz  boa.Required[string]
-	FB   boa.Optional[string]
-	Time boa.Optional[time.Time]
-}{}
-
 func main() {
+
+	var params = struct {
+		Foo  boa.Required[string]
+		Bar  boa.Required[int]
+		File boa.Required[string]
+		Baz  boa.Required[string]
+		FB   boa.Optional[string]
+		Time boa.Optional[time.Time]
+	}{}
+
 	boa.Wrap{
 		Use:   "hello-world",
 		Short: "a generic cli tool",

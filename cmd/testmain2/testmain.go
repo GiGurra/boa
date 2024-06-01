@@ -6,15 +6,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var subCommand1Params = struct {
-	Foo  boa.Required[string] `descr:"a foo"`
-	Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X" default:"4"`
-	Path boa.Required[string] `pos:"true"`
-	Baz  boa.Required[string] `pos:"true" default:"cba"`
-	FB   boa.Optional[string] `pos:"true"`
-}{}
-
 func main() {
+
+	var subCommand1Params = struct {
+		Foo  boa.Required[string] `descr:"a foo"`
+		Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X" default:"4"`
+		Path boa.Required[string] `pos:"true"`
+		Baz  boa.Required[string] `pos:"true" default:"cba"`
+		FB   boa.Optional[string] `pos:"true"`
+	}{}
+
 	boa.Wrap{
 		Use:   "hello-world",
 		Short: "a generic cli tool",

@@ -6,12 +6,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var params struct {
-	WithoutDefaults boa.Required[[]float64]
-	WithDefaults    boa.Required[[]int64] `default:"[1,2,3]"`
-}
-
 func main() {
+
+	var params struct {
+		WithoutDefaults boa.Required[[]float64]
+		WithDefaults    boa.Required[[]int64] `default:"[1,2,3]"`
+	}
+
 	boa.Wrap{
 		Use:    "hello-world",
 		Short:  "a generic cli tool",

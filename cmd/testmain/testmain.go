@@ -6,19 +6,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var subCommand1Params = struct {
-	Foo  boa.Required[string]
-	Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X" default:"111"`
-	Path boa.Required[string] `positional:"true"`
-	Baz  boa.Required[string]
-	FB   boa.Optional[string] `positional:"true"`
-}{
-	Foo: boa.Required[string]{Descr: "a foo"},                                                          // add additional info if you like. This means we get "a foo [required] (env: FOO)" in the help text
-	Bar: boa.Required[int]{Default: boa.Default(4), CustomValidator: func(x int) error { return nil }}, // optional custom validation logic
-	Baz: boa.Required[string]{Positional: true, Default: boa.Default("cba")},                           // positional arguments
-}
-
 func main() {
+
+	var subCommand1Params = struct {
+		Foo  boa.Required[string]
+		Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X" default:"111"`
+		Path boa.Required[string] `positional:"true"`
+		Baz  boa.Required[string]
+		FB   boa.Optional[string] `positional:"true"`
+	}{
+		Foo: boa.Required[string]{Descr: "a foo"},                                                          // add additional info if you like. This means we get "a foo [required] (env: FOO)" in the help text
+		Bar: boa.Required[int]{Default: boa.Default(4), CustomValidator: func(x int) error { return nil }}, // optional custom validation logic
+		Baz: boa.Required[string]{Positional: true, Default: boa.Default("cba")},                           // positional arguments
+	}
+
 	boa.Wrap{
 		Use:     "hello-world",
 		Short:   "a generic cli tool",
