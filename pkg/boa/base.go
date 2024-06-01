@@ -709,9 +709,7 @@ func (b Wrap) ToCmd() *cobra.Command {
 			if name, ok := tags.Lookup("name"); ok {
 				param.SetName(name)
 			}
-			if name, ok := tags.Lookup("alts"); ok {
-				param.SetName(name)
-			}
+
 			if defaultPtr, ok := tags.Lookup("default"); ok {
 				ptr, err := parsePtr(param.GetName(), param.GetType(), param.GetKind(), defaultPtr)
 				if err != nil {
@@ -767,11 +765,36 @@ func (b Wrap) ToCmd() *cobra.Command {
 			cmd.Args = cobra.RangeArgs(numReqPositional, len(positional))
 		}
 
-		err = foreachParam(b.Params, func(param Param, _ string, _ reflect.StructTag) error {
+		err = foreachParam(b.Params, func(param Param, _ string, tags reflect.StructTag) error {
 			err := connect(param, cmd, positional)
 			if err != nil {
 				return err
 			}
+
+			// Must attach alternatives last, when cobra has registered all flags
+			setAlts := func(alts string) {
+				strVal := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(alts), "["), "]")
+				elements := strings.Split(strVal, ",")
+				for i, element := range elements {
+					elements[i] = strings.TrimSpace(element)
+				}
+				// Remove empty
+				nonEmpty := make([]string, 0)
+				for _, element := range elements {
+					if element != "" {
+						nonEmpty = append(nonEmpty, element)
+					}
+				}
+				param.SetAlternatives(nonEmpty)
+			}
+
+			if alts, ok := tags.Lookup("alts"); ok {
+				setAlts(alts)
+			}
+			if alts, ok := tags.Lookup("alternatives"); ok {
+				setAlts(alts)
+			}
+
 			return nil
 		})
 
