@@ -27,6 +27,7 @@ type Param interface {
 	SetEnv(string)
 	SetShort(string)
 	SetName(string)
+	SetAlternatives([]string)
 	defaultValuePtr() any
 	descr() string
 	IsRequired() bool
@@ -706,6 +707,9 @@ func (b Wrap) ToCmd() *cobra.Command {
 				param.SetShort(shrt)
 			}
 			if name, ok := tags.Lookup("name"); ok {
+				param.SetName(name)
+			}
+			if name, ok := tags.Lookup("alts"); ok {
 				param.SetName(name)
 			}
 			if defaultPtr, ok := tags.Lookup("default"); ok {

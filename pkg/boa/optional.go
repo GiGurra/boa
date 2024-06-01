@@ -14,11 +14,22 @@ type Optional[T SupportedTypes] struct {
 	Descr           string
 	CustomValidator func(T) error
 	Positional      bool
+
+	Alternatives     []string
+	AlternativesFunc func(cmd *cobra.Command, args []string, toComplete string) []string
+
 	setByEnv        bool
 	setPositionally bool
 	valuePtr        any
 	parent          *cobra.Command
 }
+
+func (f *Optional[T]) SetAlternatives(strings []string) {
+	f.Alternatives = strings
+}
+
+// prove that Optional[T] implements Param
+var _ Param = &Optional[string]{}
 
 func (f *Optional[T]) wasSetPositionally() bool {
 	return f.setPositionally
@@ -175,6 +186,24 @@ func (f *Optional[T]) GetType() reflect.Type {
 
 func (f *Optional[T]) setParentCmd(cmd *cobra.Command) {
 	f.parent = cmd
+	if cmd != nil {
+		if f.Alternatives != nil {
+			err := cmd.RegisterFlagCompletionFunc(f.Name, func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+				return f.Alternatives, cobra.ShellCompDirectiveDefault
+			})
+			if err != nil {
+				panic(fmt.Errorf("failed to register static flag completion func for flag '%s': %v", f.Name, err))
+			}
+		}
+		if f.AlternativesFunc != nil {
+			err := cmd.RegisterFlagCompletionFunc(f.Name, func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+				return f.AlternativesFunc(cmd, args, toComplete), cobra.ShellCompDirectiveDefault
+			})
+			if err != nil {
+				panic(fmt.Errorf("failed to register dynamic flag completion func for flag '%s': %v", f.Name, err))
+			}
+		}
+	}
 }
 
 func (f *Optional[T]) setValuePtr(val any) {
