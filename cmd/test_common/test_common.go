@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -52,7 +53,14 @@ type TestSpec struct {
 	Expected string
 }
 
+var testMutex = sync.Mutex{}
+
 func RunSingleTest(mainFn func(), args ...string) TestResult {
+
+	// Only one test at a time, since we are replacing stdout and stderr globally
+	testMutex.Lock()
+	defer testMutex.Unlock()
+
 	preArgs := os.Args
 	preStdOut := os.Stdout
 	preStdErr := os.Stderr
