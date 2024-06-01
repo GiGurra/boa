@@ -18,9 +18,13 @@ var params = struct {
 
 func main() {
 	boa.Wrap{
-		Use:    "hello-world",
-		Short:  "a generic cli tool",
-		Long:   `A generic cli tool that has a longer description. See the README.MD for more information`,
+		Use:   "hello-world",
+		Short: "a generic cli tool",
+		Long:  `A generic cli tool that has a longer description. See the README.MD for more information`,
+		ParamEnrich: boa.ParamEnricherCombine(
+			boa.ParamEnricherName,
+			boa.ParamEnricherShort,
+		),
 		Params: &params,
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Printf(

@@ -1,6 +1,7 @@
 package test_common
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -130,6 +131,14 @@ func RunTests(t *testing.T, mainFn func(), tests []TestSpec) {
 			res := RunSingleTest(mainFn, tt.Args...)
 			if !res.HasMatchingLine(tt.Expected) {
 				t.Errorf("Expected %s in output", tt.Expected)
+
+				fmt.Printf("actual output:\n")
+				for _, l := range res.NonEmptyStdErrLines {
+					fmt.Printf("%s\n", l)
+				}
+				for _, l := range res.NonEmptyStdOutLines {
+					fmt.Printf("%s\n", l)
+				}
 			}
 		})
 	}
