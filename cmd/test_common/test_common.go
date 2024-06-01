@@ -52,7 +52,7 @@ type TestSpec struct {
 	Expected string
 }
 
-func TestArgs(f func(), args ...string) TestResult {
+func RunSingleTest(mainFn func(), args ...string) TestResult {
 	preArgs := os.Args
 	preStdOut := os.Stdout
 	preStdErr := os.Stderr
@@ -74,7 +74,7 @@ func TestArgs(f func(), args ...string) TestResult {
 	}()
 
 	// Run the actual test
-	f()
+	mainFn()
 
 	// Go back to the start of the files
 	_, _ = stdOutCaptured.Seek(0, 0)
@@ -119,7 +119,7 @@ func NonEmptyLines(str string) []string {
 func RunTests(t *testing.T, mainFn func(), tests []TestSpec) {
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
-			res := TestArgs(mainFn, tt.Args...)
+			res := RunSingleTest(mainFn, tt.Args...)
 			if !res.HasMatchingLine(tt.Expected) {
 				t.Errorf("Expected %s in output", tt.Expected)
 			}
