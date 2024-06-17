@@ -22,6 +22,25 @@ type Required[T SupportedTypes] struct {
 	setPositionally bool
 	valuePtr        any
 	parent          *cobra.Command
+
+	requiredFn func() bool
+}
+
+func (f *Required[T]) IsEnabled() bool {
+	if f.requiredFn != nil {
+		return f.requiredFn()
+	}
+	return true
+}
+
+func (f *Required[T]) SetIsEnabled(b bool) {
+	f.requiredFn = func() bool {
+		return b
+	}
+}
+
+func (f *Required[T]) SetIsEnabledFn(f2 func() bool) {
+	f.requiredFn = f2
 }
 
 func (f *Required[T]) SetAlternatives(strings []string) {

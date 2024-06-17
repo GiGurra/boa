@@ -46,6 +46,9 @@ type Param interface {
 	markSetPositionally()
 	setPositional(bool)
 	setDescription(descr string)
+	IsEnabled() bool
+	SetIsEnabled(bool)
+	SetIsEnabledFn(func() bool)
 	GetAlternatives() []string
 	GetAlternativesFunc() func(cmd *cobra.Command, args []string, toComplete string) []string
 }
@@ -878,6 +881,9 @@ func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags
 		// check if field is a param
 		param, isParam := fieldValue.Interface().(Param)
 		if isParam {
+			if !param.IsEnabled() {
+				continue // this parameter is not enabled
+			}
 			err := f(param, field.Name, field.Tag)
 			if err != nil {
 				return err

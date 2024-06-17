@@ -23,7 +23,25 @@ type Optional[T SupportedTypes] struct {
 	valuePtr        any
 	parent          *cobra.Command
 
-	requiredIfFn func() bool
+	requiredFn func() bool
+	enabledFn  func() bool
+}
+
+func (f *Optional[T]) IsEnabled() bool {
+	if f.enabledFn != nil {
+		return f.enabledFn()
+	}
+	return true
+}
+
+func (f *Optional[T]) SetIsEnabled(b bool) {
+	f.enabledFn = func() bool {
+		return b
+	}
+}
+
+func (f *Optional[T]) SetIsEnabledFn(f2 func() bool) {
+	f.enabledFn = f2
 }
 
 func (f *Optional[T]) GetAlternatives() []string {
@@ -167,18 +185,18 @@ func (f *Optional[T]) descr() string {
 }
 
 func (f *Optional[T]) IsRequired() bool {
-	if f.requiredIfFn != nil {
-		return f.requiredIfFn()
+	if f.requiredFn != nil {
+		return f.requiredFn()
 	}
 	return false
 }
 
-func (f *Optional[T]) SetRequiredIfFn(condition func() bool) {
-	f.requiredIfFn = condition
+func (f *Optional[T]) SetRequiredFn(condition func() bool) {
+	f.requiredFn = condition
 }
 
-func (f *Optional[T]) GetRequiredIfFn() func() bool {
-	return f.requiredIfFn
+func (f *Optional[T]) GetRequiredFn() func() bool {
+	return f.requiredFn
 }
 
 func (f *Optional[T]) valuePtrF() any {
