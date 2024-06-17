@@ -27,6 +27,10 @@ type Optional[T SupportedTypes] struct {
 	enabledFn  func() bool
 }
 
+func (f *Optional[T]) GetIsEnabledFn() func() bool {
+	return f.enabledFn
+}
+
 func (f *Optional[T]) IsEnabled() bool {
 	if f.enabledFn != nil {
 		return f.enabledFn()

@@ -17,20 +17,14 @@ func TestRunMain(t *testing.T) {
 
 	tests := []spec{
 		{
-			Name:        "print help",
-			Args:        []string{"--help"},
-			Contains:    []string{"Usage:", "--foo", "--baz"},
-			NotContains: []string{"--bar", "required"},
+			Name:     "print help",
+			Args:     []string{"--help"},
+			Contains: []string{"Usage:", "--foo", "--baz", "--bar int       (conditional)"},
 		},
 		{
 			Name:     "success when all flags provided (including hidden flag)",
 			Args:     []string{"--foo", "foo", "--baz", "baz", "--bar", "1"},
 			Contains: []string{"Hello World!"},
-		},
-		{
-			Name:        "error when trying to use disabled flag",
-			Args:        []string{"--bar", "1"},
-			NotContains: []string{"Hello World!"},
 		},
 		{
 			Name:        "fail when missing conditionally required flag",

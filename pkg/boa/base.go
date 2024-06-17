@@ -47,10 +47,9 @@ type Param interface {
 	setPositional(bool)
 	setDescription(descr string)
 	IsEnabled() bool
-	SetIsEnabled(bool)
-	SetIsEnabledFn(func() bool)
 	GetAlternatives() []string
 	GetAlternativesFunc() func(cmd *cobra.Command, args []string, toComplete string) []string
+	GetIsEnabledFn() func() bool
 }
 
 func Default[T SupportedTypes](val T) *T {
@@ -60,6 +59,10 @@ func Default[T SupportedTypes](val T) *T {
 func validate(structPtr any) error {
 
 	return foreachParam(structPtr, func(param Param, _ string, _ reflect.StructTag) error {
+
+		if !param.IsEnabled() {
+			return nil
+		}
 
 		envHint := ""
 		if param.GetEnv() != "" {
@@ -143,7 +146,11 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 	}
 
 	if f.IsRequired() && !f.hasDefaultValue() {
-		descr = fmt.Sprintf("%s [required]", descr)
+		extraInfos = append(extraInfos, "required")
+	}
+
+	if f.GetIsEnabledFn() != nil {
+		extraInfos = append(extraInfos, "conditional")
 	}
 
 	if len(extraInfos) > 0 {
@@ -881,9 +888,9 @@ func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags
 		// check if field is a param
 		param, isParam := fieldValue.Interface().(Param)
 		if isParam {
-			if !param.IsEnabled() {
-				continue // this parameter is not enabled
-			}
+			//if !param.IsEnabled() { // cant do here, because it is not known yet
+			//	continue // this parameter is not enabled
+			//}
 			err := f(param, field.Name, field.Tag)
 			if err != nil {
 				return err
