@@ -22,6 +22,31 @@ func TestRunMain(t *testing.T) {
 			Contains:    []string{"Usage:", "--foo", "--baz"},
 			NotContains: []string{"--bar", "required"},
 		},
+		{
+			Name:     "success when all flags provided (including hidden flag)",
+			Args:     []string{"--foo", "foo", "--baz", "baz", "--bar", "1"},
+			Contains: []string{"Hello World!"},
+		},
+		{
+			Name:        "error when trying to use disabled flag",
+			Args:        []string{"--bar", "1"},
+			NotContains: []string{"Hello World!"},
+		},
+		{
+			Name:        "fail when missing conditionally required flag",
+			Args:        []string{"--foo", "xyz"},
+			NotContains: []string{"Hello World!"},
+		},
+		{
+			Name:     "succeed when no flags and all are optional",
+			Args:     []string{},
+			Contains: []string{"Hello World!"},
+		},
+		{
+			Name:     "succeed when including required flag",
+			Args:     []string{"--foo", "xyz", "--baz", "baz"},
+			Contains: []string{"Hello World!"},
+		},
 	}
 
 	for _, tt := range tests {
