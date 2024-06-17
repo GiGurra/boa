@@ -3,6 +3,7 @@ package boa
 import (
 	"fmt"
 	"github.com/spf13/cobra"
+	"log/slog"
 	"os"
 	"reflect"
 	"strconv"
@@ -54,7 +55,7 @@ func Default[T SupportedTypes](val T) *T {
 	return &val
 }
 
-func validate(structPtr any) error {
+func validate(structPtr any, ensureReqParamsAreSet bool) error {
 
 	return foreachParam(structPtr, func(param Param, _ string, _ reflect.StructTag) error {
 
@@ -67,7 +68,12 @@ func validate(structPtr any) error {
 			return err
 		}
 		if param.IsRequired() && !HasValue(param) {
-			return fmt.Errorf("missing required param '%s'%s", param.GetName(), envHint)
+			if ensureReqParamsAreSet {
+				return fmt.Errorf("missing required param '%s'%s", param.GetName(), envHint)
+			} else {
+				// Normal case when autocompleting flags, and not all flags are set yet
+				return nil
+			}
 		}
 
 		// special types validation, e.g. only time.Time so far
@@ -82,10 +88,10 @@ func validate(structPtr any) error {
 					param.setValuePtr(res)
 				}
 			}
-		}
 
-		if err := param.customValidatorOfPtr()(param.valuePtrF()); err != nil {
-			return fmt.Errorf("invalid value for param '%s': %s", param.GetName(), err.Error())
+			if err := param.customValidatorOfPtr()(param.valuePtrF()); err != nil {
+				return fmt.Errorf("invalid value for param '%s': %s", param.GetName(), err.Error())
+			}
 		}
 
 		return nil
@@ -699,14 +705,22 @@ type Composition struct {
 
 func (b Wrap) ToCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:               b.Use,
-		Short:             b.Short,
-		Long:              b.Long,
-		Run:               b.Run,
-		Args:              b.Args,
-		SilenceErrors:     !b.UseCobraErrLog,
-		ValidArgs:         b.ValidArgs,
-		ValidArgsFunction: b.ValidArgsFunc,
+		Use:           b.Use,
+		Short:         b.Short,
+		Long:          b.Long,
+		Run:           b.Run,
+		Args:          b.Args,
+		SilenceErrors: !b.UseCobraErrLog,
+		ValidArgs:     b.ValidArgs,
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			if b.Params != nil {
+				if err := validate(b.Params, false); err != nil {
+					slog.Error(fmt.Sprintf("error validating params: %v", err))
+					return nil, cobra.ShellCompDirectiveError
+				}
+			}
+			return b.ValidArgsFunc(cmd, args, toComplete)
+		},
 	}
 
 	cmd.Flags().SortFlags = b.SortFlags
@@ -834,7 +848,7 @@ func (b Wrap) ToCmd() *cobra.Command {
 	// now wrap the run function of the command to validate the flags
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		if b.Params != nil {
-			if err := validate(b.Params); err != nil {
+			if err := validate(b.Params, true); err != nil {
 				return err
 			}
 		}
