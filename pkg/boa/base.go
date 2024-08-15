@@ -913,11 +913,7 @@ func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags
 	return nil
 }
 
-func (b Wrap) ToApp() {
-	b.ToAppH(Handler{})
-}
-
-func (b Wrap) ToAppH(handler Handler) {
+func ToAppH(cmd *cobra.Command, handler Handler) {
 
 	if handler.Panic != nil {
 		defer func() {
@@ -927,7 +923,6 @@ func (b Wrap) ToAppH(handler Handler) {
 		}()
 	}
 
-	cmd := b.ToCmd()
 	err := cmd.Execute()
 	if err != nil {
 		if handler.Failure != nil {
@@ -941,4 +936,16 @@ func (b Wrap) ToAppH(handler Handler) {
 			handler.Success()
 		}
 	}
+}
+
+func ToApp(cmd *cobra.Command) {
+	ToAppH(cmd, Handler{})
+}
+
+func (b Wrap) ToApp() {
+	b.ToAppH(Handler{})
+}
+
+func (b Wrap) ToAppH(handler Handler) {
+	ToAppH(b.ToCmd(), handler)
 }
