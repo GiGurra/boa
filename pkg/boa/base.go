@@ -13,7 +13,7 @@ import (
 
 type SupportedTypes interface {
 	string | int | int32 | int64 | bool | float64 | float32 | time.Time |
-		[]int | []int32 | []int64 | []float32 | []float64 | []string
+	[]int | []int32 | []int64 | []float32 | []float64 | []string
 }
 
 type Param interface {
@@ -90,8 +90,10 @@ func validate(structPtr any) error {
 			}
 		}
 
-		if err := param.customValidatorOfPtr()(param.valuePtrF()); err != nil {
-			return fmt.Errorf("invalid value for param '%s': %s", param.GetName(), err.Error())
+		if param.HasValue() {
+			if err := param.customValidatorOfPtr()(param.valuePtrF()); err != nil {
+				return fmt.Errorf("invalid value for param '%s': %s", param.GetName(), err.Error())
+			}
 		}
 
 		return nil
