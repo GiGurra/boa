@@ -955,3 +955,20 @@ func (b Wrap) ToApp() {
 func (b Wrap) ToAppH(handler Handler) {
 	ToAppH(b.ToCmd(), handler)
 }
+
+func Validate[T any](structPtr *T, w Wrap) error {
+	w.Params = structPtr
+	w.Run = func(cmd *cobra.Command, args []string) {}
+	w.UseCobraErrLog = false
+	var err error
+	handler := Handler{
+		Failure: func(e error) {
+			err = e
+		},
+	}
+	cobraCmd := w.ToCmd()
+	cobraCmd.SilenceErrors = true
+	cobraCmd.SilenceUsage = true
+	ToAppH(cobraCmd, handler)
+	return err
+}

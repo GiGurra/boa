@@ -2,6 +2,7 @@ package boa
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"testing"
 )
@@ -102,4 +103,27 @@ func TestReflectOfStructs(t *testing.T) {
 
 	fmt.Printf("structAsAny: %v\n", reflect.TypeOf(structAsAny).Kind())
 	fmt.Printf("structPtrAsAny: %v\n", reflect.TypeOf(structPtrAsAny).Kind())
+}
+
+func TestDoubleDefault(t *testing.T) {
+	var params = struct {
+		User Required[string] `default:"defaultUser"`
+	}{
+		User: Required[string]{Default: Default("123")},
+	}
+
+	osArgsBefore := os.Args
+	os.Args = []string{"test"}
+	defer func() {
+		os.Args = osArgsBefore
+	}()
+
+	err := Validate(&params, Wrap{ParamEnrich: ParamEnricherName})
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+
+	if params.User.Value() != "123" {
+		t.Errorf("Expected default value to be '123', got: %s", params.User.Value())
+	}
 }
