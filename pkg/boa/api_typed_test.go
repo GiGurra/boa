@@ -130,8 +130,8 @@ func TestNoParams(t *testing.T) {
 	os.Args = []string{"test"}
 
 	builder :=
-		NewCmdBuilder[NoParamsT]("test").
-			WithRunFunc(func(_ *NoParamsT) {
+		NewCmdBuilder[NoParams]("test").
+			WithRunFunc(func(_ *NoParams) {
 			})
 	builderCpy := builder
 
@@ -150,7 +150,7 @@ func TestCmdTree(t *testing.T) {
 	os.Args = []string{"test", "subcmd1", "--flag1", "value1", "--flag2", "42"}
 
 	ranInnerCommand := false
-	NewCmdBuilder[NoParamsT]("test").WithSubCommands(
+	NewCmdBuilder[NoParams]("test").WithSubCommands(
 		NewCmdBuilder[TestStruct]("subcmd1").WithRunFunc(func(params *TestStruct) {
 			fmt.Printf("params: %+v\n", params)
 			if params.Flag1.Value() != "value1" {

@@ -6,9 +6,7 @@ import (
 	"reflect"
 )
 
-type NoParamsT struct{}
-
-var NoParams = &NoParamsT{}
+type NoParams struct{}
 
 type Wrap2[Struct any] struct {
 	Use            string
