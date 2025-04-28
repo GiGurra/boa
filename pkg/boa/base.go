@@ -775,12 +775,15 @@ func (b Wrap) ToCmd() *cobra.Command {
 				setAlts(alts)
 			}
 
-			if defaultPtr, ok := tags.Lookup("default"); ok {
-				ptr, err := parsePtr(param.GetName(), param.GetType(), param.GetKind(), defaultPtr)
-				if err != nil {
-					return fmt.Errorf("invalid default value for param %s: %s", param.GetName(), err.Error())
+			if !param.hasDefaultValue() {
+				// Default values are used for injection. So we can't just overwrite them
+				if defaultPtr, ok := tags.Lookup("default"); ok {
+					ptr, err := parsePtr(param.GetName(), param.GetType(), param.GetKind(), defaultPtr)
+					if err != nil {
+						return fmt.Errorf("invalid default value for param %s: %s", param.GetName(), err.Error())
+					}
+					param.SetDefault(ptr)
 				}
-				param.SetDefault(ptr)
 			}
 			return nil
 		})
