@@ -23,7 +23,7 @@ func TestTyped1(t *testing.T) {
 
 	builder :=
 		NewCmdBuilder[TestStruct]("test").
-			WithRunFunc(func(params *TestStruct, cmd *cobra.Command, args []string) {
+			WithRunFunc(func(params *TestStruct) {
 				fmt.Printf("params: %+v\n", params)
 				if params.Flag1.Value() != "value1" {
 					t.Fatalf("expected value1 but got %s", params.Flag1.Value())
@@ -63,7 +63,7 @@ func TestTyped2(t *testing.T) {
 
 	builder :=
 		NewCmdBuilder2("test", &TestStruct{}).
-			WithRunFunc(func(params *TestStruct, cmd *cobra.Command, args []string) {
+			WithRunFunc3(func(params *TestStruct, cmd *cobra.Command, args []string) {
 				fmt.Printf("params: %+v\n", params)
 				if params.Flag1.Value() != "value1" {
 					t.Fatalf("expected value1 but got %s", params.Flag1.Value())
@@ -104,7 +104,7 @@ func TestTypedWithInitFunc(t *testing.T) {
 	builder :=
 		NewCmdBuilder[TestStruct]("test").
 			WithInitFunc(func(params *TestStruct) { params.Flag2.Default = Default(42) }).
-			WithRunFunc(func(params *TestStruct, cmd *cobra.Command, args []string) {
+			WithRunFunc(func(params *TestStruct) {
 				fmt.Printf("params: %+v\n", params)
 				if params.Flag1.Value() != "value1" {
 					t.Fatalf("expected value1 but got %s", params.Flag1.Value())

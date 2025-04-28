@@ -80,7 +80,13 @@ func (b Wrap2[Struct]) WithParamEnrich(enricher ParamEnricher) Wrap2[Struct] {
 	return b
 }
 
-func (b Wrap2[Struct]) WithRunFunc(run func(params *Struct, cmd *cobra.Command, args []string)) Wrap2[Struct] {
+func (b Wrap2[Struct]) WithRunFunc(run func(params *Struct)) Wrap2[Struct] {
+	return b.WithRunFunc3(func(params *Struct, _ *cobra.Command, _ []string) {
+		run(params)
+	})
+}
+
+func (b Wrap2[Struct]) WithRunFunc3(run func(params *Struct, cmd *cobra.Command, args []string)) Wrap2[Struct] {
 	b.RunFunc = run
 	return b
 }
