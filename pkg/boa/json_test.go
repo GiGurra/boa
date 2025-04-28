@@ -43,6 +43,14 @@ func TestJsonSerialization(t *testing.T) {
 		t.Errorf("Host mismatch: got %s, want %s", deserialized.Host.Value(), data.Host.Value())
 	}
 
+	if data.KafkaNilCredentials.HasValue() {
+		t.Errorf("KafkaNilCredentials should not have value")
+	}
+
+	if deserialized.KafkaNilCredentials.HasValue() {
+		t.Errorf("KafkaNilCredentials should not have value")
+	}
+
 	if data.KafkaCredentials.GetOrElse("") != deserialized.KafkaCredentials.GetOrElse("") {
 		t.Errorf("KafkaCredentials mismatch: got %s, want %s", deserialized.KafkaCredentials.GetOrElse(""), data.KafkaCredentials.GetOrElse(""))
 	}
