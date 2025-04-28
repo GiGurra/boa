@@ -20,6 +20,8 @@ type Wrap2[Struct any] struct {
 	Params         *Struct
 	ParamEnrich    ParamEnricher
 	RunFunc        func(params *Struct, cmd *cobra.Command, args []string)
+	InitFunc       func(params *Struct) error
+	PreExecuteFunc func(params *Struct, cmd *cobra.Command, args []string) error
 	UseCobraErrLog bool
 	SortFlags      bool
 	ValidArgs      []string
@@ -108,6 +110,30 @@ func (b Wrap2[Struct]) WithSubCommands(cmd ...*cobra.Command) Wrap2[Struct] {
 	return b
 }
 
+func (b Wrap2[Struct]) WithPreExecuteFunc(preExecuteFunc func(params *Struct, cmd *cobra.Command, args []string)) Wrap2[Struct] {
+	return b.WithPreExecuteFuncE(func(params *Struct, cmd *cobra.Command, args []string) error {
+		preExecuteFunc(params, cmd, args)
+		return nil
+	})
+}
+
+func (b Wrap2[Struct]) WithPreExecuteFuncE(preExecuteFunc func(params *Struct, cmd *cobra.Command, args []string) error) Wrap2[Struct] {
+	b.PreExecuteFunc = preExecuteFunc
+	return b
+}
+
+func (b Wrap2[Struct]) WithInitFunc(initFunc func(params *Struct)) Wrap2[Struct] {
+	return b.WithInitFuncE(func(params *Struct) error {
+		initFunc(params)
+		return nil
+	})
+}
+
+func (b Wrap2[Struct]) WithInitFuncE(initFunc func(params *Struct) error) Wrap2[Struct] {
+	b.InitFunc = initFunc
+	return b
+}
+
 func (b Wrap2[Struct]) ToWrap() Wrap {
 
 	var runFcn func(cmd *cobra.Command, args []string) = nil
@@ -121,6 +147,20 @@ func (b Wrap2[Struct]) ToWrap() Wrap {
 	if b.ValidArgsFunc != nil {
 		validArgsFunc = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			return b.ValidArgsFunc(b.Params, cmd, args, toComplete)
+		}
+	}
+
+	var initFunc func(params any) error = nil
+	if b.InitFunc != nil {
+		initFunc = func(params any) error {
+			return b.InitFunc(params.(*Struct))
+		}
+	}
+
+	var preExecuteFunc func(params any, cmd *cobra.Command, args []string) error = nil
+	if b.PreExecuteFunc != nil {
+		preExecuteFunc = func(params any, cmd *cobra.Command, args []string) error {
+			return b.PreExecuteFunc(params.(*Struct), cmd, args)
 		}
 	}
 
@@ -138,6 +178,8 @@ func (b Wrap2[Struct]) ToWrap() Wrap {
 		SortFlags:      b.SortFlags,
 		ValidArgs:      b.ValidArgs,
 		ValidArgsFunc:  validArgsFunc,
+		InitFunc:       initFunc,
+		PreExecuteFunc: preExecuteFunc,
 	}
 }
 

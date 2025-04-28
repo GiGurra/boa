@@ -27,6 +27,9 @@ type Wrap struct {
 	SortFlags      bool
 	ValidArgs      []string
 	ValidArgsFunc  func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
+	// To customize params
+	InitFunc       func(params any) error
+	PreExecuteFunc func(params any, cmd *cobra.Command, args []string) error
 }
 
 func HasValue(f Param) bool {

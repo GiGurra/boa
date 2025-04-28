@@ -667,6 +667,14 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 		}
 	}
 
+	// if we have a custom init function, call it
+	if b.InitFunc != nil {
+		err := b.InitFunc(b.Params)
+		if err != nil {
+			panic(fmt.Errorf("error in InitFunc: %s", err.Error()))
+		}
+	}
+
 	cmd.Flags().SortFlags = b.SortFlags
 	cmd.Version = b.Version
 
@@ -801,6 +809,14 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 				err := preExecute.PreExecute()
 				if err != nil {
 					return fmt.Errorf("error in PreExecute: %s", err.Error())
+				}
+			}
+
+			// if we have a custom pre-execute function, call it
+			if b.PreExecuteFunc != nil {
+				err := b.PreExecuteFunc(b.Params, cmd, args)
+				if err != nil {
+					return fmt.Errorf("error in PreExecuteFunc: %s", err.Error())
 				}
 			}
 
