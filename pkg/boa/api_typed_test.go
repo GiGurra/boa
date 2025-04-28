@@ -132,3 +132,24 @@ func TestTypedWithInitFunc(t *testing.T) {
 		t.Errorf("Flag2 should have value")
 	}
 }
+
+func TestNoParams(t *testing.T) {
+
+	prevArgs := os.Args
+	defer func() {
+		os.Args = prevArgs
+	}()
+
+	os.Args = []string{"test"}
+
+	builder :=
+		NewCmdBuilder[NoParamsT]("test").
+			WithRunFunc(func(_ *NoParamsT) {
+			})
+	builderCpy := builder
+
+	builder.Run()
+	if builderCpy.Validate() != nil {
+		t.Fatalf("expected no error but got %v", builder.Validate())
+	}
+}
