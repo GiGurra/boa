@@ -13,7 +13,7 @@ import (
 
 type SupportedTypes interface {
 	string | int | int32 | int64 | bool | float64 | float32 | time.Time |
-	[]int | []int32 | []int64 | []float32 | []float64 | []string
+		[]int | []int32 | []int64 | []float32 | []float64 | []string
 }
 
 type Param interface {
@@ -35,6 +35,7 @@ type Param interface {
 	parentCmd() *cobra.Command
 	wasSetOnCli() bool
 	wasSetByEnv() bool
+	wasSetByInject() bool
 	customValidatorOfPtr() func(any) error
 	hasDefaultValue() bool
 	defaultValueStr() string
@@ -570,7 +571,7 @@ func parsePtr(
 }
 
 func HasValue(f Param) bool {
-	return f.wasSetByEnv() || f.wasSetOnCli() || f.hasDefaultValue()
+	return f.wasSetByEnv() || f.wasSetOnCli() || f.hasDefaultValue() || f.wasSetByInject()
 }
 
 type ParamEnricher func(alreadyProcessed []Param, param Param, paramFieldName string) error

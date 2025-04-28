@@ -1,6 +1,7 @@
 package boa
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/spf13/cobra"
 	"reflect"
@@ -20,6 +21,7 @@ type Required[T SupportedTypes] struct {
 
 	setByEnv        bool
 	setPositionally bool
+	injected        bool
 	valuePtr        any
 	parent          *cobra.Command
 }
@@ -152,6 +154,10 @@ func (f *Required[T]) valuePtrF() any {
 	return f.valuePtr
 }
 
+func (f *Required[T]) wasSetByInject() bool {
+	return f.injected && f.valuePtr != nil
+}
+
 func (f *Required[T]) parentCmd() *cobra.Command {
 	return f.parent
 }
@@ -190,4 +196,25 @@ func (f *Required[T]) GetAlternatives() []string {
 
 func (f *Required[T]) GetAlternativesFunc() func(cmd *cobra.Command, args []string, toComplete string) []string {
 	return f.AlternativesFunc
+}
+
+func (p Required[T]) MarshalJSON() ([]byte, error) {
+	return json.Marshal(p.Value())
+}
+
+func (p *Required[T]) UnmarshalJSON(data []byte) error {
+	var v *T
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	p.valuePtr = v
+	p.injected = v != nil
+	return nil
+}
+
+func Req[T SupportedTypes](defaultValue T) Required[T] {
+	return Required[T]{
+		Default:  &defaultValue,
+		injected: true,
+	}
 }

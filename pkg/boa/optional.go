@@ -1,6 +1,7 @@
 package boa
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/spf13/cobra"
 	"reflect"
@@ -20,6 +21,7 @@ type Optional[T SupportedTypes] struct {
 
 	setByEnv        bool
 	setPositionally bool
+	injected        bool
 	valuePtr        any
 	parent          *cobra.Command
 
@@ -164,6 +166,10 @@ func (f *Optional[T]) wasSetOnCli() bool {
 	}
 }
 
+func (f *Optional[T]) wasSetByInject() bool {
+	return f.injected && f.valuePtr != nil
+}
+
 func (f *Optional[T]) GetShort() string {
 	return f.Short
 }
@@ -233,4 +239,31 @@ func (f *Optional[T]) setParentCmd(cmd *cobra.Command) {
 
 func (f *Optional[T]) setValuePtr(val any) {
 	f.valuePtr = val
+}
+
+func (p Optional[T]) MarshalJSON() ([]byte, error) {
+	return json.Marshal(p.Value())
+}
+
+func (p *Optional[T]) UnmarshalJSON(data []byte) error {
+	var v *T
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	p.valuePtr = v
+	p.injected = v != nil
+	return nil
+}
+
+func Opt[T SupportedTypes](defaultValue T) Optional[T] {
+	return Optional[T]{
+		Default: &defaultValue,
+	}
+}
+
+func OptP[T SupportedTypes](defaultValue *T) Optional[T] {
+	return Optional[T]{
+		Default:  defaultValue,
+		injected: true,
+	}
 }
