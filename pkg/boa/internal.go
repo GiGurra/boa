@@ -657,6 +657,16 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 		ValidArgsFunction: b.ValidArgsFunc,
 	}
 
+	// if params is set and implements CfgStructInit, call it
+	if b.Params != nil {
+		if preParse, ok := b.Params.(CfgStructInit); ok {
+			err := preParse.Init()
+			if err != nil {
+				panic(fmt.Errorf("error in PreParse: %s", err.Error()))
+			}
+		}
+	}
+
 	cmd.Flags().SortFlags = b.SortFlags
 	cmd.Version = b.Version
 
@@ -785,6 +795,15 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 	// now wrap the run function of the command to validate the flags
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		if b.Params != nil {
+
+			// if b.params implements CfgStructPreExecute, call it
+			if preExecute, ok := b.Params.(CfgStructPreExecute); ok {
+				err := preExecute.PreExecute()
+				if err != nil {
+					return fmt.Errorf("error in PreExecute: %s", err.Error())
+				}
+			}
+
 			if err := validate(b.Params); err != nil {
 				return err
 			}

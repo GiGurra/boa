@@ -180,6 +180,9 @@ func Validate[T any](structPtr *T, w Wrap) error {
 	w.UseCobraErrLog = false
 	var err error
 	handler := ResultHandler{
+		Panic: func(a any) {
+			err = fmt.Errorf("panic: %v", a)
+		},
 		Failure: func(e error) {
 			err = e
 		},
@@ -189,4 +192,12 @@ func Validate[T any](structPtr *T, w Wrap) error {
 	cobraCmd.SilenceUsage = true
 	ToAppH(cobraCmd, handler)
 	return err
+}
+
+type CfgStructInit interface {
+	Init() error
+}
+
+type CfgStructPreExecute interface {
+	PreExecute() error
 }

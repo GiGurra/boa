@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -125,5 +126,65 @@ func TestDoubleDefault(t *testing.T) {
 
 	if params.User.Value() != "123" {
 		t.Errorf("Expected default value to be '123', got: %s", params.User.Value())
+	}
+}
+
+type InitTestStruct struct {
+	User Required[string] `default:"defaultUser"`
+}
+
+func (i *InitTestStruct) Init() error {
+	i.User.Default = Default("123")
+	return nil
+}
+
+func TestInit(t *testing.T) {
+	var params = InitTestStruct{}
+
+	osArgsBefore := os.Args
+	os.Args = []string{"test"}
+	defer func() {
+		os.Args = osArgsBefore
+	}()
+
+	err := Validate(&params, Wrap{ParamEnrich: ParamEnricherName})
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+
+	if params.User.Value() != "123" {
+		t.Errorf("Expected default value to be '123', got: %s", params.User.Value())
+	}
+}
+
+type PreExecuteTestStruct struct {
+	User Required[string] `default:"defaultUser"`
+}
+
+var expectedError = fmt.Errorf("<expected error>")
+
+func (i *PreExecuteTestStruct) PreExecute() error {
+	if i.User.Value() != "defaultUser" {
+		return fmt.Errorf("user value is not defaultUser")
+	}
+	return expectedError
+}
+
+func TestPreExecute(t *testing.T) {
+	var params = PreExecuteTestStruct{}
+
+	osArgsBefore := os.Args
+	os.Args = []string{"test"}
+	defer func() {
+		os.Args = osArgsBefore
+	}()
+
+	err := Validate(&params, Wrap{ParamEnrich: ParamEnricherName})
+	if err != nil {
+		if !strings.Contains(err.Error(), expectedError.Error()) {
+			t.Errorf("Expected error to contain: %s, got: %v", expectedError.Error(), err)
+		}
+	} else {
+		t.Errorf("Expected error, got: nil")
 	}
 }
