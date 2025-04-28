@@ -27,20 +27,11 @@ type Wrap2[Struct any] struct {
 }
 
 func NewCmdBuilder[Struct any](use string) Wrap2[Struct] {
-	var params *Struct
+	var params Struct
+	return NewCmdBuilder2(use, &params)
+}
 
-	// Instantiate the config object for simplicity
-	configType := reflect.TypeOf((*Struct)(nil))
-	switch configType.Kind() {
-	case reflect.Ptr | reflect.Interface:
-		elemType := configType.Elem()
-		newInstance := reflect.New(elemType).Interface()
-		if typedInstance, ok := newInstance.(*Struct); ok {
-			params = typedInstance
-		}
-	default:
-		// For value types, leave the zero value as is
-	}
+func NewCmdBuilder2[Struct any](use string, params *Struct) Wrap2[Struct] {
 
 	if reflect.TypeOf(params).Kind() != reflect.Ptr {
 		panic(fmt.Errorf("expected pointer to struct"))
