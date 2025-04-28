@@ -804,6 +804,10 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		if b.Params != nil {
 
+			if err := validate(b.Params); err != nil {
+				return err
+			}
+
 			// if b.params implements CfgStructPreExecute, call it
 			if preExecute, ok := b.Params.(CfgStructPreExecute); ok {
 				err := preExecute.PreExecute()
@@ -820,9 +824,6 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 				}
 			}
 
-			if err := validate(b.Params); err != nil {
-				return err
-			}
 		}
 		return nil
 	}
