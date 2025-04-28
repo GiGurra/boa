@@ -165,16 +165,15 @@ func TestCmdTree(t *testing.T) {
 	ranInnerCommand := false
 
 	builder :=
-		NewCmdBuilder[NoParamsT]("test").
-			WithSubCommands(
-				NewCmdBuilder[TestStruct]("subcmd1").WithRunFunc(func(params *TestStruct) {
-					fmt.Printf("params: %+v\n", params)
-					if params.Flag1.Value() != "value1" {
-						t.Fatalf("expected value1 but got %s", params.Flag1.Value())
-					}
-					ranInnerCommand = true
-				}).ToCmd(),
-			)
+		NewCmdBuilder[NoParamsT]("test").WithSubCommands(
+			NewCmdBuilder[TestStruct]("subcmd1").WithRunFunc(func(params *TestStruct) {
+				fmt.Printf("params: %+v\n", params)
+				if params.Flag1.Value() != "value1" {
+					t.Fatalf("expected value1 but got %s", params.Flag1.Value())
+				}
+				ranInnerCommand = true
+			}).ToCmd(),
+		)
 
 	builder.Run()
 
