@@ -26,6 +26,7 @@ type Wrap2[Struct any] struct {
 	SortFlags      bool
 	ValidArgs      []string
 	ValidArgsFunc  func(params *Struct, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
+	RawArgs        []string
 }
 
 func NewCmdBuilder[Struct any](use string) Wrap2[Struct] {
@@ -140,6 +141,12 @@ func (b Wrap2[Struct]) WithInitFuncE(initFunc func(params *Struct) error) Wrap2[
 	return b
 }
 
+// WithRawArgs sets the raw args to be used instead of os.Args. Mostly used for testing purposes.
+func (b Wrap2[Struct]) WithRawArgs(rawArgs []string) Wrap2[Struct] {
+	b.RawArgs = rawArgs
+	return b
+}
+
 func (b Wrap2[Struct]) ToWrap() Wrap {
 
 	var runFcn func(cmd *cobra.Command, args []string) = nil
@@ -186,6 +193,7 @@ func (b Wrap2[Struct]) ToWrap() Wrap {
 		ValidArgsFunc:  validArgsFunc,
 		InitFunc:       initFunc,
 		PreExecuteFunc: preExecuteFunc,
+		RawArgs:        b.RawArgs,
 	}
 }
 

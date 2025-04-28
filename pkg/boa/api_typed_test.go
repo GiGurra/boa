@@ -54,15 +54,9 @@ func TestTyped1(t *testing.T) {
 
 func TestTyped2(t *testing.T) {
 
-	prevArgs := os.Args
-	defer func() {
-		os.Args = prevArgs
-	}()
-
-	os.Args = []string{"test", "--flag1", "value1", "--flag2", "42"}
-
 	builder :=
 		NewCmdBuilder2("test", &TestStruct{}).
+			WithRawArgs([]string{"--flag1", "value1", "--flag2", "42"}).
 			WithRunFunc3(func(params *TestStruct, cmd *cobra.Command, args []string) {
 				fmt.Printf("params: %+v\n", params)
 				if params.Flag1.Value() != "value1" {
@@ -94,15 +88,9 @@ func TestTyped2(t *testing.T) {
 
 func TestTypedWithInitFunc(t *testing.T) {
 
-	prevArgs := os.Args
-	defer func() {
-		os.Args = prevArgs
-	}()
-
-	os.Args = []string{"test", "--flag1", "value1"}
-
 	builder :=
 		NewCmdBuilder[TestStruct]("test").
+			WithRawArgs([]string{"--flag1", "value1"}).
 			WithInitFunc(func(params *TestStruct) { params.Flag2.Default = Default(42) }).
 			WithRunFunc(func(params *TestStruct) {
 				fmt.Printf("params: %+v\n", params)

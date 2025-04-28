@@ -29,6 +29,8 @@ type Wrap struct {
 	// To customize params
 	InitFunc       func(params any) error
 	PreExecuteFunc func(params any, cmd *cobra.Command, args []string) error
+	// To inject raw args instead of using os.Args
+	RawArgs []string
 }
 
 func HasValue(f Param) bool {

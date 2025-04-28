@@ -657,6 +657,10 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 		ValidArgsFunction: b.ValidArgsFunc,
 	}
 
+	if b.RawArgs != nil {
+		cmd.SetArgs(b.RawArgs)
+	}
+
 	// if params is set and implements CfgStructInit, call it
 	if b.Params != nil {
 		if preParse, ok := b.Params.(CfgStructInit); ok {
