@@ -51,6 +51,12 @@ func TestJsonSerialization(t *testing.T) {
 		t.Errorf("KafkaNilCredentials should not have value")
 	}
 
+	if !data.KafkaCredentials.HasValue() {
+		t.Errorf("KafkaCredentials should have value")
+	}
+	if !deserialized.KafkaCredentials.HasValue() {
+		t.Errorf("KafkaCredentials should have value")
+	}
 	if data.KafkaCredentials.GetOrElse("") != deserialized.KafkaCredentials.GetOrElse("") {
 		t.Errorf("KafkaCredentials mismatch: got %s, want %s", deserialized.KafkaCredentials.GetOrElse(""), data.KafkaCredentials.GetOrElse(""))
 	}
