@@ -3,7 +3,6 @@ package boa
 import (
 	"fmt"
 	"github.com/spf13/cobra"
-	"os"
 	"reflect"
 	"time"
 )
@@ -136,28 +135,7 @@ type ResultHandler struct {
 }
 
 func ToAppH(cmd *cobra.Command, handler ResultHandler) {
-
-	if handler.Panic != nil {
-		defer func() {
-			if r := recover(); r != nil {
-				handler.Panic(r)
-			}
-		}()
-	}
-
-	err := cmd.Execute()
-	if err != nil {
-		if handler.Failure != nil {
-			handler.Failure(err)
-		} else {
-			fmt.Printf("error executing command: %v\n", err)
-			os.Exit(1)
-		}
-	} else {
-		if handler.Success != nil {
-			handler.Success()
-		}
-	}
+	toAppHImpl(cmd, handler)
 }
 
 //goland:noinspection GoUnusedExportedFunction
