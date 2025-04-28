@@ -42,6 +42,14 @@ func TestTyped1(t *testing.T) {
 	}
 
 	builder.Run()
+
+	if !builder.Params.Flag1.HasValue() {
+		t.Errorf("Flag1 should have value")
+	}
+
+	if !builder.Params.Flag2.HasValue() {
+		t.Errorf("Flag2 should have value")
+	}
 }
 
 func TestTyped2(t *testing.T) {
@@ -74,4 +82,12 @@ func TestTyped2(t *testing.T) {
 	}
 
 	builder.Run()
+
+	if !builder.Params.Flag1.HasValue() {
+		t.Errorf("Flag1 should have value")
+	}
+
+	if !builder.Params.Flag2.HasValue() {
+		t.Errorf("Flag2 should have value")
+	}
 }
