@@ -11,11 +11,6 @@ import (
 	"unicode"
 )
 
-type SupportedTypes interface {
-	string | int | int32 | int64 | bool | float64 | float32 | time.Time |
-		[]int | []int32 | []int64 | []float32 | []float64 | []string
-}
-
 type Param interface {
 	HasValue() bool
 	GetShort() string
@@ -51,10 +46,6 @@ type Param interface {
 	GetAlternatives() []string
 	GetAlternativesFunc() func(cmd *cobra.Command, args []string, toComplete string) []string
 	GetIsEnabledFn() func() bool
-}
-
-func Default[T SupportedTypes](val T) *T {
-	return &val
 }
 
 func validate(structPtr any) error {
@@ -570,84 +561,6 @@ func parsePtr(
 	}
 }
 
-func HasValue(f Param) bool {
-	return f.wasSetByEnv() || f.wasSetOnCli() || f.hasDefaultValue() || f.wasSetByInject()
-}
-
-type ParamEnricher func(alreadyProcessed []Param, param Param, paramFieldName string) error
-
-func ParamEnricherCombine(enrichers ...ParamEnricher) ParamEnricher {
-	return func(alreadyProcessed []Param, param Param, paramFieldName string) error {
-		for _, enricher := range enrichers {
-			err := enricher(alreadyProcessed, param, paramFieldName)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-}
-
-//goland:noinspection GoUnusedGlobalVariable
-var (
-	ParamEnricherBool ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) error {
-		if param.GetKind() == reflect.Bool && !param.hasDefaultValue() {
-			param.SetDefault(Default(false))
-		}
-		return nil
-	}
-	ParamEnricherName ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) error {
-		if param.GetName() == "" {
-			param.SetName(camelToKebabCase(paramFieldName))
-		}
-		return nil
-	}
-	ParamEnricherShort ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) error {
-		if param.GetShort() == "" && param.GetName() != "" {
-			// check that no other param has the same short name
-			wantShort := string(param.GetName()[0])
-			if wantShort == "h" {
-				return nil // don't override help h
-			}
-			shortAvailable := true
-			for _, other := range alreadyProcessed {
-				if other.GetShort() == wantShort {
-					shortAvailable = false
-				}
-			}
-			if shortAvailable {
-				param.SetShort(wantShort)
-			}
-		}
-		return nil
-	}
-	ParamEnricherEnv ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) error {
-		if param.GetEnv() == "" && param.GetName() != "" && !param.isPositional() {
-			param.SetEnv(kebabCaseToUpperSnakeCase(param.GetName()))
-		}
-		return nil
-	}
-
-	ParamEnricherDefault = ParamEnricherCombine(
-		ParamEnricherName,
-		ParamEnricherShort,
-		ParamEnricherEnv,
-		ParamEnricherBool,
-	)
-
-	ParamEnricherNone = ParamEnricherCombine()
-)
-
-//goland:noinspection GoUnusedExportedFunction
-func ParamEnricherEnvPrefix(prefix string) ParamEnricher {
-	return func(alreadyProcessed []Param, param Param, paramFieldName string) error {
-		if param.GetEnv() != "" {
-			param.SetEnv(prefix + "_" + param.GetEnv())
-		}
-		return nil
-	}
-}
-
 func camelToKebabCase(in string) string {
 	var result strings.Builder
 
@@ -679,38 +592,60 @@ func kebabCaseToUpperSnakeCase(in string) string {
 	return strings.ToUpper(result.String())
 }
 
-type Wrap struct {
-	Use            string
-	Short          string
-	Long           string
-	Version        string
-	Args           cobra.PositionalArgs
-	SubCommands    []*cobra.Command
-	Params         any
-	ParamEnrich    ParamEnricher
-	Run            func(cmd *cobra.Command, args []string)
-	UseCobraErrLog bool
-	SortFlags      bool
-	ValidArgs      []string
-	ValidArgsFunc  func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
-}
+func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags reflect.StructTag) error) error {
 
-func (b Wrap) WithSubCommands(cmd ...*cobra.Command) Wrap {
-	b.SubCommands = append(b.SubCommands, cmd...)
-	return b
-}
-
-func Compose(structs ...any) *Composition {
-	return &Composition{
-		StructPtrs: structs,
+	if reflect.TypeOf(structPtr).Kind() != reflect.Ptr {
+		return fmt.Errorf("expected pointer to struct")
 	}
+
+	if reflect.TypeOf(structPtr).Elem().Kind() != reflect.Struct {
+		return fmt.Errorf("expected pointer to struct")
+	}
+
+	if c, ok := reflect.ValueOf(structPtr).Interface().(*StructComposition); ok {
+		for _, structPtr := range c.StructPtrs {
+			if err := foreachParam(structPtr, f); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// use reflection to iterate over all fields of the struct
+	fields := reflect.TypeOf(structPtr).Elem()
+	rootValue := reflect.ValueOf(structPtr).Elem()
+	for i := 0; i < fields.NumField(); i++ {
+		field := fields.Field(i)
+		fieldValue := rootValue.Field(i).Addr()
+		// check if field is a param
+		param, isParam := fieldValue.Interface().(Param)
+		if isParam {
+			//if !param.IsEnabled() { // cant do here, because it is not known yet
+			//	continue // this parameter is not enabled
+			//}
+			err := f(param, field.Name, field.Tag)
+			if err != nil {
+				return err
+			}
+		} else {
+
+			// check if it is a struct
+			if field.Type.Kind() == reflect.Struct {
+				if err := foreachParam(fieldValue.Interface(), f); err != nil {
+					return err
+				}
+				continue
+			}
+
+			fmt.Printf("WARNING: field %s is not a param. It will be ignored\n", field.Name)
+			continue // not a param
+		}
+	}
+
+	return nil
 }
 
-type Composition struct {
-	StructPtrs []any
-}
-
-func (b Wrap) ToCmd() *cobra.Command {
+func (b Wrap) toCmdImpl() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:               b.Use,
 		Short:             b.Short,
@@ -858,117 +793,4 @@ func (b Wrap) ToCmd() *cobra.Command {
 	}
 
 	return cmd
-}
-
-type Handler struct {
-	Panic   func(any)
-	Failure func(error)
-	Success func()
-}
-
-func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags reflect.StructTag) error) error {
-
-	if reflect.TypeOf(structPtr).Kind() != reflect.Ptr {
-		return fmt.Errorf("expected pointer to struct")
-	}
-
-	if reflect.TypeOf(structPtr).Elem().Kind() != reflect.Struct {
-		return fmt.Errorf("expected pointer to struct")
-	}
-
-	if c, ok := reflect.ValueOf(structPtr).Interface().(*Composition); ok {
-		for _, structPtr := range c.StructPtrs {
-			if err := foreachParam(structPtr, f); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	// use reflection to iterate over all fields of the struct
-	fields := reflect.TypeOf(structPtr).Elem()
-	rootValue := reflect.ValueOf(structPtr).Elem()
-	for i := 0; i < fields.NumField(); i++ {
-		field := fields.Field(i)
-		fieldValue := rootValue.Field(i).Addr()
-		// check if field is a param
-		param, isParam := fieldValue.Interface().(Param)
-		if isParam {
-			//if !param.IsEnabled() { // cant do here, because it is not known yet
-			//	continue // this parameter is not enabled
-			//}
-			err := f(param, field.Name, field.Tag)
-			if err != nil {
-				return err
-			}
-		} else {
-
-			// check if it is a struct
-			if field.Type.Kind() == reflect.Struct {
-				if err := foreachParam(fieldValue.Interface(), f); err != nil {
-					return err
-				}
-				continue
-			}
-
-			fmt.Printf("WARNING: field %s is not a param. It will be ignored\n", field.Name)
-			continue // not a param
-		}
-	}
-
-	return nil
-}
-
-func ToAppH(cmd *cobra.Command, handler Handler) {
-
-	if handler.Panic != nil {
-		defer func() {
-			if r := recover(); r != nil {
-				handler.Panic(r)
-			}
-		}()
-	}
-
-	err := cmd.Execute()
-	if err != nil {
-		if handler.Failure != nil {
-			handler.Failure(err)
-		} else {
-			fmt.Printf("error executing command: %v\n", err)
-			os.Exit(1)
-		}
-	} else {
-		if handler.Success != nil {
-			handler.Success()
-		}
-	}
-}
-
-func ToApp(cmd *cobra.Command) {
-	ToAppH(cmd, Handler{})
-}
-
-func (b Wrap) ToApp() {
-	b.ToAppH(Handler{})
-}
-
-func (b Wrap) ToAppH(handler Handler) {
-	ToAppH(b.ToCmd(), handler)
-}
-
-func Validate[T any](structPtr *T, w Wrap) error {
-	w.Params = structPtr
-	w.Run = func(cmd *cobra.Command, args []string) {}
-	w.UseCobraErrLog = false
-	var err error
-	handler := Handler{
-		Failure: func(e error) {
-			err = e
-		},
-	}
-	cobraCmd := w.ToCmd()
-	cobraCmd.SilenceErrors = true
-	cobraCmd.SilenceUsage = true
-	ToAppH(cobraCmd, handler)
-	return err
 }

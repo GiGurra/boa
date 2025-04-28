@@ -33,7 +33,7 @@ func main() {
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Printf("Hello World!\n")
 		},
-	}.ToAppH(boa.Handler{
+	}.ToAppH(boa.ResultHandler{
 		Failure: func(err error) {
 			fmt.Printf("Error: %v\n", err)
 		},

@@ -47,7 +47,7 @@ func main() {
 				},
 			}.ToCmd(),
 		},
-	}.ToAppH(boa.Handler{
+	}.ToAppH(boa.ResultHandler{
 		Failure: func(err error) {
 			fmt.Printf("Error: %v\n", err)
 		},

@@ -56,7 +56,7 @@ func main() {
 				params.Time.Value(),      // *time.Time
 			)
 		},
-	}.ToAppH(boa.Handler{
+	}.ToAppH(boa.ResultHandler{
 		Failure: func(err error) {
 			fmt.Printf("Error: %v\n", err)
 		},
