@@ -153,3 +153,32 @@ func TestNoParams(t *testing.T) {
 		t.Fatalf("expected no error but got %v", builder.Validate())
 	}
 }
+
+func TestCmdTree(t *testing.T) {
+	prevArgs := os.Args
+	defer func() {
+		os.Args = prevArgs
+	}()
+
+	os.Args = []string{"test", "subcmd1", "--flag1", "value1", "--flag2", "42"}
+
+	ranInnerCommand := false
+
+	builder :=
+		NewCmdBuilder[NoParamsT]("test").
+			WithSubCommands(
+				NewCmdBuilder[TestStruct]("subcmd1").WithRunFunc(func(params *TestStruct) {
+					fmt.Printf("params: %+v\n", params)
+					if params.Flag1.Value() != "value1" {
+						t.Fatalf("expected value1 but got %s", params.Flag1.Value())
+					}
+					ranInnerCommand = true
+				}).ToCmd(),
+			)
+
+	builder.Run()
+
+	if !ranInnerCommand {
+		t.Fatalf("expected inner command to run but it didn't")
+	}
+}
