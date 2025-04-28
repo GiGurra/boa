@@ -90,7 +90,6 @@ func TestTypedWithInitFunc(t *testing.T) {
 
 	builder :=
 		NewCmdBuilder[TestStruct]("test").
-			WithRawArgs([]string{"--flag1", "value1"}).
 			WithInitFunc(func(params *TestStruct) { params.Flag2.Default = Default(42) }).
 			WithRunFunc(func(params *TestStruct) {
 				fmt.Printf("params: %+v\n", params)
@@ -110,7 +109,7 @@ func TestTypedWithInitFunc(t *testing.T) {
 		t.Errorf("Flag2 should not have value")
 	}
 
-	builder.Run()
+	builder.WithRawArgs([]string{"--flag1", "value1"}).Run()
 
 	if !builder.Params.Flag1.HasValue() {
 		t.Errorf("Flag1 should have value")
