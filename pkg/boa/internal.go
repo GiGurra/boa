@@ -806,6 +806,8 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		if b.Params != nil {
 
+			// TODO: Read config from files here
+
 			if err := validate(b.Params); err != nil {
 				return err
 			}
