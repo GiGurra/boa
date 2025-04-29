@@ -161,13 +161,13 @@ type PreExecuteTestStruct struct {
 	User Required[string] `default:"defaultUser"`
 }
 
-var expectedError = fmt.Errorf("<expected error>")
+var errExpected = fmt.Errorf("<expected error>")
 
 func (i *PreExecuteTestStruct) PreExecute() error {
 	if i.User.Value() != "defaultUser" {
 		return fmt.Errorf("user value is not defaultUser")
 	}
-	return expectedError
+	return errExpected
 }
 
 func TestPreExecute(t *testing.T) {
@@ -181,8 +181,8 @@ func TestPreExecute(t *testing.T) {
 
 	err := Validate(&params, Wrap{ParamEnrich: ParamEnricherName})
 	if err != nil {
-		if !strings.Contains(err.Error(), expectedError.Error()) {
-			t.Errorf("Expected error to contain: %s, got: %v", expectedError.Error(), err)
+		if !strings.Contains(err.Error(), errExpected.Error()) {
+			t.Errorf("Expected error to contain: %s, got: %v", errExpected.Error(), err)
 		}
 	} else {
 		t.Errorf("Expected error, got: nil")

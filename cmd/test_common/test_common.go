@@ -20,6 +20,7 @@ func newTempFile() *os.File {
 func closeAndDeleteTempFile(f *os.File) {
 	err := f.Close()
 	if err != nil {
+		panic(err)
 	}
 	err = os.Remove(f.Name())
 	if err != nil {
