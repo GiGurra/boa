@@ -210,7 +210,11 @@ func (f *Optional[T]) GetRequiredFn() func() bool {
 }
 
 func (f *Optional[T]) valuePtrF() any {
-	return f.valuePtr
+	if f.valuePtr != nil {
+		return f.valuePtr
+	} else {
+		return f.Default
+	}
 }
 
 func (f *Optional[T]) parentCmd() *cobra.Command {

@@ -188,3 +188,52 @@ func TestPreExecute(t *testing.T) {
 		t.Errorf("Expected error, got: nil")
 	}
 }
+
+type CustomValidatorTestStruct struct {
+	Flag2 Required[int]
+}
+
+func (s *CustomValidatorTestStruct) Init() error {
+	s.Flag2.CustomValidator = func(s int) error {
+		if s < 0 {
+			return fmt.Errorf("value must be greater than 0")
+		}
+		return nil
+	}
+	return nil
+}
+
+func TestCustomValidator(t *testing.T) {
+
+	err := Validate(&CustomValidatorTestStruct{}, Wrap{ParamEnrich: ParamEnricherName, RawArgs: []string{"--flag2", "-1"}})
+	if err == nil {
+		t.Errorf("Expected error, got: nil")
+	} else {
+		if !strings.Contains(err.Error(), "value must be greater than 0") {
+			t.Errorf("Expected error to contain: %s, got: %v", "value must be greater than 0", err)
+		}
+	}
+
+	err = Validate(&CustomValidatorTestStruct{}, Wrap{ParamEnrich: ParamEnricherName, RawArgs: []string{"--flag2", "0"}})
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+
+	err = Validate(&CustomValidatorTestStruct{
+		Flag2: Required[int]{Default: Default(42)},
+	}, Wrap{ParamEnrich: ParamEnricherName, RawArgs: []string{}})
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+
+	err = Validate(&CustomValidatorTestStruct{
+		Flag2: Required[int]{Default: Default(-42)},
+	}, Wrap{ParamEnrich: ParamEnricherName, RawArgs: []string{}})
+	if err == nil {
+		t.Errorf("Expected error, got: nil")
+	} else {
+		if !strings.Contains(err.Error(), "value must be greater than 0") {
+			t.Errorf("Expected error to contain: %s, got: %v", "value must be greater than 0", err)
+		}
+	}
+}

@@ -151,7 +151,11 @@ func (f *Required[T]) IsRequired() bool {
 }
 
 func (f *Required[T]) valuePtrF() any {
-	return f.valuePtr
+	if f.valuePtr != nil {
+		return f.valuePtr
+	} else {
+		return f.Default
+	}
 }
 
 func (f *Required[T]) wasSetByInject() bool {
