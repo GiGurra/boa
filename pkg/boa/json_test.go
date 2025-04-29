@@ -278,6 +278,7 @@ func TestWriteJsonToFileAndTreatAsConfig(t *testing.T) {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
 	defer func() {
+		_ = file.Close()
 		if err := os.Remove(file.Name()); err != nil {
 			t.Errorf("Failed to remove temp file: %v", err)
 		}
