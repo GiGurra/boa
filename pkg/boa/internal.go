@@ -593,11 +593,11 @@ func kebabCaseToUpperSnakeCase(in string) string {
 func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags reflect.StructTag) error) error {
 
 	if reflect.TypeOf(structPtr).Kind() != reflect.Ptr {
-		return fmt.Errorf("expected pointer to struct")
+		return fmt.Errorf("foreachParam1: expected pointer to struct")
 	}
 
 	if reflect.TypeOf(structPtr).Elem().Kind() != reflect.Struct {
-		return fmt.Errorf("expected pointer to struct")
+		return fmt.Errorf("foreachParam2: expected pointer to struct")
 	}
 
 	if c, ok := reflect.ValueOf(structPtr).Interface().(*StructComposition); ok {
@@ -630,6 +630,14 @@ func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags
 			// check if it is a struct
 			if field.Type.Kind() == reflect.Struct {
 				if err := foreachParam(fieldValue.Interface(), f); err != nil {
+					return err
+				}
+				continue
+			}
+
+			// check if it is a pointer to a struct
+			if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct {
+				if err := foreachParam(fieldValue.Elem().Interface(), f); err != nil {
 					return err
 				}
 				continue
@@ -746,7 +754,7 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 		})
 
 		if err != nil {
-			panic(fmt.Errorf("error parsing tags: %s", err.Error()))
+			panic(fmt.Errorf("error parsing tags: %w", err))
 		}
 
 		if b.ParamEnrich == nil {
