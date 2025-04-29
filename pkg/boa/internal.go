@@ -80,9 +80,7 @@ func validate(structPtr any) error {
 					param.setValuePtr(res)
 				}
 			}
-		}
 
-		if param.HasValue() {
 			if err := param.customValidatorOfPtr()(param.valuePtrF()); err != nil {
 				return fmt.Errorf("invalid value for param '%s': %s", param.GetName(), err.Error())
 			}
