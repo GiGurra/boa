@@ -426,6 +426,131 @@ func main() {
 		Run()
 }
 ```
+# Lifecycle Hooks in Boa
+
+Boa provides several lifecycle hooks that can be implemented or defined to customize behavior at different stages of command execution. These hooks give you fine-grained control over parameter initialization, validation, and execution.
+
+## Available Hooks
+
+### Init Hook
+
+The Init hook runs during the initialization phase, before any command-line arguments or environment variables are processed.
+
+```go
+// Implement this interface on your configuration struct
+type CfgStructInit interface {
+    Init() error
+}
+
+// Example implementation
+func (i *MyConfigStruct) Init() error {
+    // Initialize defaults, set up validators, etc.
+    i.SomeParam.Default = boa.Default("default value")
+    return nil
+}
+
+// Alternatively, use the InitFunc in Wrap
+boa.Wrap{
+    Params: &params,
+    InitFunc: func(params any) error {
+        // Custom initialization logic
+        return nil
+    },
+}.ToApp()
+
+// Or with the builder API
+boa.NewCmdBuilder[MyConfigStruct]("command").
+    WithInitFuncE(func(params *MyConfigStruct) error {
+        // Custom initialization logic
+        return nil
+    })
+```
+
+### PreValidate Hook
+
+The PreValidate hook runs after parameters are parsed from the command line and environment variables but before validation is performed.
+
+```go
+// Implement this interface on your configuration struct
+type CfgStructPreValidate interface {
+    PreValidate() error
+}
+
+// Example implementation
+func (i *MyConfigStruct) PreValidate() error {
+    // Manipulate parameters before validation
+    return nil
+}
+
+// Alternatively, use the PreValidateFunc in Wrap
+boa.Wrap{
+    Params: &params,
+    PreValidateFunc: func(params any, cmd *cobra.Command, args []string) error {
+        // Custom pre-validation logic
+        return nil
+    },
+}.ToApp()
+
+// Or with the builder API
+boa.NewCmdBuilder[MyConfigStruct]("command").
+    WithPreValidateFuncE(func(params *MyConfigStruct, cmd *cobra.Command, args []string) error {
+        // Custom pre-validation logic, such as loading from config files
+        return nil
+    })
+```
+
+### PreExecute Hook
+
+The PreExecute hook runs after parameter validation but before the command's Run function is executed.
+
+```go
+// Implement this interface on your configuration struct
+type CfgStructPreExecute interface {
+    PreExecute() error
+}
+
+// Example implementation
+func (i *MyConfigStruct) PreExecute() error {
+    // Setup that should happen after validation but before execution
+    return nil
+}
+
+// Alternatively, use the PreExecuteFunc in Wrap
+boa.Wrap{
+    Params: &params,
+    PreExecuteFunc: func(params any, cmd *cobra.Command, args []string) error {
+        // Custom pre-execution logic
+        return nil
+    },
+}.ToApp()
+
+// Or with the builder API
+boa.NewCmdBuilder[MyConfigStruct]("command").
+    WithPreExecuteFuncE(func(params *MyConfigStruct, cmd *cobra.Command, args []string) error {
+        // Custom pre-execution logic
+        return nil
+    })
+```
+
+## Hook Execution Order
+
+Hooks are executed in the following order:
+
+1. **Init** - During command initialization, before any flags are parsed
+2. **PreValidate** - After flags are parsed but before validation
+3. **Validation** - Built-in parameter validation
+4. **PreExecute** - After validation but before command execution
+5. **Run** - The actual command execution
+
+## Common Use Cases
+
+- **Init**: Set up default values, configure custom validators
+- **PreValidate**: Load configurations from files, set derived parameters
+- **PreExecute**: Establish connections, prepare resources needed for execution
+
+## Error Handling
+
+All hooks can return errors to abort command execution. If any hook returns an error, the command will not proceed to the next phase, and the error will be reported to the user.
 
 ## Missing features
 
