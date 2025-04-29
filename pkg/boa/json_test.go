@@ -291,14 +291,8 @@ func TestWriteJsonToFileAndTreatAsConfig(t *testing.T) {
 
 	NewCmdBuilder[AppConfigFromFile]("root").
 		WithRawArgs([]string{"-f", file.Name()}).
-		WithPreValidateFunc(func(params *AppConfigFromFile, cmd *cobra.Command, args []string) {
-			cfgData, err := os.ReadFile(params.File.Value())
-			if err != nil {
-				t.Fatalf("Failed to read config file: %v", err)
-			}
-			if err := json.Unmarshal(cfgData, params); err != nil {
-				t.Fatalf("Failed to unmarshal config file: %v", err)
-			}
+		WithPreValidateFuncE(func(params *AppConfigFromFile, cmd *cobra.Command, args []string) error {
+			return UnMarshalFromFileParam(&params.File, params, nil)
 		}).
 		WithRunFunc(func(params *AppConfigFromFile) {
 			if params.Host.Value() != origCfg.Host.Value() {

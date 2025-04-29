@@ -1,8 +1,10 @@
 package boa
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/spf13/cobra"
+	"os"
 	"reflect"
 )
 
@@ -238,4 +240,41 @@ func (b Wrap2[Struct]) RunH(handler ResultHandler) {
 
 func (b Wrap2[Struct]) Validate() error {
 	return Validate(b.Params, b.ToWrap())
+}
+
+func UnMarshalFromFileParam[T any](
+	fileParam Param,
+	v *T,
+	unmarshalFunc func(data []byte, v any) error,
+) error {
+	if !fileParam.HasValue() {
+		return nil
+	} else {
+		valuePtrAny := fileParam.valuePtrF()
+		valuePtrStr, ok := valuePtrAny.(*string)
+		if !ok {
+			return fmt.Errorf("expected string value, got %T", valuePtrAny)
+		}
+		if valuePtrStr == nil {
+			return fmt.Errorf("expected string value, got nil")
+		}
+		if *valuePtrStr == "" {
+			return fmt.Errorf("expected string value, got empty string")
+		}
+		fileContents, err := os.ReadFile(*valuePtrStr)
+		if err != nil {
+			return fmt.Errorf("failed to read file %s: %w", *valuePtrStr, err)
+		}
+
+		if unmarshalFunc == nil {
+			unmarshalFunc = json.Unmarshal
+		}
+
+		err = unmarshalFunc(fileContents, v)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal file %s: %w", *valuePtrStr, err)
+		}
+
+		return nil
+	}
 }
