@@ -669,6 +669,8 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 		}
 	}
 
+	// TODO: RUn CfgStructInit for substructs here
+
 	// if we have a custom init function, call it
 	if b.InitFunc != nil {
 		err := b.InitFunc(b.Params)
