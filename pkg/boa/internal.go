@@ -849,6 +849,14 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 				return err
 			}
 
+			// if we have a custom pre-execute function, call it
+			if b.PreValidateFunc != nil {
+				err := b.PreValidateFunc(b.Params, cmd, args)
+				if err != nil {
+					return fmt.Errorf("error in PreValidate: %s", err.Error())
+				}
+			}
+
 			if err = validate(b.Params); err != nil {
 				return err
 			}

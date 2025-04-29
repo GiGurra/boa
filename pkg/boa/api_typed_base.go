@@ -9,22 +9,23 @@ import (
 type NoParams struct{}
 
 type Wrap2[Struct any] struct {
-	Use            string
-	Short          string
-	Long           string
-	Version        string
-	Args           cobra.PositionalArgs
-	SubCommands    []*cobra.Command
-	Params         *Struct
-	ParamEnrich    ParamEnricher
-	RunFunc        func(params *Struct, cmd *cobra.Command, args []string)
-	InitFunc       func(params *Struct) error
-	PreExecuteFunc func(params *Struct, cmd *cobra.Command, args []string) error
-	UseCobraErrLog bool
-	SortFlags      bool
-	ValidArgs      []string
-	ValidArgsFunc  func(params *Struct, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
-	RawArgs        []string
+	Use             string
+	Short           string
+	Long            string
+	Version         string
+	Args            cobra.PositionalArgs
+	SubCommands     []*cobra.Command
+	Params          *Struct
+	ParamEnrich     ParamEnricher
+	RunFunc         func(params *Struct, cmd *cobra.Command, args []string)
+	InitFunc        func(params *Struct) error
+	PreValidateFunc func(params *Struct, cmd *cobra.Command, args []string) error
+	PreExecuteFunc  func(params *Struct, cmd *cobra.Command, args []string) error
+	UseCobraErrLog  bool
+	SortFlags       bool
+	ValidArgs       []string
+	ValidArgsFunc   func(params *Struct, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
+	RawArgs         []string
 }
 
 func NewCmdBuilder[Struct any](use string) Wrap2[Struct] {
@@ -115,6 +116,18 @@ func (b Wrap2[Struct]) WithSubCommands(cmd ...*cobra.Command) Wrap2[Struct] {
 	return b
 }
 
+func (b Wrap2[Struct]) WithPreValidateFunc(preValidateFunc func(params *Struct, cmd *cobra.Command, args []string)) Wrap2[Struct] {
+	return b.WithPreValidateFuncE(func(params *Struct, cmd *cobra.Command, args []string) error {
+		preValidateFunc(params, cmd, args)
+		return nil
+	})
+}
+
+func (b Wrap2[Struct]) WithPreValidateFuncE(preValidateFunc func(params *Struct, cmd *cobra.Command, args []string) error) Wrap2[Struct] {
+	b.PreValidateFunc = preValidateFunc
+	return b
+}
+
 func (b Wrap2[Struct]) WithPreExecuteFunc(preExecuteFunc func(params *Struct, cmd *cobra.Command, args []string)) Wrap2[Struct] {
 	return b.WithPreExecuteFuncE(func(params *Struct, cmd *cobra.Command, args []string) error {
 		preExecuteFunc(params, cmd, args)
@@ -175,23 +188,31 @@ func (b Wrap2[Struct]) ToWrap() Wrap {
 		}
 	}
 
+	var preValidateFunc func(params any, cmd *cobra.Command, args []string) error = nil
+	if b.PreValidateFunc != nil {
+		preValidateFunc = func(params any, cmd *cobra.Command, args []string) error {
+			return b.PreValidateFunc(params.(*Struct), cmd, args)
+		}
+	}
+
 	return Wrap{
-		Use:            b.Use,
-		Short:          b.Short,
-		Long:           b.Long,
-		Version:        b.Version,
-		Args:           b.Args,
-		SubCommands:    b.SubCommands,
-		Params:         b.Params,
-		ParamEnrich:    b.ParamEnrich,
-		Run:            runFcn,
-		UseCobraErrLog: b.UseCobraErrLog,
-		SortFlags:      b.SortFlags,
-		ValidArgs:      b.ValidArgs,
-		ValidArgsFunc:  validArgsFunc,
-		InitFunc:       initFunc,
-		PreExecuteFunc: preExecuteFunc,
-		RawArgs:        b.RawArgs,
+		Use:             b.Use,
+		Short:           b.Short,
+		Long:            b.Long,
+		Version:         b.Version,
+		Args:            b.Args,
+		SubCommands:     b.SubCommands,
+		Params:          b.Params,
+		ParamEnrich:     b.ParamEnrich,
+		Run:             runFcn,
+		UseCobraErrLog:  b.UseCobraErrLog,
+		SortFlags:       b.SortFlags,
+		ValidArgs:       b.ValidArgs,
+		ValidArgsFunc:   validArgsFunc,
+		InitFunc:        initFunc,
+		PreValidateFunc: preValidateFunc,
+		PreExecuteFunc:  preExecuteFunc,
+		RawArgs:         b.RawArgs,
 	}
 }
 

@@ -27,8 +27,9 @@ type Wrap struct {
 	ValidArgs      []string
 	ValidArgsFunc  func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
 	// To customize params
-	InitFunc       func(params any) error
-	PreExecuteFunc func(params any, cmd *cobra.Command, args []string) error
+	InitFunc        func(params any) error
+	PreValidateFunc func(params any, cmd *cobra.Command, args []string) error
+	PreExecuteFunc  func(params any, cmd *cobra.Command, args []string) error
 	// To inject raw args instead of using os.Args
 	RawArgs []string
 }

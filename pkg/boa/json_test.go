@@ -2,6 +2,8 @@ package boa
 
 import (
 	"encoding/json"
+	"github.com/spf13/cobra"
+	"os"
 	"strings"
 	"testing"
 )
@@ -247,4 +249,61 @@ func TestJsonSerializationEmbeddedStructPointer(t *testing.T) {
 	if deserialized.Foobar.Value() != "foobar" {
 		t.Errorf("Foobar mismatch: got %s, want %s", deserialized.Foobar.Value(), "foobar")
 	}
+}
+
+type AppConfigFromFile struct {
+	File                Required[string] `long:"host"`
+	Host                Required[string] `long:"host"`
+	Port                Required[int]    `long:"port" default:"8080"`
+	KafkaCredentials    Optional[string] `long:"kafka-credentials"`
+	KafkaNilCredentials Optional[string] `long:"kafka-nil-credentials"`
+}
+
+func TestWriteJsonToFileAndTreatAsConfig(t *testing.T) {
+	origCfg := AppConfig{
+		Host:             Req("someHost"),
+		Port:             Req(12345),
+		KafkaCredentials: Opt("someCredentials"),
+	}
+
+	// Serialize to JSON
+	serialized, err := json.MarshalIndent(origCfg, "", "  ")
+	if err != nil {
+		t.Fatalf("json.MarshalIndent() error = %v", err)
+	}
+
+	// temp file
+	file, err := os.CreateTemp("", "config.json")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer func() {
+		if err := os.Remove(file.Name()); err != nil {
+			t.Errorf("Failed to remove temp file: %v", err)
+		}
+	}()
+
+	// Write JSON to file
+	if _, err := file.Write(serialized); err != nil {
+		t.Fatalf("Failed to write to temp file: %v", err)
+	}
+
+	NewCmdBuilder[AppConfigFromFile]("root").
+		WithRawArgs([]string{"-f", file.Name()}).
+		WithPreValidateFunc(func(params *AppConfigFromFile, cmd *cobra.Command, args []string) {
+			cfgData, err := os.ReadFile(params.File.Value())
+			if err != nil {
+				t.Fatalf("Failed to read config file: %v", err)
+			}
+			if err := json.Unmarshal(cfgData, params); err != nil {
+				t.Fatalf("Failed to unmarshal config file: %v", err)
+			}
+		}).
+		WithRunFunc(func(params *AppConfigFromFile) {
+			if params.Host.Value() != origCfg.Host.Value() {
+				t.Fatalf("Host mismatch: got %s, want %s", params.Host.Value(), origCfg.Host.Value())
+			}
+		}).
+		Run()
+
 }
