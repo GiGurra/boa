@@ -290,7 +290,6 @@ func TestWriteJsonToFileAndTreatAsConfig(t *testing.T) {
 	}
 
 	NewCmdBuilder[AppConfigFromFile]("root").
-		WithRawArgs([]string{"-f", file.Name()}).
 		WithPreValidateFuncE(func(params *AppConfigFromFile, cmd *cobra.Command, args []string) error {
 			return UnMarshalFromFileParam(&params.File, params, nil)
 		}).
@@ -299,6 +298,6 @@ func TestWriteJsonToFileAndTreatAsConfig(t *testing.T) {
 				t.Fatalf("Host mismatch: got %s, want %s", params.Host.Value(), origCfg.Host.Value())
 			}
 		}).
-		Run()
+		RunArgs([]string{"-f", file.Name()})
 
 }

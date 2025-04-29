@@ -230,12 +230,20 @@ func (b Wrap2[Struct]) Run() {
 	b.ToApp()
 }
 
+func (b Wrap2[Struct]) RunArgs(rawArgs []string) {
+	b.WithRawArgs(rawArgs).ToApp()
+}
+
 func (b Wrap2[Struct]) ToAppH(handler ResultHandler) {
 	ToAppH(b.ToCmd(), handler)
 }
 
 func (b Wrap2[Struct]) RunH(handler ResultHandler) {
 	b.ToAppH(handler)
+}
+
+func (b Wrap2[Struct]) RunHArgs(handler ResultHandler, rawArgs []string) {
+	b.WithRawArgs(rawArgs).ToAppH(handler)
 }
 
 func (b Wrap2[Struct]) Validate() error {
