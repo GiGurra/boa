@@ -835,14 +835,26 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		if b.Params != nil {
 
-			// TODO: Read config from files here
+			// if b.params or any inner struct implements CfgStructPreValidate, call it
+			err := traverse(b.Params, nil, func(innerParams any) error {
+				if s, ok := innerParams.(CfgStructPreValidate); ok {
+					err := s.PreValidate()
+					if err != nil {
+						return fmt.Errorf("error in PreValidate: %s", err.Error())
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
 
-			if err := validate(b.Params); err != nil {
+			if err = validate(b.Params); err != nil {
 				return err
 			}
 
 			// if b.params or any inner struct implements CfgStructPreExecute, call it
-			err := traverse(b.Params, nil, func(innerParams any) error {
+			err = traverse(b.Params, nil, func(innerParams any) error {
 				if preExecute, ok := innerParams.(CfgStructPreExecute); ok {
 					err := preExecute.PreExecute()
 					if err != nil {

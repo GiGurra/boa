@@ -184,3 +184,7 @@ type CfgStructInit interface {
 type CfgStructPreExecute interface {
 	PreExecute() error
 }
+
+type CfgStructPreValidate interface {
+	PreValidate() error
+}
