@@ -20,6 +20,14 @@ The primary goal of Boa is to maintain a declarative approach. In its simplest f
 * **Input Validation**: Boa validates all inputs before the `Run` function is invoked.
 * **Config Flexibility**: Use explicit fields for config or tags as per your preference.
 * **Cobra Compatibility**: Mix and match Boa with regular Cobra code as you see fit. Boa works with regular Cobra commands.
+* **Conditional Parameters**: Parameters can be conditionally required or enabled based on other parameter values.
+* **Flag Alternatives**: Support for alternative flag names and auto-completion.
+* **Slices Support**: Handle array types like `[]string`, `[]int`, etc. with proper parsing.
+* **Time Support**: Native support for `time.Time` parameters.
+* **Config file Support**: Built-in capability to marshal/unmarshal configurations/sub-configurations to/from JSON or other formats.
+* **Structured Builder API**: A fluent API for building commands.
+* **Custom Validation**: Provide custom validation functions for parameters.
+* **Initialization and Lifecycle Hooks**: Support for initialization, pre-validation, and pre-execution hooks.
 
 ## Installation
 
@@ -137,7 +145,6 @@ func main() {
 		},
 	}.ToApp()
 }
-
 ```
 
 Help output for the above:
@@ -208,7 +215,6 @@ func main() {
 		},
 	}.ToApp()
 }
-
 ```
 
 Help output for the above:
@@ -290,14 +296,141 @@ func main() {
 		},
 	}.ToApp()
 }
+```
 
+### Conditional parameters
+
+You can make parameters conditionally required or enabled:
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/GiGurra/boa/pkg/boa"
+	"github.com/spf13/cobra"
+)
+
+func main() {
+	var params = struct {
+		Foo boa.Optional[string]
+		Bar boa.Optional[int]
+		Baz boa.Optional[string]
+	}{}
+
+	// Bar is only enabled if Foo has a value
+	params.Bar.SetIsEnabledFn(func() bool {
+		return params.Foo.HasValue()
+	})
+
+	// Baz is required if Foo has a value
+	params.Baz.SetRequiredFn(func() bool {
+		return params.Foo.HasValue()
+	})
+
+	boa.Wrap{
+		Use:    "hello-world",
+		Short:  "a generic cli tool",
+		Long:   `A generic cli tool that has a longer description.`,
+		Params: &params,
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("Hello World!\n")
+		},
+	}.ToApp()
+}
+```
+
+### Alternative flag names
+
+You can specify alternative flag names:
+
+```go
+var params = struct {
+	Foo boa.Required[string] `alts:"abc,cde,fgh"`
+}{}
+```
+
+### Array/slice parameters
+
+Boa supports array/slice types with proper parsing:
+
+```go
+var params struct {
+	WithoutDefaults boa.Required[[]float64]
+	WithDefaults    boa.Required[[]int64] `default:"[1,2,3]"`
+}
+```
+
+### Fluent builder API
+
+A structured builder API is available for more complex command creation:
+
+```go
+import (
+	"fmt"
+	"github.com/GiGurra/boa/pkg/boa"
+)
+
+type TestStruct struct {
+	Flag1 boa.Required[string]
+	Flag2 boa.Required[int]
+}
+
+func main() {
+	builder := boa.NewCmdBuilder[TestStruct]("my-command").
+		WithShort("A command description").
+		WithLong("A longer command description").
+		WithRunFunc(func(params *TestStruct) {
+			fmt.Printf("Running with: %s, %d\n",
+				params.Flag1.Value(),
+				params.Flag2.Value(),
+			)
+		})
+
+	builder.Run()
+}
+```
+
+### Config file serialization and configuration
+
+```go
+import (
+	"github.com/GiGurra/boa/pkg/boa"
+	"github.com/spf13/cobra"
+)
+
+type AppConfig struct {
+	Host boa.Required[string]
+	Port boa.Required[int]
+}
+
+type ConfigFromFile struct {
+	File    boa.Required[string]
+	AppConfig
+}
+
+func main() {
+	boa.NewCmdBuilder[ConfigFromFile]("my-app").
+		WithPreValidateFuncE(func(params *ConfigFromFile, cmd *cobra.Command, args []string) error {
+			// boa.UnMarshalFromFileParam is a helper to unmarshal from a file, but you can run
+			// any custom code here.
+			return boa.UnMarshalFromFileParam(&params.File, &params.AppConfig, nil /* custom unmarshaller function */)
+		}).
+		WithRunFunc(func(params *ConfigFromFile) {
+			// Use parameters loaded from the file
+			fmt.Printf("Host: %s, Port: %d\n",
+				params.Host.Value(),
+				params.Port.Value(),
+			)
+		}).
+		Run()
+}
 ```
 
 ## Missing features
 
 - [ ] Nested config
-- [ ] Probably lots
 
 ## State
 
-- [x] Very early. Use at your own risk.
+- [x] Pretty early. Use at your own risk. I'm using it in most of my own projects and some production code at work.
