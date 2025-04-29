@@ -50,7 +50,7 @@ type Param interface {
 
 func validate(structPtr any) error {
 
-	return foreachParam(structPtr, func(param Param, _ string, _ reflect.StructTag) error {
+	return traverse(structPtr, func(param Param, _ string, _ reflect.StructTag) error {
 
 		if !param.IsEnabled() {
 			return nil
@@ -87,7 +87,7 @@ func validate(structPtr any) error {
 		}
 
 		return nil
-	})
+	}, nil)
 }
 
 func doParsePositional(f Param, strVal string) error {
@@ -590,7 +590,11 @@ func kebabCaseToUpperSnakeCase(in string) string {
 	return strings.ToUpper(result.String())
 }
 
-func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags reflect.StructTag) error) error {
+func traverse(
+	structPtr any,
+	fParam func(param Param, paramFieldName string, tags reflect.StructTag) error,
+	fStruct func(structPtr any) error,
+) error {
 
 	if reflect.TypeOf(structPtr).Kind() != reflect.Ptr {
 		return fmt.Errorf("foreachParam1: expected pointer to struct")
@@ -602,11 +606,18 @@ func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags
 
 	if c, ok := reflect.ValueOf(structPtr).Interface().(*StructComposition); ok {
 		for _, structPtr := range c.StructPtrs {
-			if err := foreachParam(structPtr, f); err != nil {
+			if err := traverse(structPtr, fParam, fStruct); err != nil {
 				return err
 			}
 		}
 		return nil
+	}
+
+	if fStruct != nil {
+		err := fStruct(structPtr)
+		if err != nil {
+			return fmt.Errorf("foreachParam3: error in fStruct: %s", err.Error())
+		}
 	}
 
 	// use reflection to iterate over all fields of the struct
@@ -621,15 +632,17 @@ func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags
 			//if !param.IsEnabled() { // cant do here, because it is not known yet
 			//	continue // this parameter is not enabled
 			//}
-			err := f(param, field.Name, field.Tag)
-			if err != nil {
-				return err
+			if fParam != nil {
+				err := fParam(param, field.Name, field.Tag)
+				if err != nil {
+					return err
+				}
 			}
 		} else {
 
 			// check if it is a struct
 			if field.Type.Kind() == reflect.Struct {
-				if err := foreachParam(fieldValue.Interface(), f); err != nil {
+				if err := traverse(fieldValue.Interface(), fParam, fStruct); err != nil {
 					return err
 				}
 				continue
@@ -637,8 +650,10 @@ func foreachParam(structPtr any, f func(param Param, paramFieldName string, tags
 
 			// check if it is a pointer to a struct
 			if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct {
-				if err := foreachParam(fieldValue.Elem().Interface(), f); err != nil {
-					return err
+				if !fieldValue.IsNil() && !fieldValue.Elem().IsNil() {
+					if err := traverse(fieldValue.Elem().Interface(), fParam, fStruct); err != nil {
+						return err
+					}
 				}
 				continue
 			}
@@ -667,17 +682,21 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 		cmd.SetArgs(b.RawArgs)
 	}
 
-	// if params is set and implements CfgStructInit, call it
+	// if b.params or any inner struct implements CfgStructPreExecute, call it
 	if b.Params != nil {
-		if preParse, ok := b.Params.(CfgStructInit); ok {
-			err := preParse.Init()
-			if err != nil {
-				panic(fmt.Errorf("error in PreParse: %s", err.Error()))
+		err := traverse(b.Params, nil, func(innerParams any) error {
+			if preParse, ok := b.Params.(CfgStructInit); ok {
+				err := preParse.Init()
+				if err != nil {
+					return fmt.Errorf("error in PreParse: %s", err.Error())
+				}
 			}
+			return nil
+		})
+		if err != nil {
+			panic(err)
 		}
 	}
-
-	// TODO: RUn CfgStructInit for substructs here
 
 	// if we have a custom init function, call it
 	if b.InitFunc != nil {
@@ -697,7 +716,7 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 	if b.Params != nil {
 
 		// look in tags for info about positional args
-		err := foreachParam(b.Params, func(param Param, _ string, tags reflect.StructTag) error {
+		err := traverse(b.Params, func(param Param, _ string, tags reflect.StructTag) error {
 			if tags.Get("positional") == "true" || tags.Get("pos") == "true" {
 				param.setPositional(true)
 			}
@@ -751,7 +770,7 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 				}
 			}
 			return nil
-		})
+		}, nil)
 
 		if err != nil {
 			panic(fmt.Errorf("error parsing tags: %w", err))
@@ -761,14 +780,14 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 			b.ParamEnrich = ParamEnricherDefault
 		}
 		processed := make([]Param, 0)
-		err = foreachParam(b.Params, func(param Param, paramFieldName string, _ reflect.StructTag) error {
+		err = traverse(b.Params, func(param Param, paramFieldName string, _ reflect.StructTag) error {
 			err := b.ParamEnrich(processed, param, paramFieldName)
 			if err != nil {
 				return err
 			}
 			processed = append(processed, param)
 			return nil
-		})
+		}, nil)
 		if err != nil {
 			panic(fmt.Errorf("error enriching params: %s", err.Error()))
 		}
@@ -798,14 +817,14 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 			cmd.Args = cobra.RangeArgs(numReqPositional, len(positional))
 		}
 
-		err = foreachParam(b.Params, func(param Param, _ string, tags reflect.StructTag) error {
+		err = traverse(b.Params, func(param Param, _ string, tags reflect.StructTag) error {
 			err := connect(param, cmd, positional)
 			if err != nil {
 				return err
 			}
 
 			return nil
-		})
+		}, nil)
 
 		if err != nil {
 			panic(fmt.Errorf("error connecting params: %s", err.Error()))
@@ -822,12 +841,18 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 				return err
 			}
 
-			// if b.params implements CfgStructPreExecute, call it
-			if preExecute, ok := b.Params.(CfgStructPreExecute); ok {
-				err := preExecute.PreExecute()
-				if err != nil {
-					return fmt.Errorf("error in PreExecute: %s", err.Error())
+			// if b.params or any inner struct implements CfgStructPreExecute, call it
+			err := traverse(b.Params, nil, func(innerParams any) error {
+				if preExecute, ok := innerParams.(CfgStructPreExecute); ok {
+					err := preExecute.PreExecute()
+					if err != nil {
+						return fmt.Errorf("error in PreExecute: %s", err.Error())
+					}
 				}
+				return nil
+			})
+			if err != nil {
+				return err
 			}
 
 			// if we have a custom pre-execute function, call it
