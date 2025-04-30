@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/GiGurra/boa/cmd/test_common"
+	"github.com/GiGurra/boa/internal/test_common"
 	"testing"
 )
 
