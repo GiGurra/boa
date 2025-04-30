@@ -414,7 +414,7 @@ func main() {
 		WithPreValidateFuncE(func(params *ConfigFromFile, cmd *cobra.Command, args []string) error {
 			// boa.UnMarshalFromFileParam is a helper to unmarshal from a file, but you can run
 			// any custom code here.
-			// boa.Optional and boa.Required have implementations of json.Unmarshaler
+			// boa.Optional and boa.Required have implementations of json.Unmarshaler.
 			// This implementation will also respect pre-assigned cli and env var values, 
 			// and not overwrite them with the file values.
 			return boa.UnMarshalFromFileParam(&params.File, &params.AppConfig, nil /* custom unmarshaller function */)
