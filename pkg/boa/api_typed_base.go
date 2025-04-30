@@ -79,31 +79,37 @@ func NewCmdT2[Struct any](use string, params *Struct) CmdT[Struct] {
 	}
 }
 
+// WithUse sets the command's use string and returns the updated command.
 func (b CmdT[Struct]) WithUse(use string) CmdT[Struct] {
 	b.Use = use
 	return b
 }
 
+// WithShort sets the command's short description and returns the updated command.
 func (b CmdT[Struct]) WithShort(short string) CmdT[Struct] {
 	b.Short = short
 	return b
 }
 
+// WithLong sets the command's long description and returns the updated command.
 func (b CmdT[Struct]) WithLong(long string) CmdT[Struct] {
 	b.Long = long
 	return b
 }
 
+// WithVersion sets the command's version and returns the updated command.
 func (b CmdT[Struct]) WithVersion(version string) CmdT[Struct] {
 	b.Version = version
 	return b
 }
 
+// WithArgs sets the command's positional arguments cobra validation configuration
 func (b CmdT[Struct]) WithArgs(args cobra.PositionalArgs) CmdT[Struct] {
 	b.Args = args
 	return b
 }
 
+// WithParamEnrich sets the parameter enrichment function.
 func (b CmdT[Struct]) WithParamEnrich(enricher ParamEnricher) CmdT[Struct] {
 	b.ParamEnrich = enricher
 	return b
@@ -125,26 +131,31 @@ func (b CmdT[Struct]) WithRunFunc3(run func(params *Struct, cmd *cobra.Command, 
 	return b
 }
 
+// WithUseCobraErrLog sets the UseCobraErrLog flag, determining if Cobra's error logging should be used, and returns the updated command.
 func (b CmdT[Struct]) WithUseCobraErrLog(useCobraErrLog bool) CmdT[Struct] {
 	b.UseCobraErrLog = useCobraErrLog
 	return b
 }
 
+// WithSortFlags sets the SortFlags option for the command, enabling or disabling flag sorting, and returns the updated command.
 func (b CmdT[Struct]) WithSortFlags(sortFlags bool) CmdT[Struct] {
 	b.SortFlags = sortFlags
 	return b
 }
 
+// WithValidArgs sets the valid positional arguments for the command and returns the updated command configuration.
 func (b CmdT[Struct]) WithValidArgs(validArgs []string) CmdT[Struct] {
 	b.ValidArgs = validArgs
 	return b
 }
 
+// WithValidArgsFunc sets a dynamic function for generating valid arguments and shell completions for this command.
 func (b CmdT[Struct]) WithValidArgsFunc(validArgsFunc func(params *Struct, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)) CmdT[Struct] {
 	b.ValidArgsFunc = validArgsFunc
 	return b
 }
 
+// WithSubCmds sets the sub-commands for this command.
 func (b CmdT[Struct]) WithSubCmds(cmd ...*cobra.Command) CmdT[Struct] {
 	b.SubCommands = append(b.SubCommands, cmd...)
 	return b
