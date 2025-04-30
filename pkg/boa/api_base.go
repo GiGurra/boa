@@ -167,10 +167,19 @@ func ParamEnricherEnvPrefix(prefix string) ParamEnricher {
 	}
 }
 
+// WithCobraSubCmds adds sub-commands to a Cmd and returns the modified Cmd.
+// This method allows for fluent chaining of command configuration.
+func (b Cmd) WithCobraSubCmds(cmd ...*cobra.Command) Cmd {
+	b.SubCommands = append(b.SubCommands, cmd...)
+	return b
+}
+
 // WithSubCmds adds sub-commands to a Cmd and returns the modified Cmd.
 // This method allows for fluent chaining of command configuration.
-func (b Cmd) WithSubCmds(cmd ...*cobra.Command) Cmd {
-	b.SubCommands = append(b.SubCommands, cmd...)
+func (b Cmd) WithSubCmds(cmd ...CmdIfc) Cmd {
+	for _, c := range cmd {
+		b.SubCommands = append(b.SubCommands, c.ToCobra())
+	}
 	return b
 }
 
