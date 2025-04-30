@@ -40,12 +40,12 @@ func main() {
 		Time boa.Optional[time.Time]
 	}
 
-	boa.Wrap{
+	boa.Cmd{
 		Use:    "hello-world",
 		Short:  "a generic cli tool",
 		Long:   `A generic cli tool that has a longer description. See the README.MD for more information`,
 		Params: boa.Compose(&params, &base3, &base4),
-		Run: func(cmd *cobra.Command, args []string) {
+		RunFunc: func(cmd *cobra.Command, args []string) {
 			fmt.Printf(
 				"Hello world from subcommand1 with params: %s, %d, %s, %s, %v, %v\n",
 				params.Base.Foo.Value(),  // string
@@ -56,7 +56,7 @@ func main() {
 				params.Time.Value(),      // *time.Time
 			)
 		},
-	}.ToAppH(boa.ResultHandler{
+	}.RunH(boa.ResultHandler{
 		Failure: func(err error) {
 			fmt.Printf("Error: %v\n", err)
 		},

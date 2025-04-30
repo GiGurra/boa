@@ -12,7 +12,7 @@ type SupportedTypes interface {
 		[]int | []int32 | []int64 | []float32 | []float64 | []string
 }
 
-type Wrap struct {
+type Cmd struct {
 	Use            string
 	Short          string
 	Long           string
@@ -21,7 +21,7 @@ type Wrap struct {
 	SubCommands    []*cobra.Command
 	Params         any
 	ParamEnrich    ParamEnricher
-	Run            func(cmd *cobra.Command, args []string)
+	RunFunc        func(cmd *cobra.Command, args []string)
 	UseCobraErrLog bool
 	SortFlags      bool
 	ValidArgs      []string
@@ -112,7 +112,7 @@ func ParamEnricherEnvPrefix(prefix string) ParamEnricher {
 	}
 }
 
-func (b Wrap) WithSubCommands(cmd ...*cobra.Command) Wrap {
+func (b Cmd) WithSubCmds(cmd ...*cobra.Command) Cmd {
 	b.SubCommands = append(b.SubCommands, cmd...)
 	return b
 }
@@ -127,8 +127,8 @@ type StructComposition struct {
 	StructPtrs []any
 }
 
-func (b Wrap) ToCmd() *cobra.Command {
-	return b.toCmdImpl()
+func (b Cmd) ToCobra() *cobra.Command {
+	return b.toCobraImpl()
 }
 
 type ResultHandler struct {
@@ -137,30 +137,30 @@ type ResultHandler struct {
 	Success func()
 }
 
-func ToAppH(cmd *cobra.Command, handler ResultHandler) {
-	toAppHImpl(cmd, handler)
+func RunH(cmd *cobra.Command, handler ResultHandler) {
+	runImpl(cmd, handler)
 }
 
 //goland:noinspection GoUnusedExportedFunction
-func ToApp(cmd *cobra.Command) {
-	ToAppH(cmd, ResultHandler{})
+func Run(cmd *cobra.Command) {
+	RunH(cmd, ResultHandler{})
 }
 
-func (b Wrap) ToApp() {
-	b.ToAppH(ResultHandler{})
+func (b Cmd) Run() {
+	b.RunH(ResultHandler{})
 }
 
-func (b Wrap) ToAppH(handler ResultHandler) {
-	ToAppH(b.ToCmd(), handler)
+func (b Cmd) RunH(handler ResultHandler) {
+	RunH(b.ToCobra(), handler)
 }
 
 func Default[T SupportedTypes](val T) *T {
 	return &val
 }
 
-func Validate[T any](structPtr *T, w Wrap) error {
+func Validate[T any](structPtr *T, w Cmd) error {
 	w.Params = structPtr
-	w.Run = func(cmd *cobra.Command, args []string) {}
+	w.RunFunc = func(cmd *cobra.Command, args []string) {}
 	w.UseCobraErrLog = false
 	var err error
 	handler := ResultHandler{
@@ -171,10 +171,10 @@ func Validate[T any](structPtr *T, w Wrap) error {
 			err = e
 		},
 	}
-	cobraCmd := w.ToCmd()
+	cobraCmd := w.ToCobra()
 	cobraCmd.SilenceErrors = true
 	cobraCmd.SilenceUsage = true
-	ToAppH(cobraCmd, handler)
+	RunH(cobraCmd, handler)
 	return err
 }
 

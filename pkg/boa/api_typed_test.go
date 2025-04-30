@@ -22,7 +22,7 @@ func TestTyped1(t *testing.T) {
 	os.Args = []string{"test", "--flag1", "value1", "--flag2", "42"}
 
 	builder :=
-		NewCmdBuilder[TestStruct]("test").
+		NewCmdT[TestStruct]("test").
 			WithRunFunc(func(params *TestStruct) {
 				fmt.Printf("params: %+v\n", params)
 				if params.Flag1.Value() != "value1" {
@@ -55,7 +55,7 @@ func TestTyped1(t *testing.T) {
 func TestTyped2(t *testing.T) {
 
 	builder :=
-		NewCmdBuilder2("test", &TestStruct{}).
+		NewCmdT2("test", &TestStruct{}).
 			WithRawArgs([]string{"--flag1", "value1", "--flag2", "42"}).
 			WithRunFunc3(func(params *TestStruct, cmd *cobra.Command, args []string) {
 				fmt.Printf("params: %+v\n", params)
@@ -89,7 +89,7 @@ func TestTyped2(t *testing.T) {
 func TestTypedWithInitFunc(t *testing.T) {
 
 	builder :=
-		NewCmdBuilder[TestStruct]("test").
+		NewCmdT[TestStruct]("test").
 			WithInitFunc(func(params *TestStruct) { params.Flag2.Default = Default(42) }).
 			WithRunFunc(func(params *TestStruct) {
 				fmt.Printf("params: %+v\n", params)
@@ -130,7 +130,7 @@ func TestNoParams(t *testing.T) {
 	os.Args = []string{"test"}
 
 	builder :=
-		NewCmdBuilder[NoParams]("test").
+		NewCmdT[NoParams]("test").
 			WithRunFunc(func(_ *NoParams) {
 			})
 	builderCpy := builder
@@ -150,14 +150,14 @@ func TestCmdTree(t *testing.T) {
 	os.Args = []string{"test", "subcmd1", "--flag1", "value1", "--flag2", "42"}
 
 	ranInnerCommand := false
-	NewCmdBuilder[NoParams]("test").WithSubCommands(
-		NewCmdBuilder[TestStruct]("subcmd1").WithRunFunc(func(params *TestStruct) {
+	NewCmdT[NoParams]("test").WithSubCmds(
+		NewCmdT[TestStruct]("subcmd1").WithRunFunc(func(params *TestStruct) {
 			fmt.Printf("params: %+v\n", params)
 			if params.Flag1.Value() != "value1" {
 				t.Fatalf("expected value1 but got %s", params.Flag1.Value())
 			}
 			ranInnerCommand = true
-		}).ToCmd(),
+		}).ToCobra(),
 	).Run()
 
 	if !ranInnerCommand {

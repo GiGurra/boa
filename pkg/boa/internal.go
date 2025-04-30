@@ -666,12 +666,12 @@ func traverse(
 	return nil
 }
 
-func (b Wrap) toCmdImpl() *cobra.Command {
+func (b Cmd) toCobraImpl() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:               b.Use,
 		Short:             b.Short,
 		Long:              b.Long,
-		Run:               b.Run,
+		Run:               b.RunFunc,
 		Args:              b.Args,
 		SilenceErrors:     !b.UseCobraErrLog,
 		ValidArgs:         b.ValidArgs,
@@ -890,7 +890,7 @@ func (b Wrap) toCmdImpl() *cobra.Command {
 	return cmd
 }
 
-func toAppHImpl(cmd *cobra.Command, handler ResultHandler) {
+func runImpl(cmd *cobra.Command, handler ResultHandler) {
 
 	if handler.Panic != nil {
 		defer func() {

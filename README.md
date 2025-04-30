@@ -59,12 +59,12 @@ var params struct {
 }
 
 func main() {
-	boa.Wrap{
+	boa.Cmd{
 		Use:    "hello-world",
 		Short:  "a generic cli tool",
 		Long:   `A generic cli tool that has a longer description. See the README.MD for more information`,
 		Params: &params,
-		Run: func(cmd *cobra.Command, args []string) {
+		RunFunc: func(cmd *cobra.Command, args []string) {
 			fmt.Printf(
 				"Hello world with params: %s, %d, %s, %s, %v\n",
 				params.Foo.Value(),  // string
@@ -74,7 +74,7 @@ func main() {
 				params.FB.Value(),   // *string
 			)
 		},
-	}.ToApp()
+	}.Run()
 }
 ```
 
@@ -117,33 +117,33 @@ var params struct {
 }
 
 func main() {
-	boa.Wrap{
+	boa.Cmd{
 		Use:   "hello-world",
 		Short: "a generic cli tool",
 		Long:  `A generic cli tool that has a longer description.See the README.MD for more information`,
 		SubCommands: []*cobra.Command{
-			boa.Wrap{
+			boa.Cmd{
 				Use:         "subcommand1",
 				Short:       "a subcommand",
 				Params:      &params,
 				ParamEnrich: boa.ParamEnricherCombine(boa.ParamEnricherName, boa.ParamEnricherEnv),
-				Run: func(cmd *cobra.Command, args []string) {
+				RunFunc: func(cmd *cobra.Command, args []string) {
 					p1 := params.Foo.Value()
 					p2 := params.Bar.Value()
 					p3 := params.Path.Value()
 					p4 := params.Baz.Value()
 					fmt.Printf("Hello world from subcommand1 with params: %s, %d, %s, %s\n", p1, p2, p3, p4)
 				},
-			}.ToCmd(),
-			boa.Wrap{
+			}.ToCobra(),
+			boa.Cmd{
 				Use:   "subcommand2",
 				Short: "a subcommand",
-				Run: func(cmd *cobra.Command, args []string) {
+				RunFunc: func(cmd *cobra.Command, args []string) {
 					fmt.Println("Hello world from subcommand2")
 				},
-			}.ToCmd(),
+			}.ToCobra(),
 		},
-	}.ToApp()
+	}.Run()
 }
 ```
 
@@ -187,33 +187,33 @@ var params = struct {
 }
 
 func main() {
-	boa.Wrap{
+	boa.Cmd{
 		Use:   "hello-world",
 		Short: "a generic cli tool",
 		Long:  `A generic cli tool that has a longer description.See the README.MD for more information`,
 		SubCommands: []*cobra.Command{
-			boa.Wrap{
+			boa.Cmd{
 				Use:         "subcommand1",
 				Short:       "a subcommand",
 				Params:      &params,
 				ParamEnrich: boa.ParamEnricherCombine(boa.ParamEnricherName, boa.ParamEnricherEnv),
-				Run: func(cmd *cobra.Command, args []string) {
+				RunFunc: func(cmd *cobra.Command, args []string) {
 					p1 := params.Foo.Value()
 					p2 := params.Bar.Value()
 					p3 := params.Path.Value()
 					p4 := params.Baz.Value()
 					fmt.Printf("Hello world from subcommand1 with params: %s, %d, %s, %s\n", p1, p2, p3, p4)
 				},
-			}.ToCmd(),
-			boa.Wrap{
+			}.ToCobra(),
+			boa.Cmd{
 				Use:   "subcommand2",
 				Short: "a subcommand",
-				Run: func(cmd *cobra.Command, args []string) {
+				RunFunc: func(cmd *cobra.Command, args []string) {
 					fmt.Println("Hello world from subcommand2")
 				},
-			}.ToCmd(),
+			}.ToCobra(),
 		},
-	}.ToApp()
+	}.Run()
 }
 ```
 
@@ -278,12 +278,12 @@ var params struct {
 }
 
 func main() {
-	boa.Wrap{
+	boa.Cmd{
 		Use:    "hello-world",
 		Short:  "a generic cli tool",
 		Long:   `A generic cli tool that has a longer description. See the README.MD for more information`,
 		Params: boa.Compose(&params, &base3, &base4),
-		Run: func(cmd *cobra.Command, args []string) {
+		RunFunc: func(cmd *cobra.Command, args []string) {
 			fmt.Printf(
 				"Hello world from subcommand1 with params: %s, %d, %s, %s, %v, %v\n",
 				params.Base.Foo.Value(),  // string
@@ -294,7 +294,7 @@ func main() {
 				params.Time.Value(),      // *time.Time
 			)
 		},
-	}.ToApp()
+	}.Run()
 }
 ```
 
@@ -328,15 +328,15 @@ func main() {
 		return params.Foo.HasValue()
 	})
 
-	boa.Wrap{
+	boa.Cmd{
 		Use:    "hello-world",
 		Short:  "a generic cli tool",
 		Long:   `A generic cli tool that has a longer description.`,
 		Params: &params,
-		Run: func(cmd *cobra.Command, args []string) {
+		RunFunc: func(cmd *cobra.Command, args []string) {
 			fmt.Printf("Hello World!\n")
 		},
-	}.ToApp()
+	}.Run()
 }
 ```
 
@@ -377,7 +377,7 @@ type TestStruct struct {
 }
 
 func main() {
-	builder := boa.NewCmdBuilder[TestStruct]("my-command").
+	cmd := boa.NewCmdT[TestStruct]("my-command").
 		WithShort("A command description").
 		WithLong("A longer command description").
 		WithRunFunc(func(params *TestStruct) {
@@ -387,7 +387,7 @@ func main() {
 			)
 		})
 
-	builder.Run()
+    cmd.Run()
 }
 ```
 
@@ -410,7 +410,7 @@ type ConfigFromFile struct {
 }
 
 func main() {
-	boa.NewCmdBuilder[ConfigFromFile]("my-app").
+	boa.NewCmdT[ConfigFromFile]("my-app").
 		WithPreValidateFuncE(func(params *ConfigFromFile, cmd *cobra.Command, args []string) error {
 			// boa.UnMarshalFromFileParam is a helper to unmarshal from a file, but you can run
 			// any custom code here.
@@ -450,16 +450,16 @@ func (i *MyConfigStruct) Init() error {
 }
 
 // Alternatively, use the InitFunc in Wrap
-boa.Wrap{
+boa.Cmd{
     Params: &params,
     InitFunc: func(params any) error {
         // Custom initialization logic
         return nil
     },
-}.ToApp()
+}.Run()
 
 // Or with the builder API
-boa.NewCmdBuilder[MyConfigStruct]("command").
+boa.NewCmdT[MyConfigStruct]("command").
     WithInitFuncE(func(params *MyConfigStruct) error {
         // Custom initialization logic
         return nil
@@ -483,16 +483,16 @@ func (i *MyConfigStruct) PreValidate() error {
 }
 
 // Alternatively, use the PreValidateFunc in Wrap
-boa.Wrap{
+boa.Cmd{
     Params: &params,
     PreValidateFunc: func(params any, cmd *cobra.Command, args []string) error {
         // Custom pre-validation logic
         return nil
     },
-}.ToApp()
+}.Run()
 
 // Or with the builder API
-boa.NewCmdBuilder[MyConfigStruct]("command").
+boa.NewCmdT[MyConfigStruct]("command").
     WithPreValidateFuncE(func(params *MyConfigStruct, cmd *cobra.Command, args []string) error {
         // Custom pre-validation logic, such as loading from config files
         return nil
@@ -516,16 +516,16 @@ func (i *MyConfigStruct) PreExecute() error {
 }
 
 // Alternatively, use the PreExecuteFunc in Wrap
-boa.Wrap{
+boa.Cmd{
     Params: &params,
     PreExecuteFunc: func(params any, cmd *cobra.Command, args []string) error {
         // Custom pre-execution logic
         return nil
     },
-}.ToApp()
+}.Run()
 
 // Or with the builder API
-boa.NewCmdBuilder[MyConfigStruct]("command").
+boa.NewCmdT[MyConfigStruct]("command").
     WithPreExecuteFuncE(func(params *MyConfigStruct, cmd *cobra.Command, args []string) error {
         // Custom pre-execution logic
         return nil

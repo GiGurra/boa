@@ -21,7 +21,7 @@ func main() {
 		return params.Foo.HasValue()
 	})
 
-	boa.Wrap{
+	boa.Cmd{
 		Use:   "hello-world",
 		Short: "a generic cli tool",
 		Long:  `A generic cli tool that has a longer description. See the README.MD for more information`,
@@ -30,10 +30,10 @@ func main() {
 			boa.ParamEnricherShort,
 		),
 		Params: &params,
-		Run: func(cmd *cobra.Command, args []string) {
+		RunFunc: func(cmd *cobra.Command, args []string) {
 			fmt.Printf("Hello World!\n")
 		},
-	}.ToAppH(boa.ResultHandler{
+	}.RunH(boa.ResultHandler{
 		Failure: func(err error) {
 			fmt.Printf("Error: %v\n", err)
 		},

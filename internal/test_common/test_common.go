@@ -83,7 +83,7 @@ func RunSingleTest(mainFn func(), args ...string) TestResult {
 		os.Stderr = preStdErr
 	}()
 
-	// Run the actual test
+	// RunFunc the actual test
 	mainFn()
 
 	// Go back to the start of the files

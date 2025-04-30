@@ -13,19 +13,19 @@ func main() {
 		WithDefaults    boa.Required[[]int64] `default:"[1,2,3]"`
 	}
 
-	boa.Wrap{
+	boa.Cmd{
 		Use:    "hello-world",
 		Short:  "a generic cli tool",
 		Long:   `A generic cli tool that has a longer description. See the README.MD for more information`,
 		Params: &params,
-		Run: func(cmd *cobra.Command, args []string) {
+		RunFunc: func(cmd *cobra.Command, args []string) {
 			fmt.Printf(
 				"Hello world from subcommand1 with params: %v, %v\n",
 				params.WithoutDefaults.Value(),
 				params.WithDefaults.Value(),
 			)
 		},
-	}.ToAppH(boa.ResultHandler{
+	}.RunH(boa.ResultHandler{
 		Failure: func(err error) {
 			fmt.Printf("Error: %v\n", err)
 		},

@@ -17,11 +17,11 @@ func TestSetsDefaultName(t *testing.T) {
 		Flag2: Required[int]{Short: "i"},
 	}
 
-	Wrap{
+	Cmd{
 		Use:    "test",
 		Short:  "test",
 		Params: &params,
-	}.ToCmd()
+	}.ToCobra()
 
 	if params.Flag1.Name != "flag1" {
 		t.Errorf("Name of flag1 is not set to default")
@@ -42,11 +42,11 @@ func TestValidFlagStruct(t *testing.T) {
 		Flag2: Required[int]{Name: "i"},
 	}
 
-	Wrap{
+	Cmd{
 		Use:    "test",
 		Short:  "test",
 		Params: &params,
-	}.ToCmd()
+	}.ToCobra()
 }
 
 func TestMixedRequiredAndOptional(t *testing.T) {
@@ -61,11 +61,11 @@ func TestMixedRequiredAndOptional(t *testing.T) {
 		HelloParam: Optional[int]{Name: "hello-param", Short: "x", Env: "HELLO_PARAM", Descr: "A hello param", Default: Default(42)},
 	}
 
-	Wrap{
+	Cmd{
 		Use:    "test",
 		Short:  "test",
 		Params: &params,
-	}.ToCmd()
+	}.ToCobra()
 }
 
 func TestDisallowHAsShort(t *testing.T) {
@@ -81,11 +81,11 @@ func TestDisallowHAsShort(t *testing.T) {
 		HelloParam: Optional[int]{Name: "hello-param", Short: "h", Env: "HELLO_PARAM", Descr: "A hello param", Default: Default(42)},
 	}
 
-	Wrap{
+	Cmd{
 		Use:    "test",
 		Short:  "test",
 		Params: &params,
-	}.ToCmd()
+	}.ToCobra()
 }
 
 func TestReflectOfStructs(t *testing.T) {
@@ -119,7 +119,7 @@ func TestDoubleDefault(t *testing.T) {
 		os.Args = osArgsBefore
 	}()
 
-	err := Validate(&params, Wrap{ParamEnrich: ParamEnricherName})
+	err := Validate(&params, Cmd{ParamEnrich: ParamEnricherName})
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestInit(t *testing.T) {
 		os.Args = osArgsBefore
 	}()
 
-	err := Validate(&params, Wrap{ParamEnrich: ParamEnricherName})
+	err := Validate(&params, Cmd{ParamEnrich: ParamEnricherName})
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestPreExecute(t *testing.T) {
 		os.Args = osArgsBefore
 	}()
 
-	err := Validate(&params, Wrap{ParamEnrich: ParamEnricherName})
+	err := Validate(&params, Cmd{ParamEnrich: ParamEnricherName})
 	if err != nil {
 		if !strings.Contains(err.Error(), errExpected.Error()) {
 			t.Errorf("Expected error to contain: %s, got: %v", errExpected.Error(), err)
@@ -205,7 +205,7 @@ func (s *CustomValidatorTestStruct) Init() error {
 
 func TestCustomValidator(t *testing.T) {
 
-	err := Validate(&CustomValidatorTestStruct{}, Wrap{ParamEnrich: ParamEnricherName, RawArgs: []string{"--flag2", "-1"}})
+	err := Validate(&CustomValidatorTestStruct{}, Cmd{ParamEnrich: ParamEnricherName, RawArgs: []string{"--flag2", "-1"}})
 	if err == nil {
 		t.Errorf("Expected error, got: nil")
 	} else {
@@ -214,21 +214,21 @@ func TestCustomValidator(t *testing.T) {
 		}
 	}
 
-	err = Validate(&CustomValidatorTestStruct{}, Wrap{ParamEnrich: ParamEnricherName, RawArgs: []string{"--flag2", "0"}})
+	err = Validate(&CustomValidatorTestStruct{}, Cmd{ParamEnrich: ParamEnricherName, RawArgs: []string{"--flag2", "0"}})
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
 
 	err = Validate(&CustomValidatorTestStruct{
 		Flag2: Required[int]{Default: Default(42)},
-	}, Wrap{ParamEnrich: ParamEnricherName, RawArgs: []string{}})
+	}, Cmd{ParamEnrich: ParamEnricherName, RawArgs: []string{}})
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
 
 	err = Validate(&CustomValidatorTestStruct{
 		Flag2: Required[int]{Default: Default(-42)},
-	}, Wrap{ParamEnrich: ParamEnricherName, RawArgs: []string{}})
+	}, Cmd{ParamEnrich: ParamEnricherName, RawArgs: []string{}})
 	if err == nil {
 		t.Errorf("Expected error, got: nil")
 	} else {

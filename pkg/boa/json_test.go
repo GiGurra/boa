@@ -156,7 +156,7 @@ func TestJsonSerializationEmbeddedStructPointerValid(t *testing.T) {
 			KafkaCredentials:    Opt("someCredentials"),
 			KafkaNilCredentials: OptP[string](nil),
 		},
-	}, Wrap{ParamEnrich: ParamEnricherName, RawArgs: []string{}})
+	}, Cmd{ParamEnrich: ParamEnricherName, RawArgs: []string{}})
 	if err != nil {
 		t.Errorf("Validation error: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestJsonSerializationEmbeddedStructPointerValid(t *testing.T) {
 			KafkaCredentials:    Opt("someCredentials"),
 			KafkaNilCredentials: OptP[string](nil),
 		},
-	}, Wrap{ParamEnrich: ParamEnricherName, RawArgs: []string{}})
+	}, Cmd{ParamEnrich: ParamEnricherName, RawArgs: []string{}})
 	if err == nil {
 		t.Errorf("Expected validation error, got nil")
 	} else {
@@ -289,7 +289,7 @@ func TestWriteJsonToFileAndTreatAsConfig(t *testing.T) {
 		t.Fatalf("Failed to write to temp file: %v", err)
 	}
 
-	NewCmdBuilder[AppConfigFromFile]("root").
+	NewCmdT[AppConfigFromFile]("root").
 		WithPreValidateFuncE(func(params *AppConfigFromFile, cmd *cobra.Command, args []string) error {
 			return UnMarshalFromFileParam(&params.File, params, nil)
 		}).
