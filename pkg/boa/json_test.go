@@ -301,3 +301,49 @@ func TestWriteJsonToFileAndTreatAsConfig(t *testing.T) {
 		RunArgs([]string{"-f", file.Name()})
 
 }
+
+func TestWriteJsonToFileAndTreatAsConfigCliOvrd(t *testing.T) {
+	origCfg := AppConfig{
+		Host:             Req("someHost"),
+		Port:             Req(12345),
+		KafkaCredentials: Opt("someCredentials"),
+	}
+
+	// Serialize to JSON
+	serialized, err := json.MarshalIndent(origCfg, "", "  ")
+	if err != nil {
+		t.Fatalf("json.MarshalIndent() error = %v", err)
+	}
+
+	// temp file
+	file, err := os.CreateTemp("", "config.json")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer func() {
+		_ = file.Close()
+		if err := os.Remove(file.Name()); err != nil {
+			t.Errorf("Failed to remove temp file: %v", err)
+		}
+	}()
+
+	// Write JSON to file
+	if _, err := file.Write(serialized); err != nil {
+		t.Fatalf("Failed to write to temp file: %v", err)
+	}
+
+	NewCmdT[AppConfigFromFile]("root").
+		WithPreValidateFuncE(func(params *AppConfigFromFile, cmd *cobra.Command, args []string) error {
+			return UnMarshalFromFileParam(&params.File, params, nil)
+		}).
+		WithRunFunc(func(params *AppConfigFromFile) {
+			if params.Host.Value() != "cliHost" {
+				t.Fatalf("Host mismatch: got %s, want %s", params.Host.Value(), "cliHost")
+			}
+			if params.Port.Value() != origCfg.Port.Value() {
+				t.Fatalf("Port mismatch: got %d, want %d", params.Port.Value(), origCfg.Port.Value())
+			}
+		}).
+		RunArgs([]string{"-f", file.Name(), "--host", "cliHost"})
+
+}

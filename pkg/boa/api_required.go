@@ -232,7 +232,7 @@ func (f *Required[T]) GetAlternatives() []string {
 	return f.Alternatives
 }
 
-// GetAlternativesFunc returns the function that provides dynamic value 
+// GetAlternativesFunc returns the function that provides dynamic value
 // suggestions for bash completion.
 func (f *Required[T]) GetAlternativesFunc() func(cmd *cobra.Command, args []string, toComplete string) []string {
 	return f.AlternativesFunc
@@ -243,12 +243,14 @@ func (p Required[T]) MarshalJSON() ([]byte, error) {
 }
 
 func (p *Required[T]) UnmarshalJSON(data []byte) error {
-	var v *T
-	if err := json.Unmarshal(data, &v); err != nil {
-		return err
+	if !p.wasSetOnCli() && !p.wasSetByEnv() {
+		var v *T
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		p.valuePtr = v
+		p.injected = v != nil
 	}
-	p.valuePtr = v
-	p.injected = v != nil
 	return nil
 }
 
