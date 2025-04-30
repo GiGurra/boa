@@ -389,9 +389,9 @@ func main() {
 		WithSubCmds(
 			boa.NewCmdT[TestStruct]("subcommand1")
 			//...etc
-        )
+		)
 
-    cmd.Run()
+	cmd.Run()
 }
 ```
 
