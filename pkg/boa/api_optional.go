@@ -1,3 +1,4 @@
+// Package boa provides a declarative CLI and environment variable parameter utility.
 package boa
 
 import (
@@ -7,24 +8,41 @@ import (
 	"reflect"
 )
 
+// Optional represents a parameter that may or may not have a value.
+// It can be set via command line flags, environment variables, default values,
+// or programmatic injection. Unlike Required parameters, Optional parameters
+// don't cause validation errors when not set.
+//
+// The type parameter T must be one of the types supported by SupportedTypes.
 type Optional[T SupportedTypes] struct {
-	Name            string
-	Short           string
-	Env             string
-	Default         *T
-	Descr           string
+	// Name is the flag name (without the -- prefix)
+	Name string
+	// Short is the short flag name (single character, without the - prefix)
+	Short string
+	// Env is the environment variable name that can set this parameter
+	Env string
+	// Default is the default value pointer for this parameter
+	Default *T
+	// Descr is the description shown in help text
+	Descr string
+	// CustomValidator is an optional function to validate the parameter value
 	CustomValidator func(T) error
-	Positional      bool
+	// Positional indicates if this is a positional argument rather than a flag
+	Positional bool
 
-	Alternatives     []string
+	// Alternatives provides a list of allowed values for this parameter
+	Alternatives []string
+	// AlternativesFunc provides a dynamic function to generate valid value suggestions for bash completion
 	AlternativesFunc func(cmd *cobra.Command, args []string, toComplete string) []string
 
+	// Internal state fields
 	setByEnv        bool
 	setPositionally bool
 	injected        bool
 	valuePtr        any
 	parent          *cobra.Command
 
+	// Dynamic requirement/enablement conditions
 	requiredFn func() bool
 	enabledFn  func() bool
 }
@@ -50,14 +68,19 @@ func (f *Optional[T]) SetIsEnabledFn(f2 func() bool) {
 	f.enabledFn = f2
 }
 
+// GetAlternatives returns the list of allowed values for this parameter.
+// Used for command line completion and validation.
 func (f *Optional[T]) GetAlternatives() []string {
 	return f.Alternatives
 }
 
+// GetAlternativesFunc returns the function that provides dynamic value 
+// suggestions for bash completion.
 func (f *Optional[T]) GetAlternativesFunc() func(cmd *cobra.Command, args []string, toComplete string) []string {
 	return f.AlternativesFunc
 }
 
+// SetAlternatives sets the list of allowed values for this parameter.
 func (f *Optional[T]) SetAlternatives(strings []string) {
 	f.Alternatives = strings
 }
@@ -65,10 +88,14 @@ func (f *Optional[T]) SetAlternatives(strings []string) {
 // prove that Optional[T] implements Param
 var _ Param = &Optional[string]{}
 
+// wasSetPositionally returns whether this parameter was set via a positional argument.
+// Internal method used by boa.
 func (f *Optional[T]) wasSetPositionally() bool {
 	return f.setPositionally
 }
 
+// GetOrElse returns the parameter value if it exists, otherwise returns the provided fallback value.
+// This is a convenience method for handling optional parameters.
 func (f *Optional[T]) GetOrElse(fallback T) T {
 	if f.HasValue() {
 		return *f.Value()
@@ -77,6 +104,8 @@ func (f *Optional[T]) GetOrElse(fallback T) T {
 	}
 }
 
+// GetOrElseF returns the parameter value if it exists, otherwise calls and returns the result of the fallback function.
+// This is useful when the fallback value is expensive to compute.
 func (f *Optional[T]) GetOrElseF(fallback func() T) T {
 	if f.HasValue() {
 		return *f.Value()
@@ -117,6 +146,8 @@ func (f *Optional[T]) markSetFromEnv() {
 	f.setByEnv = true
 }
 
+// Value returns the parameter value as a pointer, or nil if not set.
+// This is the primary method to access the parameter value.
 func (f *Optional[T]) Value() *T {
 	if HasValue(f) {
 		if f.valuePtr != nil {
@@ -133,14 +164,21 @@ func (f *Optional[T]) Value() *T {
 	}
 }
 
+// HasValue returns whether this parameter has a value from any source.
+// It checks if the parameter was set via command line, environment variable,
+// default value, or programmatic injection.
 func (f *Optional[T]) HasValue() bool {
 	return HasValue(f)
 }
 
+// setPositional sets whether this parameter is a positional argument.
+// Internal method used by boa.
 func (f *Optional[T]) setPositional(state bool) {
 	f.Positional = state
 }
 
+// setDescription sets the description text for this parameter.
+// Internal method used by boa.
 func (f *Optional[T]) setDescription(state string) {
 	f.Descr = state
 }
@@ -194,6 +232,9 @@ func (f *Optional[T]) descr() string {
 	return f.Descr
 }
 
+// IsRequired returns whether this optional parameter is currently required.
+// While Optional parameters are not required by default, they can be made
+// conditionally required based on other parameter values.
 func (f *Optional[T]) IsRequired() bool {
 	if f.requiredFn != nil {
 		return f.requiredFn()
@@ -201,10 +242,14 @@ func (f *Optional[T]) IsRequired() bool {
 	return false
 }
 
+// SetRequiredFn sets a function that dynamically determines whether this
+// parameter is required. This allows for conditional requirements based on
+// other parameter values.
 func (f *Optional[T]) SetRequiredFn(condition func() bool) {
 	f.requiredFn = condition
 }
 
+// GetRequiredFn returns the function that determines if this parameter is required.
 func (f *Optional[T]) GetRequiredFn() func() bool {
 	return f.requiredFn
 }
@@ -259,12 +304,16 @@ func (p *Optional[T]) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// Opt creates an Optional parameter with a default value.
+// This is a convenience factory function for creating Optional parameters.
 func Opt[T SupportedTypes](defaultValue T) Optional[T] {
 	return Optional[T]{
 		Default: &defaultValue,
 	}
 }
 
+// OptP creates an Optional parameter with a default value from a pointer.
+// This allows passing nil as a default value or reusing an existing pointer.
 func OptP[T SupportedTypes](defaultValue *T) Optional[T] {
 	return Optional[T]{
 		Default:  defaultValue,

@@ -1,3 +1,4 @@
+// Package boa provides a declarative CLI and environment variable parameter utility.
 package boa
 
 import (
@@ -8,35 +9,61 @@ import (
 	"reflect"
 )
 
+// NoParams is an empty struct that can be used when a command doesn't need parameters.
 type NoParams struct{}
 
+// CmdT is a generic version of Cmd with type-safe parameter handling.
+// It provides a fluent builder API for creating commands with strongly-typed parameter structs.
+// The Struct type parameter represents the parameter struct type for this command.
 type CmdT[Struct any] struct {
-	Use             string
-	Short           string
-	Long            string
-	Version         string
-	Args            cobra.PositionalArgs
-	SubCommands     []*cobra.Command
-	Params          *Struct
-	ParamEnrich     ParamEnricher
-	RunFunc         func(params *Struct, cmd *cobra.Command, args []string)
-	InitFunc        func(params *Struct) error
+	// Use is the one-line usage message shown in help
+	Use string
+	// Short is a short description shown in the 'help' output
+	Short string
+	// Long is the long description shown in the 'help <this-command>' output
+	Long string
+	// Version is the version for this command
+	Version string
+	// Args defines how cobra should validate positional arguments
+	Args cobra.PositionalArgs
+	// SubCommands contains sub-commands for this command
+	SubCommands []*cobra.Command
+	// Params is a pointer to the struct containing command parameters
+	Params *Struct
+	// ParamEnrich is a function that enriches parameter definitions
+	ParamEnrich ParamEnricher
+	// RunFunc is the function to run when this command is called, with type-safe parameters
+	RunFunc func(params *Struct, cmd *cobra.Command, args []string)
+	// InitFunc runs during initialization with type-safe parameters
+	InitFunc func(params *Struct) error
+	// PreValidateFunc runs after flags are parsed but before validation with type-safe parameters
 	PreValidateFunc func(params *Struct, cmd *cobra.Command, args []string) error
-	PreExecuteFunc  func(params *Struct, cmd *cobra.Command, args []string) error
-	UseCobraErrLog  bool
-	SortFlags       bool
-	ValidArgs       []string
-	ValidArgsFunc   func(params *Struct, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
-	RawArgs         []string
+	// PreExecuteFunc runs after validation but before command execution with type-safe parameters
+	PreExecuteFunc func(params *Struct, cmd *cobra.Command, args []string) error
+	// UseCobraErrLog determines whether to use Cobra's error logging
+	UseCobraErrLog bool
+	// SortFlags determines whether to sort command flags alphabetically
+	SortFlags bool
+	// ValidArgs is a list of valid non-flag arguments
+	ValidArgs []string
+	// ValidArgsFunc is a function returning valid arguments for bash completion with type-safe parameters
+	ValidArgsFunc func(params *Struct, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
+	// RawArgs allows injecting command line arguments instead of using os.Args
+	RawArgs []string
 }
 
+// NewCmdT creates a new command with type-safe parameters.
+// It automatically creates a parameter struct of type Struct and returns a command builder.
+// This is the primary entry point for the fluent builder API.
 func NewCmdT[Struct any](use string) CmdT[Struct] {
 	var params Struct
 	return NewCmdT2(use, &params)
 }
 
+// NewCmdT2 creates a new command with the provided parameter struct.
+// This allows using an existing or pre-configured parameter struct.
 func NewCmdT2[Struct any](use string, params *Struct) CmdT[Struct] {
-
+	// Validate that params is a pointer to a struct
 	if reflect.TypeOf(params).Kind() != reflect.Ptr {
 		panic(fmt.Errorf("expected pointer to struct"))
 	}
@@ -82,12 +109,17 @@ func (b CmdT[Struct]) WithParamEnrich(enricher ParamEnricher) CmdT[Struct] {
 	return b
 }
 
+// WithRunFunc sets the command's run function with a simplified signature
+// that only includes the parameter struct. This is useful when you don't need
+// access to the cobra.Command or args.
 func (b CmdT[Struct]) WithRunFunc(run func(params *Struct)) CmdT[Struct] {
 	return b.WithRunFunc3(func(params *Struct, _ *cobra.Command, _ []string) {
 		run(params)
 	})
 }
 
+// WithRunFunc3 sets the command's run function with the full signature
+// that includes the parameter struct, cobra.Command, and args.
 func (b CmdT[Struct]) WithRunFunc3(run func(params *Struct, cmd *cobra.Command, args []string)) CmdT[Struct] {
 	b.RunFunc = run
 	return b
@@ -118,6 +150,8 @@ func (b CmdT[Struct]) WithSubCmds(cmd ...*cobra.Command) CmdT[Struct] {
 	return b
 }
 
+// WithPreValidateFunc sets a function to run after flags are parsed but before validation.
+// This version does not return an error and always succeeds.
 func (b CmdT[Struct]) WithPreValidateFunc(preValidateFunc func(params *Struct, cmd *cobra.Command, args []string)) CmdT[Struct] {
 	return b.WithPreValidateFuncE(func(params *Struct, cmd *cobra.Command, args []string) error {
 		preValidateFunc(params, cmd, args)
@@ -125,11 +159,16 @@ func (b CmdT[Struct]) WithPreValidateFunc(preValidateFunc func(params *Struct, c
 	})
 }
 
+// WithPreValidateFuncE sets a function to run after flags are parsed but before validation.
+// This version can return an error to abort command execution.
+// This is useful for loading configurations from files or other pre-validation setup.
 func (b CmdT[Struct]) WithPreValidateFuncE(preValidateFunc func(params *Struct, cmd *cobra.Command, args []string) error) CmdT[Struct] {
 	b.PreValidateFunc = preValidateFunc
 	return b
 }
 
+// WithPreExecuteFunc sets a function to run after validation but before command execution.
+// This version does not return an error and always succeeds.
 func (b CmdT[Struct]) WithPreExecuteFunc(preExecuteFunc func(params *Struct, cmd *cobra.Command, args []string)) CmdT[Struct] {
 	return b.WithPreExecuteFuncE(func(params *Struct, cmd *cobra.Command, args []string) error {
 		preExecuteFunc(params, cmd, args)
@@ -137,11 +176,16 @@ func (b CmdT[Struct]) WithPreExecuteFunc(preExecuteFunc func(params *Struct, cmd
 	})
 }
 
+// WithPreExecuteFuncE sets a function to run after validation but before command execution.
+// This version can return an error to abort command execution.
+// This is useful for setting up resources needed for command execution.
 func (b CmdT[Struct]) WithPreExecuteFuncE(preExecuteFunc func(params *Struct, cmd *cobra.Command, args []string) error) CmdT[Struct] {
 	b.PreExecuteFunc = preExecuteFunc
 	return b
 }
 
+// WithInitFunc sets a function to run during initialization, before any flags are parsed.
+// This version does not return an error and always succeeds.
 func (b CmdT[Struct]) WithInitFunc(initFunc func(params *Struct)) CmdT[Struct] {
 	return b.WithInitFuncE(func(params *Struct) error {
 		initFunc(params)
@@ -149,6 +193,9 @@ func (b CmdT[Struct]) WithInitFunc(initFunc func(params *Struct)) CmdT[Struct] {
 	})
 }
 
+// WithInitFuncE sets a function to run during initialization, before any flags are parsed.
+// This version can return an error to abort command execution.
+// This is useful for setting up default values and parameter relationships.
 func (b CmdT[Struct]) WithInitFuncE(initFunc func(params *Struct) error) CmdT[Struct] {
 	b.InitFunc = initFunc
 	return b
@@ -160,6 +207,8 @@ func (b CmdT[Struct]) WithRawArgs(rawArgs []string) CmdT[Struct] {
 	return b
 }
 
+// ToCmd converts a type-safe CmdT to a non-generic Cmd.
+// This converts the type-safe functions to their non-generic equivalents.
 func (b CmdT[Struct]) ToCmd() Cmd {
 
 	var runFcn func(cmd *cobra.Command, args []string) = nil
@@ -218,30 +267,53 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 	}
 }
 
+// ToCobra converts this command to a cobra.Command.
+// This is used when you want to integrate with existing Cobra command structures.
 func (b CmdT[Struct]) ToCobra() *cobra.Command {
 	return b.ToCmd().ToCobra()
 }
 
+// Run executes the command with default error handling.
+// This is the most common way to run a command.
 func (b CmdT[Struct]) Run() {
 	RunH(b.ToCobra(), ResultHandler{})
 }
 
+// RunArgs executes the command with the provided arguments and default error handling.
+// This is useful for testing and programmatic execution.
 func (b CmdT[Struct]) RunArgs(rawArgs []string) {
 	b.WithRawArgs(rawArgs).Run()
 }
 
+// RunH executes the command with the specified ResultHandler for
+// custom error and panic handling.
 func (b CmdT[Struct]) RunH(handler ResultHandler) {
 	RunH(b.ToCobra(), handler)
 }
 
+// RunHArgs executes the command with the provided arguments and custom error handling.
+// This is useful for testing and programmatic execution with custom error handling.
 func (b CmdT[Struct]) RunHArgs(handler ResultHandler, rawArgs []string) {
 	b.WithRawArgs(rawArgs).RunH(handler)
 }
 
+// Validate validates parameter values without executing the command's RunFunc.
+// This is useful for validating parameters independently from command execution,
+// such as in tests or when validating configuration before use.
 func (b CmdT[Struct]) Validate() error {
 	return Validate(b.Params, b.ToCmd())
 }
 
+// UnMarshalFromFileParam reads a file path from a parameter and unmarshals its contents into a target struct.
+// This is useful for loading configuration from files specified as command-line arguments.
+//
+// Parameters:
+//   - fileParam: The parameter containing the file path (must be a string parameter)
+//   - v: Pointer to the target struct to unmarshal into
+//   - unmarshalFunc: Optional custom unmarshal function (defaults to json.Unmarshal if nil)
+//
+// Returns an error if the file can't be read or unmarshalled properly.
+// Returns nil if fileParam has no value (skipping the unmarshalling).
 func UnMarshalFromFileParam[T any](
 	fileParam Param,
 	v *T,

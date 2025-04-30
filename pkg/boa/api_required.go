@@ -1,3 +1,4 @@
+// Package boa provides a declarative CLI and environment variable parameter utility.
 package boa
 
 import (
@@ -7,18 +8,33 @@ import (
 	"reflect"
 )
 
+// Required represents a parameter that must have a value.
+// If a Required parameter is not set via command line, environment variable,
+// default value, or programmatic injection, it will cause a validation error.
+//
+// The type parameter T must be one of the types supported by SupportedTypes.
 type Required[T SupportedTypes] struct {
-	Name            string
-	Short           string
-	Env             string
-	Default         *T
-	Descr           string
+	// Name is the flag name (without the -- prefix)
+	Name string
+	// Short is the short flag name (single character, without the - prefix)
+	Short string
+	// Env is the environment variable name that can set this parameter
+	Env string
+	// Default is the default value pointer for this parameter
+	Default *T
+	// Descr is the description shown in help text
+	Descr string
+	// CustomValidator is an optional function to validate the parameter value
 	CustomValidator func(T) error
-	Positional      bool
+	// Positional indicates if this is a positional argument rather than a flag
+	Positional bool
 
-	Alternatives     []string
+	// Alternatives provides a list of allowed values for this parameter
+	Alternatives []string
+	// AlternativesFunc provides a dynamic function to generate valid value suggestions for bash completion
 	AlternativesFunc func(cmd *cobra.Command, args []string, toComplete string) []string
 
+	// Internal state fields
 	setByEnv        bool
 	setPositionally bool
 	injected        bool
@@ -26,19 +42,24 @@ type Required[T SupportedTypes] struct {
 	parent          *cobra.Command
 }
 
+// IsEnabled always returns true for Required parameters.
+// Required parameters cannot be disabled.
 func (f *Required[T]) IsEnabled() bool {
 	return true
 }
 
+// GetIsEnabledFn returns nil for Required parameters.
+// Required parameters cannot be disabled.
 func (f *Required[T]) GetIsEnabledFn() func() bool {
 	return nil
 }
 
+// SetAlternatives sets the list of allowed values for this parameter.
 func (f *Required[T]) SetAlternatives(strings []string) {
 	f.Alternatives = strings
 }
 
-// prove that Optional[T] implements Param
+// This assertion proves that Required[T] implements the Param interface.
 var _ Param = &Required[string]{}
 
 func (f *Required[T]) wasSetPositionally() bool {
@@ -78,6 +99,10 @@ func (f *Required[T]) markSetFromEnv() {
 	f.setByEnv = true
 }
 
+// Value returns the parameter value.
+// Unlike Optional parameters, this returns the actual value, not a pointer.
+// This will panic if the parameter doesn't have a value, which shouldn't happen
+// with proper validation as Required parameters must have a value.
 func (f *Required[T]) Value() T {
 	if !HasValue(f) {
 		panic(fmt.Errorf("tried to access flag.Value() of '%s', which was not set. This is a bug in util_cobra", f.GetName()))
@@ -146,10 +171,14 @@ func (f *Required[T]) descr() string {
 	return f.Descr
 }
 
+// IsRequired always returns true for Required parameters.
+// This is the fundamental difference between Required and Optional parameters.
 func (f *Required[T]) IsRequired() bool {
 	return true
 }
 
+// valuePtrF returns the value pointer or default value pointer.
+// Internal method used by boa.
 func (f *Required[T]) valuePtrF() any {
 	if f.valuePtr != nil {
 		return f.valuePtr
@@ -173,6 +202,9 @@ func (f *Required[T]) defaultValueStr() string {
 	return fmt.Sprintf("%v", *f.Default)
 }
 
+// HasValue returns whether this parameter has a value from any source.
+// It checks if the parameter was set via command line, environment variable,
+// default value, or programmatic injection.
 func (f *Required[T]) HasValue() bool {
 	return HasValue(f)
 }
@@ -194,10 +226,14 @@ func (f *Required[T]) setValuePtr(val any) {
 	f.valuePtr = val
 }
 
+// GetAlternatives returns the list of allowed values for this parameter.
+// Used for command line completion and validation.
 func (f *Required[T]) GetAlternatives() []string {
 	return f.Alternatives
 }
 
+// GetAlternativesFunc returns the function that provides dynamic value 
+// suggestions for bash completion.
 func (f *Required[T]) GetAlternativesFunc() func(cmd *cobra.Command, args []string, toComplete string) []string {
 	return f.AlternativesFunc
 }
@@ -216,6 +252,10 @@ func (p *Required[T]) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// Req creates a Required parameter with a default value.
+// This is a convenience factory function for creating Required parameters.
+// Even though the parameter is required, providing a default value ensures
+// it always has a value, preventing validation errors.
 func Req[T SupportedTypes](defaultValue T) Required[T] {
 	return Required[T]{
 		Default:  &defaultValue,
