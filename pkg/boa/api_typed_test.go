@@ -157,7 +157,7 @@ func TestCmdTree(t *testing.T) {
 				t.Fatalf("expected value1 but got %s", params.Flag1.Value())
 			}
 			ranInnerCommand = true
-		}).ToCobra(),
+		}),
 	).Run()
 
 	if !ranInnerCommand {

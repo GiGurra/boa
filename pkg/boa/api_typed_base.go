@@ -155,9 +155,17 @@ func (b CmdT[Struct]) WithValidArgsFunc(validArgsFunc func(params *Struct, cmd *
 	return b
 }
 
-// WithSubCmds sets the sub-commands for this command.
-func (b CmdT[Struct]) WithSubCmds(cmd ...*cobra.Command) CmdT[Struct] {
+// WithCobraSubCmds sets the sub-commands for this command.
+func (b CmdT[Struct]) WithCobraSubCmds(cmd ...*cobra.Command) CmdT[Struct] {
 	b.SubCommands = append(b.SubCommands, cmd...)
+	return b
+}
+
+// WithSubCmds sets the sub-commands for this command.
+func (b CmdT[Struct]) WithSubCmds(cmd ...CmdIfc) CmdT[Struct] {
+	for _, c := range cmd {
+		b.SubCommands = append(b.SubCommands, c.ToCobra())
+	}
 	return b
 }
 

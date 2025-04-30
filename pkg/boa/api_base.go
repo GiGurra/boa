@@ -95,7 +95,7 @@ var (
 		}
 		return nil
 	}
-	
+
 	// ParamEnricherName sets the flag name for a parameter based on its field name
 	// if a name isn't already set. Converts from camelCase to kebab-case.
 	ParamEnricherName ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) error {
@@ -104,7 +104,7 @@ var (
 		}
 		return nil
 	}
-	
+
 	// ParamEnricherShort sets a short name (single character) for a parameter
 	// using the first character of the parameter name if available.
 	// Skips setting if the character would be 'h' (reserved for help) or
@@ -128,7 +128,7 @@ var (
 		}
 		return nil
 	}
-	
+
 	// ParamEnricherEnv sets an environment variable name for a parameter
 	// based on its flag name. Converts from kebab-case to UPPER_SNAKE_CASE.
 	// Only applies to non-positional parameters.
@@ -154,9 +154,10 @@ var (
 	ParamEnricherNone = ParamEnricherCombine()
 )
 
-//goland:noinspection GoUnusedExportedFunction
 // ParamEnricherEnvPrefix creates an enricher that adds a prefix to environment variable names.
 // This is useful when you want to namespace your environment variables.
+//
+//goland:noinspection GoUnusedExportedFunction
 func ParamEnricherEnvPrefix(prefix string) ParamEnricher {
 	return func(alreadyProcessed []Param, param Param, paramFieldName string) error {
 		if param.GetEnv() != "" {
@@ -213,9 +214,10 @@ func RunH(cmd *cobra.Command, handler ResultHandler) {
 	runImpl(cmd, handler)
 }
 
-//goland:noinspection GoUnusedExportedFunction
 // Run executes a cobra.Command with default error handling.
 // This is a convenience wrapper around RunH with an empty ResultHandler.
+//
+//goland:noinspection GoUnusedExportedFunction
 func Run(cmd *cobra.Command) {
 	RunH(cmd, ResultHandler{})
 }
@@ -281,4 +283,8 @@ type CfgStructPreExecute interface {
 type CfgStructPreValidate interface {
 	// PreValidate is called after flags are parsed but before validation
 	PreValidate() error
+}
+
+type CmdIfc interface {
+	ToCobra() *cobra.Command
 }

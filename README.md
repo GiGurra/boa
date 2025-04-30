@@ -385,7 +385,11 @@ func main() {
 				params.Flag1.Value(),
 				params.Flag2.Value(),
 			)
-		})
+		}).
+		WithSubCmds(
+			boa.NewCmdT[TestStruct]("subcommand1")
+			//...etc
+        )
 
     cmd.Run()
 }
