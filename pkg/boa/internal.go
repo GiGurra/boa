@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unsafe"
 )
 
 type Param interface {
@@ -129,7 +130,7 @@ func toTypedSlice[T SupportedTypes](slice any) []T {
 	}
 }
 
-func connect(ctx *processingContext, f Param, cmd *cobra.Command, posArgs []Param) error {
+func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 
 	if f.GetName() == "" {
 		return fmt.Errorf("invalid conf for param '%s': long param name cannot be empty", f.GetName())
@@ -865,7 +866,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		}
 
 		err = traverse(ctx, b.Params, func(param Param, _ string, tags reflect.StructTag) error {
-			err := connect(ctx, param, cmd, positional)
+			err := connect(param, cmd, positional)
 			if err != nil {
 				return err
 			}
@@ -901,6 +902,38 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 				err := b.PreValidateFunc(b.Params, cmd, args)
 				if err != nil {
 					return fmt.Errorf("error in PreValidate: %s", err.Error())
+				}
+			}
+
+			// TODO: ensure that mirrors also take raw values into account
+			// when validating. i.e. we must take values from for example
+			// config files and put them into the mirror Param
+
+			// Copy env and cli values from mirrors back over our raw params, so we don't
+			// overwrite things with config file values when env vars and cli vars (higher prio)
+			// have been set.
+			for _, addr := range ctx.RawParams {
+				param := ctx.AddrToParam[addr]
+				if param.HasValue() {
+					valueToWrite := reflect.ValueOf(param.valuePtrF()).Elem()
+
+					// Convert uintptr to unsafe.Pointer
+					//goland:noinspection ALL
+					unsafePtr := unsafe.Pointer(addr)
+
+					// Convert unsafe.Pointer to a reflect.Value of the appropriate pointer type
+					// without needing to create an unused ptrType variable
+					ptrValue := reflect.NewAt(valueToWrite.Type(), unsafePtr)
+
+					// Get the element that the pointer points to
+					destValue := ptrValue.Elem()
+
+					// Make sure the destination is settable
+					if destValue.CanSet() {
+						destValue.Set(valueToWrite)
+					} else {
+						panic(fmt.Errorf("could not set value for parameter %s", param.GetName()))
+					}
 				}
 			}
 
