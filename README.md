@@ -23,11 +23,13 @@ import (
 )
 
 var params struct {
+	// Simple parameter declarations
+	Baz  string `required:"true"`
+	FB   string `required:"false"`
+	// More flexible declarations
 	Foo  boa.Required[string]
-	Bar  boa.Required[int]
-	File boa.Required[string]
-	Baz  boa.Required[string]
-	FB   boa.Optional[string]
+	Bar  boa.Required[int] `default:"4"`
+	File boa.Optional[string]
 }
 
 func main() {
@@ -41,9 +43,9 @@ func main() {
 				"Hello world with params: %s, %d, %s, %s, %v\n",
 				params.Foo.Value(),  // string
 				params.Bar.Value(),  // int
-				params.File.Value(), // string
-				params.Baz.Value(),  // string
-				params.FB.Value(),   // *string
+				params.File.Value(), // *string
+				params.Baz,  // string
+				params.FB,   // *string
 			)
 		},
 	}.Run()
