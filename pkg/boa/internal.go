@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/spf13/cobra"
+	"log/slog"
 	"os"
 	"reflect"
 	"strconv"
@@ -638,9 +639,9 @@ func traverse(
 	rootValue := reflect.ValueOf(structPtr).Elem()
 	for i := 0; i < fields.NumField(); i++ {
 		field := fields.Field(i)
-		fieldValue := rootValue.Field(i).Addr()
+		fieldAddr := rootValue.Field(i).Addr()
 		// check if field is a param
-		param, isParam := fieldValue.Interface().(Param)
+		param, isParam := fieldAddr.Interface().(Param)
 		if isParam {
 			//if !param.IsEnabled() { // cant do here, because it is not known yet
 			//	continue // this parameter is not enabled
@@ -655,7 +656,7 @@ func traverse(
 
 			// check if it is a struct
 			if field.Type.Kind() == reflect.Struct {
-				if err := traverse(ctx, fieldValue.Interface(), fParam, fStruct); err != nil {
+				if err := traverse(ctx, fieldAddr.Interface(), fParam, fStruct); err != nil {
 					return err
 				}
 				continue
@@ -663,17 +664,26 @@ func traverse(
 
 			// check if it is a pointer to a struct
 			if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct {
-				if !fieldValue.IsNil() && !fieldValue.Elem().IsNil() {
-					if err := traverse(ctx, fieldValue.Elem().Interface(), fParam, fStruct); err != nil {
+				if !fieldAddr.IsNil() && !fieldAddr.Elem().IsNil() {
+					if err := traverse(ctx, fieldAddr.Elem().Interface(), fParam, fStruct); err != nil {
 						return err
 					}
 				}
 				continue
 			}
 
-			// TODO: Check if it is a raw SupportedTypes type. If so, create (or get) a Parameter mirror, and use that
+			if field.Type.Kind() == reflect.Pointer {
+				slog.Warn(fmt.Sprintf("raw pointer types to parameters are not (yet?) supported. Field %s will be ignored", field.Name))
+				continue
+			}
 
-			fmt.Printf("WARNING: field %s is not a param. It will be ignored\n", field.Name)
+			// TODO: Check if it is a raw SupportedTypes type. If so, create (or get) a Parameter mirror, and use that
+			if isSupportedType(field.Type) {
+				slog.Warn(fmt.Sprintf("field %s is a raw supported type. This will soon be implemented. It is ignored, for now", field.Name))
+				continue
+			}
+
+			slog.Warn(fmt.Sprintf("field %s is not a type that is interpretable as a boa.Param. It will be ignored", field.Name))
 			continue // not a param
 		}
 	}
@@ -930,5 +940,53 @@ func runImpl(cmd *cobra.Command, handler ResultHandler) {
 		if handler.Success != nil {
 			handler.Success()
 		}
+	}
+}
+
+func isSupportedType(t reflect.Type) bool {
+
+	// 	string |
+	//		int |
+	//		int32 |
+	//		int64 |
+	//		bool |
+	//		float64 |
+	//		float32 |
+	//		time.Time |
+	//		[]string |
+	//		[]int |
+	//		[]int32 |
+	//		[]int64 |
+	//		[]float32 |
+	//		[]float64
+	switch t.Kind() {
+	case
+		reflect.String,
+		reflect.Int,
+		reflect.Int32,
+		reflect.Int64,
+		reflect.Bool,
+		reflect.Float32,
+		reflect.Float64:
+		return true
+	case reflect.Struct:
+		if t.String() == "time.Time" {
+			return true
+		} else {
+			return false
+		}
+	case reflect.Slice:
+		if t.Elem().Kind() == reflect.String ||
+			t.Elem().Kind() == reflect.Int ||
+			t.Elem().Kind() == reflect.Int32 ||
+			t.Elem().Kind() == reflect.Int64 ||
+			t.Elem().Kind() == reflect.Float32 ||
+			t.Elem().Kind() == reflect.Float64 {
+			return true
+		} else {
+			return false
+		}
+	default:
+		return false
 	}
 }

@@ -13,8 +13,20 @@ import (
 // SupportedTypes defines the Go types that can be used as parameter values.
 // These types are supported for both Required and Optional parameter wrappers.
 type SupportedTypes interface {
-	string | int | int32 | int64 | bool | float64 | float32 | time.Time |
-		[]int | []int32 | []int64 | []float32 | []float64 | []string
+	string |
+		int |
+		int32 |
+		int64 |
+		bool |
+		float64 |
+		float32 |
+		time.Time |
+		[]string |
+		[]int |
+		[]int32 |
+		[]int64 |
+		[]float32 |
+		[]float64
 }
 
 // Cmd represents a CLI command with all its configuration options.
