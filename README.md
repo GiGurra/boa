@@ -89,6 +89,10 @@ var params struct {
 	FB   boa.Optional[string] `pos:"true"`
 }
 
+type OtherParams struct {
+	Foo2  boa.Required[string] `descr:"a foo"`
+}
+
 func main() {
 	boa.Cmd{
 		Use:   "hello-world",
@@ -108,10 +112,10 @@ func main() {
 					fmt.Printf("Hello world from subcommand1 with params: %s, %d, %s, %s\n", p1, p2, p3, p4)
 				},
 			},
-			boa.Cmd{
+			boa.CmdT[OtherParams]{
 				Use:   "subcommand2",
 				Short: "a subcommand",
-				RunFunc: func(cmd *cobra.Command, args []string) {
+				RunFunc: func(params *OtherParams) {
 					fmt.Println("Hello world from subcommand2")
 				},
 			},
