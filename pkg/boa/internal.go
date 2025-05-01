@@ -319,7 +319,7 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 			}
 			return nil
 		} else {
-			return fmt.Errorf("general structs not yet supported: " + f.GetKind().String())
+			return fmt.Errorf("general structs not yet supported: %s", f.GetKind().String())
 		}
 	case reflect.Slice:
 
@@ -359,11 +359,11 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 		}
 		return nil
 	case reflect.Array:
-		return fmt.Errorf("unsupported param type (Array): %s: " + f.GetKind().String())
+		return fmt.Errorf("unsupported param type (Array): %s: ", f.GetKind().String())
 	case reflect.Pointer:
-		return fmt.Errorf("unsupported param type (Pointer): %s: " + f.GetKind().String())
+		return fmt.Errorf("unsupported param type (Pointer): %s: ", f.GetKind().String())
 	default:
-		return fmt.Errorf("unsupported param type: %s" + f.GetKind().String())
+		return fmt.Errorf("unsupported param type: %s", f.GetKind().String())
 	}
 }
 
@@ -561,16 +561,16 @@ func parsePtr(
 			}
 			return &parsedTime, nil
 		} else {
-			return nil, fmt.Errorf("general structs not yet supported: " + tpe.String())
+			return nil, fmt.Errorf("general structs not yet supported: %s", tpe.String())
 		}
 	case reflect.Slice:
 		return parseSlice(name, strVal, tpe.Elem())
 	case reflect.Array:
-		return nil, fmt.Errorf("arrays not supported param type. Use a slice instead: " + kind.String())
+		return nil, fmt.Errorf("arrays not supported param type. Use a slice instead: %s", kind.String())
 	case reflect.Pointer:
-		return nil, fmt.Errorf("pointers not yet supported param type: " + kind.String())
+		return nil, fmt.Errorf("pointers not yet supported param type: %s", kind.String())
 	default:
-		return nil, fmt.Errorf("unsupported param type: %s" + kind.String())
+		return nil, fmt.Errorf("unsupported param type: %s", kind.String())
 	}
 }
 
