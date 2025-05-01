@@ -221,3 +221,30 @@ func TestAutoGenerateParamsFieldWhenOmitted(t *testing.T) {
 		t.Fatalf("expected inner command to run but it didn't")
 	}
 }
+
+func TestCmdList(t *testing.T) {
+	ran := false
+	type Args struct {
+		MyInt int
+	}
+	CmdT[NoParams]{
+		Use: "test",
+		RunFunc: func(params *NoParams, cmd *cobra.Command, args []string) {
+			t.Fatalf("expected to not run")
+		},
+		SubCmds: CmdList(
+			CmdT[NoParams]{Use: "subcmd1"},
+			CmdT[NoParams]{Use: "subcmd2"},
+			CmdT[Args]{Use: "subcmd3", RunFunc: func(params *Args, cmd *cobra.Command, args []string) {
+				ran = true
+				if params.MyInt != 42 {
+					t.Fatalf("expected 42 but got %d", params.MyInt)
+				}
+			}},
+		),
+	}.RunArgs([]string{"subcmd3", "--my-int", "42"})
+
+	if !ran {
+		t.Fatalf("expected inner command to run but it didn't")
+	}
+}

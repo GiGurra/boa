@@ -26,8 +26,8 @@ type CmdT[Struct any] struct {
 	Version string
 	// Args defines how cobra should validate positional arguments
 	Args cobra.PositionalArgs
-	// SubCommands contains sub-commands for this command
-	SubCommands []*cobra.Command
+	// SubCmds contains sub-commands for this command
+	SubCmds []*cobra.Command
 	// Params is a pointer to the struct containing command parameters
 	Params *Struct
 	// ParamEnrich is a function that enriches parameter definitions
@@ -157,14 +157,14 @@ func (b CmdT[Struct]) WithValidArgsFunc(validArgsFunc func(params *Struct, cmd *
 
 // WithCobraSubCmds sets the sub-commands for this command.
 func (b CmdT[Struct]) WithCobraSubCmds(cmd ...*cobra.Command) CmdT[Struct] {
-	b.SubCommands = append(b.SubCommands, cmd...)
+	b.SubCmds = append(b.SubCmds, cmd...)
 	return b
 }
 
 // WithSubCmds sets the sub-commands for this command.
 func (b CmdT[Struct]) WithSubCmds(cmd ...CmdIfc) CmdT[Struct] {
 	for _, c := range cmd {
-		b.SubCommands = append(b.SubCommands, c.ToCobra())
+		b.SubCmds = append(b.SubCmds, c.ToCobra())
 	}
 	return b
 }
@@ -247,7 +247,7 @@ func (b CmdT[Struct]) WithRawArgs(rawArgs []string) CmdT[Struct] {
 // ToCmd converts a type-safe CmdT to a non-generic Cmd.
 // This converts the type-safe functions to their non-generic equivalents.
 func (b CmdT[Struct]) ToCmd() Cmd {
-	
+
 	if b.Params == nil {
 		b.Params = new(Struct)
 	}
@@ -299,7 +299,7 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		Long:            b.Long,
 		Version:         b.Version,
 		Args:            b.Args,
-		SubCommands:     b.SubCommands,
+		SubCommands:     b.SubCmds,
 		Params:          params,
 		ParamEnrich:     b.ParamEnrich,
 		RunFunc:         runFcn,

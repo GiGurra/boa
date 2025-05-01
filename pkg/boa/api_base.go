@@ -288,6 +288,16 @@ type CfgStructPreValidate interface {
 	PreValidate() error
 }
 
+// CmdIfc common interface between Cmd and CmdT for reusing code
 type CmdIfc interface {
 	ToCobra() *cobra.Command
+}
+
+// CmdList converts a list of CmdIfc to a slice of cobra.Command.
+func CmdList(cmds ...CmdIfc) []*cobra.Command {
+	var cobraCmds []*cobra.Command
+	for _, cmd := range cmds {
+		cobraCmds = append(cobraCmds, cmd.ToCobra())
+	}
+	return cobraCmds
 }
