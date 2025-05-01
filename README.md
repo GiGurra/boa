@@ -278,9 +278,7 @@ func main() {
 }
 ```
 
-###
-
-Leverage all of cobra's features:
+### Leverage all of cobra's features:
 
 ```go
 package main
