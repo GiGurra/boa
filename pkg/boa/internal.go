@@ -344,9 +344,9 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 		}
 		return nil
 	case reflect.Array:
-		return fmt.Errorf("arrays are supported param type: " + f.GetKind().String())
+		return fmt.Errorf("unsupported param type (Array): %s: " + f.GetKind().String())
 	case reflect.Pointer:
-		return fmt.Errorf("pointers not supported param type: " + f.GetKind().String())
+		return fmt.Errorf("unsupported param type (Pointer): %s: " + f.GetKind().String())
 	default:
 		return fmt.Errorf("unsupported param type: %s" + f.GetKind().String())
 	}
