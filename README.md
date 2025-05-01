@@ -24,8 +24,8 @@ import (
 
 type Params struct {
 	// Simple parameter declarations
-	Baz  string `required:"true"`
-	FB   string `required:"false"`
+	Baz string `required:"true"`
+	FB  string `required:"false"`
 	// More flexible declarations
 	Foo  boa.Required[string]
 	Bar  boa.Required[int] `default:"4"`
@@ -34,14 +34,14 @@ type Params struct {
 
 func main() {
 	boa.CmdT[Params]{
-		Use:    "hello-world",
-		Short:  "a generic cli tool",
-		Long:   `A generic cli tool that has a longer description. See the README.MD for more information`,
+		Use:   "hello-world",
+		Short: "a generic cli tool",
+		Long:  `A generic cli tool that has a longer description. See the README.MD for more information`,
 		RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
 			fmt.Printf(
 				"Hello world with params: %s, %d, %s, %s, %v\n",
-				params.Baz,  // string
-				params.FB,   // *string
+				params.Baz,          // string
+				params.FB,           // *string
 				params.Foo.Value(),  // string
 				params.Bar.Value(),  // int
 				params.File.Value(), // *string
@@ -91,7 +91,7 @@ var params struct {
 }
 
 type OtherParams struct {
-	Foo2  boa.Required[string] `descr:"a foo"`
+	Foo2 boa.Required[string] `descr:"a foo"`
 }
 
 func main() {
@@ -435,6 +435,22 @@ func main() {
 }
 
 ```
+
+## Parameter value source priority
+
+Boa supports multiple sources for parameter values, including command-line flags, environment variables, and config
+files. When multiple sources are available, the following priority order is used:
+
+1. **Command-line flags**: Values provided directly on the command line take precedence over all other sources.
+2. **Environment variables**: If a command-line flag is not provided, the corresponding environment variable will be
+   used if it exists.
+3. **Config files**: If neither a command-line flag nor an environment variable is provided, the value from the
+   configuration file will be used.
+4. **Default values**: If no value is provided from any source, the default value specified in the parameter
+   definition will be used.
+5. **Zero value**: If no value is provided from any source and no default value is specified, the zero value for the
+   parameter type will be used. If you are using the `boa.Required` or `boa.Optional` types, you should use the
+   `HasValue` method to check if a value has been set.
 
 ## Lifecycle Hooks in Boa
 
