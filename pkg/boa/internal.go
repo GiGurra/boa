@@ -771,20 +771,28 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 			if tags.Get("positional") == "true" || tags.Get("pos") == "true" {
 				param.setPositional(true)
 			}
-			if descr, ok := tags.Lookup("descr"); ok {
-				param.setDescription(descr)
+			if param.descr() == "" {
+				if descr, ok := tags.Lookup("descr"); ok {
+					param.setDescription(descr)
+				}
+				if descr, ok := tags.Lookup("description"); ok {
+					param.setDescription(descr)
+				}
 			}
-			if descr, ok := tags.Lookup("description"); ok {
-				param.setDescription(descr)
+			if param.GetEnv() == "" {
+				if env, ok := tags.Lookup("env"); ok {
+					param.SetEnv(env)
+				}
 			}
-			if env, ok := tags.Lookup("env"); ok {
-				param.SetEnv(env)
+			if param.GetShort() == "" {
+				if shrt, ok := tags.Lookup("short"); ok {
+					param.SetShort(shrt)
+				}
 			}
-			if shrt, ok := tags.Lookup("short"); ok {
-				param.SetShort(shrt)
-			}
-			if name, ok := tags.Lookup("name"); ok {
-				param.SetName(name)
+			if param.GetName() == "" {
+				if name, ok := tags.Lookup("name"); ok {
+					param.SetName(name)
+				}
 			}
 
 			setAlts := func(alts string) {
