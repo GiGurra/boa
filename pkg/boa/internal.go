@@ -722,6 +722,15 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		RawAddresses:    []uintptr{},
 	}
 
+	// build mirrors
+	if b.Params != nil {
+		_ = traverse(ctx, b.Params, nil, func(innerParams any) error {
+			return nil
+		})
+	}
+
+	syncMirrors(ctx)
+
 	// if b.params or any inner struct implements CfgStructPreExecute, call it
 	if b.Params != nil {
 		err := traverse(ctx, b.Params, nil, func(innerParams any) error {
@@ -745,6 +754,8 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 			panic(fmt.Errorf("error in InitFunc: %s", err.Error()))
 		}
 	}
+
+	syncMirrors(ctx)
 
 	cmd.Flags().SortFlags = b.SortFlags
 	cmd.Version = b.Version
@@ -856,6 +867,8 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		if cmd.Args == nil {
 			cmd.Args = cobra.RangeArgs(numReqPositional, len(positional))
 		}
+
+		syncMirrors(ctx)
 
 		err = traverse(ctx, b.Params, func(param Param, _ string, tags reflect.StructTag) error {
 			err := connect(param, cmd, positional)
