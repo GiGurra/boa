@@ -232,7 +232,7 @@ func TestCmdList(t *testing.T) {
 		RunFunc: func(params *NoParams, cmd *cobra.Command, args []string) {
 			t.Fatalf("expected to not run")
 		},
-		SubCmds: CmdList(
+		SubCmds: SubCmds(
 			CmdT[NoParams]{Use: "subcmd1"},
 			CmdT[NoParams]{Use: "subcmd2"},
 			CmdT[Args]{Use: "subcmd3", RunFunc: func(params *Args, cmd *cobra.Command, args []string) {

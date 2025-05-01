@@ -301,3 +301,8 @@ func CmdList(cmds ...CmdIfc) []*cobra.Command {
 	}
 	return cobraCmds
 }
+
+// SubCmds converts a list of CmdIfc to a slice of cobra.Command.
+func SubCmds(cmds ...CmdIfc) []*cobra.Command {
+	return CmdList(cmds...)
+}
