@@ -634,7 +634,9 @@ func main() {
 
 ## Missing features
 
-- [ ] Nested config
+- [ ] Prefixed nested config
+- [ ] Support for custom types as slice elements
+- [ ] Support for more complex types as parameters (e.g. maps, custom types)
 
 ## State
 
