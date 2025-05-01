@@ -905,7 +905,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 			// have been set.
 			for _, addr := range ctx.RawParams {
 				param := ctx.AddrToParam[addr]
-				if param.HasValue() {
+				if param.wasSetOnCli() || param.wasSetByEnv() {
 					valueToWrite := reflect.ValueOf(param.valuePtrF()).Elem()
 
 					// Convert uintptr to unsafe.Pointer
