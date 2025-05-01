@@ -21,7 +21,7 @@ func TestTyped1(t *testing.T) {
 
 	os.Args = []string{"test", "--flag1", "value1", "--flag2", "42"}
 
-	builder :=
+	cmd :=
 		NewCmdT[TestStruct]("test").
 			WithRunFunc(func(params *TestStruct) {
 				fmt.Printf("params: %+v\n", params)
@@ -33,28 +33,28 @@ func TestTyped1(t *testing.T) {
 				}
 			})
 
-	if builder.Params.Flag1.HasValue() {
+	if cmd.Params.Flag1.HasValue() {
 		t.Errorf("Flag1 should not have value")
 	}
 
-	if builder.Params.Flag2.HasValue() {
+	if cmd.Params.Flag2.HasValue() {
 		t.Errorf("Flag2 should not have value")
 	}
 
-	builder.Run()
+	cmd.Run()
 
-	if !builder.Params.Flag1.HasValue() {
+	if !cmd.Params.Flag1.HasValue() {
 		t.Errorf("Flag1 should have value")
 	}
 
-	if !builder.Params.Flag2.HasValue() {
+	if !cmd.Params.Flag2.HasValue() {
 		t.Errorf("Flag2 should have value")
 	}
 }
 
 func TestTyped2(t *testing.T) {
 
-	builder :=
+	cmd :=
 		NewCmdT2("test", &TestStruct{}).
 			WithRawArgs([]string{"--flag1", "value1", "--flag2", "42"}).
 			WithRunFunc3(func(params *TestStruct, cmd *cobra.Command, args []string) {
@@ -67,28 +67,28 @@ func TestTyped2(t *testing.T) {
 				}
 			})
 
-	if builder.Params.Flag1.HasValue() {
+	if cmd.Params.Flag1.HasValue() {
 		t.Errorf("Flag1 should not have value")
 	}
 
-	if builder.Params.Flag2.HasValue() {
+	if cmd.Params.Flag2.HasValue() {
 		t.Errorf("Flag2 should not have value")
 	}
 
-	builder.Run()
+	cmd.Run()
 
-	if !builder.Params.Flag1.HasValue() {
+	if !cmd.Params.Flag1.HasValue() {
 		t.Errorf("Flag1 should have value")
 	}
 
-	if !builder.Params.Flag2.HasValue() {
+	if !cmd.Params.Flag2.HasValue() {
 		t.Errorf("Flag2 should have value")
 	}
 }
 
 func TestTypedWithInitFunc(t *testing.T) {
 
-	builder :=
+	cmd :=
 		NewCmdT[TestStruct]("test").
 			WithInitFunc(func(params *TestStruct) { params.Flag2.Default = Default(42) }).
 			WithRunFunc(func(params *TestStruct) {
@@ -101,21 +101,21 @@ func TestTypedWithInitFunc(t *testing.T) {
 				}
 			})
 
-	if builder.Params.Flag1.HasValue() {
+	if cmd.Params.Flag1.HasValue() {
 		t.Errorf("Flag1 should not have value")
 	}
 
-	if builder.Params.Flag2.HasValue() {
+	if cmd.Params.Flag2.HasValue() {
 		t.Errorf("Flag2 should not have value")
 	}
 
-	builder.WithRawArgs([]string{"--flag1", "value1"}).Run()
+	cmd.WithRawArgs([]string{"--flag1", "value1"}).Run()
 
-	if !builder.Params.Flag1.HasValue() {
+	if !cmd.Params.Flag1.HasValue() {
 		t.Errorf("Flag1 should have value")
 	}
 
-	if !builder.Params.Flag2.HasValue() {
+	if !cmd.Params.Flag2.HasValue() {
 		t.Errorf("Flag2 should have value")
 	}
 }
@@ -129,15 +129,15 @@ func TestNoParams(t *testing.T) {
 
 	os.Args = []string{"test"}
 
-	builder :=
+	cmd :=
 		NewCmdT[NoParams]("test").
 			WithRunFunc(func(_ *NoParams) {
 			})
-	builderCpy := builder
+	cmdCpy := cmd
 
-	builder.Run()
-	if builderCpy.Validate() != nil {
-		t.Fatalf("expected no error but got %v", builder.Validate())
+	cmd.Run()
+	if cmdCpy.Validate() != nil {
+		t.Fatalf("expected no error but got %v", cmd.Validate())
 	}
 }
 
