@@ -94,7 +94,7 @@ func main() {
 		Use:   "hello-world",
 		Short: "a generic cli tool",
 		Long:  `A generic cli tool that has a longer description.See the README.MD for more information`,
-		SubCmds: []*cobra.Command{
+		SubCmds: boa.SubCmds(
 			boa.Cmd{
 				Use:         "subcommand1",
 				Short:       "a subcommand",
@@ -107,15 +107,15 @@ func main() {
 					p4 := params.Baz.Value()
 					fmt.Printf("Hello world from subcommand1 with params: %s, %d, %s, %s\n", p1, p2, p3, p4)
 				},
-			}.ToCobra(),
+			},
 			boa.Cmd{
 				Use:   "subcommand2",
 				Short: "a subcommand",
 				RunFunc: func(cmd *cobra.Command, args []string) {
 					fmt.Println("Hello world from subcommand2")
 				},
-			}.ToCobra(),
-		},
+			},
+		),
 	}.Run()
 }
 ```
