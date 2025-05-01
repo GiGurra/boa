@@ -252,4 +252,7 @@ func TestAlternatives(t *testing.T) {
 	if err := NewCmdT[Conf]("test").WithRawArgs([]string{"-e", "e2"}).Validate(); err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
+
+	// TODO: check that we canot provide e4, when cobra supports it
+	// see https://github.com/spf13/pflag/issues/236
 }
