@@ -1,18 +1,14 @@
 # BOA
 
-Boa is a compact CLI and environment variable parameter utility. It enhances and simplifies aspects of `github.com/spf13/cobra`, facilitating the creation of straightforward and declarative CLI interfaces.
-
-The primary goal of Boa is to maintain a declarative approach. In its simplest form, you only need to define a struct with parameter fields, and Boa handles the rest.
+Boa is a compact CLI and environment variable parameter utility. It adds a declarative layer on top of
+`github.com/spf13/cobra`. In its simplest form, you only need to define a struct with parameter fields, and Boa handles
+the rest.
 
 ## Installation
-
-To install Boa, use the following command:
 
 `go get github.com/GiGurra/boa@latest`
 
 ## Usage
-
-Refer to the code snippets provided below for minimum setup, sub-commands and tags, and sub-commands, tags and explicit fields.
 
 ### Minimum setup
 
@@ -321,7 +317,7 @@ You can specify that a parameter must be one of a set of values:
 
 ```go
 var params = struct {
-	Foo boa.Required[string] `alts:"abc,cde,fgh"`
+Foo boa.Required[string] `alts:"abc,cde,fgh"`
 }{}
 ```
 
@@ -331,8 +327,8 @@ Boa supports array/slice types with proper parsing:
 
 ```go
 var params struct {
-	WithoutDefaults boa.Required[[]float64]
-	WithDefaults    boa.Required[[]int64] `default:"[1,2,3]"`
+WithoutDefaults boa.Required[[]float64]
+WithDefaults    boa.Required[[]int64] `default:"[1,2,3]"`
 }
 ```
 
@@ -342,31 +338,31 @@ A structured builder API is available for more complex command creation:
 
 ```go
 import (
-	"fmt"
-	"github.com/GiGurra/boa/pkg/boa"
+"fmt"
+"github.com/GiGurra/boa/pkg/boa"
 )
 
 type TestStruct struct {
-	Flag1 boa.Required[string]
-	Flag2 boa.Required[int]
+Flag1 boa.Required[string]
+Flag2 boa.Required[int]
 }
 
 func main() {
-	cmd := boa.NewCmdT[TestStruct]("my-command").
-		WithShort("A command description").
-		WithLong("A longer command description").
-		WithRunFunc(func(params *TestStruct) {
-			fmt.Printf("Running with: %s, %d\n",
-				params.Flag1.Value(),
-				params.Flag2.Value(),
-			)
-		}).
-		WithSubCmds(
-			boa.NewCmdT[TestStruct]("subcommand1")
-			//...etc
-		)
+cmd := boa.NewCmdT[TestStruct]("my-command").
+WithShort("A command description").
+WithLong("A longer command description").
+WithRunFunc(func (params *TestStruct) {
+fmt.Printf("Running with: %s, %d\n",
+params.Flag1.Value(),
+params.Flag2.Value(),
+)
+}).
+WithSubCmds(
+boa.NewCmdT[TestStruct]("subcommand1")
+//...etc
+)
 
-	cmd.Run()
+cmd.Run()
 }
 ```
 
@@ -374,111 +370,115 @@ func main() {
 
 ```go
 import (
-	"github.com/GiGurra/boa/pkg/boa"
-	"github.com/spf13/cobra"
+"github.com/GiGurra/boa/pkg/boa"
+"github.com/spf13/cobra"
 )
 
 type AppConfig struct {
-	Host boa.Required[string]
-	Port boa.Required[int]
+Host boa.Required[string]
+Port boa.Required[int]
 }
 
 type ConfigFromFile struct {
-	File    boa.Required[string]
-	AppConfig
+File    boa.Required[string]
+AppConfig
 }
 
 func main() {
-	boa.NewCmdT[ConfigFromFile]("my-app").
-		WithPreValidateFuncE(func(params *ConfigFromFile, cmd *cobra.Command, args []string) error {
-			// boa.UnMarshalFromFileParam is a helper to unmarshal from a file, but you can run
-			// any custom code here.
-			// boa.Optional and boa.Required have implementations of json.Unmarshaler.
-			// This implementation will also respect pre-assigned cli and env var values, 
-			// and not overwrite them with the file values.
-			return boa.UnMarshalFromFileParam(&params.File, &params.AppConfig, nil /* custom unmarshaller function */)
-		}).
-		WithRunFunc(func(params *ConfigFromFile) {
-			// Use parameters loaded from the file
-			fmt.Printf("Host: %s, Port: %d\n",
-				params.Host.Value(),
-				params.Port.Value(),
-			)
-		}).
-		Run()
+boa.NewCmdT[ConfigFromFile]("my-app").
+WithPreValidateFuncE(func (params *ConfigFromFile, cmd *cobra.Command, args []string) error {
+// boa.UnMarshalFromFileParam is a helper to unmarshal from a file, but you can run
+// any custom code here.
+// boa.Optional and boa.Required have implementations of json.Unmarshaler.
+// This implementation will also respect pre-assigned cli and env var values, 
+// and not overwrite them with the file values.
+return boa.UnMarshalFromFileParam(&params.File, &params.AppConfig, nil /* custom unmarshaller function */)
+}).
+WithRunFunc(func (params *ConfigFromFile) {
+// Use parameters loaded from the file
+fmt.Printf("Host: %s, Port: %d\n",
+params.Host.Value(),
+params.Port.Value(),
+)
+}).
+Run()
 }
 ```
+
 # Lifecycle Hooks in Boa
 
-Boa provides several lifecycle hooks that can be implemented or defined to customize behavior at different stages of command execution. These hooks give you fine-grained control over parameter initialization, validation, and execution.
+Boa provides several lifecycle hooks that can be implemented or defined to customize behavior at different stages of
+command execution. These hooks give you fine-grained control over parameter initialization, validation, and execution.
 
 ## Available Hooks
 
 ### Init Hook
 
-The Init hook runs during the initialization phase, before any command-line arguments or environment variables are processed.
+The Init hook runs during the initialization phase, before any command-line arguments or environment variables are
+processed.
 
 ```go
 // Implement this interface on your configuration struct
 type CfgStructInit interface {
-    Init() error
+Init() error
 }
 
 // Example implementation
 func (i *MyConfigStruct) Init() error {
-    // Initialize defaults, set up validators, etc.
-    i.SomeParam.Default = boa.Default("default value")
-    return nil
+// Initialize defaults, set up validators, etc.
+i.SomeParam.Default = boa.Default("default value")
+return nil
 }
 
 // Alternatively, use the InitFunc in Wrap
 boa.Cmd{
-    Params: &params,
-    InitFunc: func(params any) error {
-        // Custom initialization logic
-        return nil
-    },
+Params: &params,
+InitFunc: func (params any) error {
+// Custom initialization logic
+return nil
+},
 }.Run()
 
 // Or with the builder API
 boa.NewCmdT[MyConfigStruct]("command").
-    WithInitFuncE(func(params *MyConfigStruct) error {
-        // Custom initialization logic
-        return nil
-    })
+WithInitFuncE(func (params *MyConfigStruct) error {
+// Custom initialization logic
+return nil
+})
 ```
 
 ### PreValidate Hook
 
-The PreValidate hook runs after parameters are parsed from the command line and environment variables but before validation is performed.
+The PreValidate hook runs after parameters are parsed from the command line and environment variables but before
+validation is performed.
 
 ```go
 // Implement this interface on your configuration struct
 type CfgStructPreValidate interface {
-    PreValidate() error
+PreValidate() error
 }
 
 // Example implementation
 func (i *MyConfigStruct) PreValidate() error {
-    // Manipulate parameters before validation
-    return nil
+// Manipulate parameters before validation
+return nil
 }
 
 // Alternatively, use the PreValidateFunc in Wrap
 boa.Cmd{
-    Params: &params,
-    PreValidateFunc: func(params any, cmd *cobra.Command, args []string) error {
-        // Custom pre-validation logic
-        return nil
-    },
+Params: &params,
+PreValidateFunc: func (params any, cmd *cobra.Command, args []string) error {
+// Custom pre-validation logic
+return nil
+},
 }.Run()
 
 // Or with the builder API
 boa.NewCmdT[MyConfigStruct]("command").
-    WithPreValidateFuncE(func(params *MyConfigStruct, cmd *cobra.Command, args []string) error {
-        // Custom pre-validation logic, such as loading from config files
-        return nil
-    })
+WithPreValidateFuncE(func (params *MyConfigStruct, cmd *cobra.Command, args []string) error {
+// Custom pre-validation logic, such as loading from config files
+return nil
+})
 ```
 
 ### PreExecute Hook
@@ -488,30 +488,30 @@ The PreExecute hook runs after parameter validation but before the command's Run
 ```go
 // Implement this interface on your configuration struct
 type CfgStructPreExecute interface {
-    PreExecute() error
+PreExecute() error
 }
 
 // Example implementation
 func (i *MyConfigStruct) PreExecute() error {
-    // Setup that should happen after validation but before execution
-    return nil
+// Setup that should happen after validation but before execution
+return nil
 }
 
 // Alternatively, use the PreExecuteFunc in Wrap
 boa.Cmd{
-    Params: &params,
-    PreExecuteFunc: func(params any, cmd *cobra.Command, args []string) error {
-        // Custom pre-execution logic
-        return nil
-    },
+Params: &params,
+PreExecuteFunc: func (params any, cmd *cobra.Command, args []string) error {
+// Custom pre-execution logic
+return nil
+},
 }.Run()
 
 // Or with the builder API
 boa.NewCmdT[MyConfigStruct]("command").
-    WithPreExecuteFuncE(func(params *MyConfigStruct, cmd *cobra.Command, args []string) error {
-        // Custom pre-execution logic
-        return nil
-    })
+WithPreExecuteFuncE(func (params *MyConfigStruct, cmd *cobra.Command, args []string) error {
+// Custom pre-execution logic
+return nil
+})
 ```
 
 ## Hook Execution Order
@@ -532,7 +532,8 @@ Hooks are executed in the following order:
 
 ## Error Handling
 
-All hooks can return errors to abort command execution. If any hook returns an error, the command will not proceed to the next phase, and the error will be reported to the user.
+All hooks can return errors to abort command execution. If any hook returns an error, the command will not proceed to
+the next phase, and the error will be reported to the user.
 
 ## Missing features
 
