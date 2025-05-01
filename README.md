@@ -94,7 +94,7 @@ func main() {
 		Use:   "hello-world",
 		Short: "a generic cli tool",
 		Long:  `A generic cli tool that has a longer description.See the README.MD for more information`,
-		SubCommands: []*cobra.Command{
+		SubCmds: []*cobra.Command{
 			boa.Cmd{
 				Use:         "subcommand1",
 				Short:       "a subcommand",
@@ -164,7 +164,7 @@ func main() {
 		Use:   "hello-world",
 		Short: "a generic cli tool",
 		Long:  `A generic cli tool that has a longer description.See the README.MD for more information`,
-		SubCommands: []*cobra.Command{
+		SubCmds: []*cobra.Command{
 			boa.Cmd{
 				Use:         "subcommand1",
 				Short:       "a subcommand",

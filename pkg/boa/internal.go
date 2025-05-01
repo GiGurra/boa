@@ -760,7 +760,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 	cmd.Flags().SortFlags = b.SortFlags
 	cmd.Version = b.Version
 
-	for _, subcommand := range b.SubCommands {
+	for _, subcommand := range b.SubCmds {
 		cmd.AddCommand(subcommand)
 	}
 

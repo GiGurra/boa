@@ -299,7 +299,7 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		Long:            b.Long,
 		Version:         b.Version,
 		Args:            b.Args,
-		SubCommands:     b.SubCmds,
+		SubCmds:         b.SubCmds,
 		Params:          params,
 		ParamEnrich:     b.ParamEnrich,
 		RunFunc:         runFcn,

@@ -227,15 +227,14 @@ func TestCmdList(t *testing.T) {
 	type Args struct {
 		MyInt int
 	}
-	CmdT[NoParams]{
-		Use: "test",
-		RunFunc: func(params *NoParams, cmd *cobra.Command, args []string) {
+	Cmd{
+		RunFunc: func(cmd *cobra.Command, args []string) {
 			t.Fatalf("expected to not run")
 		},
 		SubCmds: SubCmds(
 			NewCmdT[NoParams]("123").WithRunFunc(func(params *NoParams) {}),
 			CmdT[NoParams]{Use: "subcmd1"},
-			CmdT[NoParams]{Use: "subcmd2"},
+			Cmd{Use: "subcmd2"},
 			CmdT[Args]{Use: "subcmd3", RunFunc: func(params *Args, cmd *cobra.Command, args []string) {
 				ran = true
 				if params.MyInt != 42 {

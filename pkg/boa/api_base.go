@@ -43,8 +43,8 @@ type Cmd struct {
 	Version string
 	// Args defines how cobra should validate positional arguments
 	Args cobra.PositionalArgs
-	// SubCommands contains sub-commands for this command
-	SubCommands []*cobra.Command
+	// SubCmds contains sub-commands for this command
+	SubCmds []*cobra.Command
 	// Params is a pointer to a struct containing command parameters
 	Params any
 	// ParamEnrich is a function that enriches parameter definitions
@@ -182,7 +182,7 @@ func ParamEnricherEnvPrefix(prefix string) ParamEnricher {
 // WithCobraSubCmds adds sub-commands to a Cmd and returns the modified Cmd.
 // This method allows for fluent chaining of command configuration.
 func (b Cmd) WithCobraSubCmds(cmd ...*cobra.Command) Cmd {
-	b.SubCommands = append(b.SubCommands, cmd...)
+	b.SubCmds = append(b.SubCmds, cmd...)
 	return b
 }
 
@@ -190,7 +190,7 @@ func (b Cmd) WithCobraSubCmds(cmd ...*cobra.Command) Cmd {
 // This method allows for fluent chaining of command configuration.
 func (b Cmd) WithSubCmds(cmd ...CmdIfc) Cmd {
 	for _, c := range cmd {
-		b.SubCommands = append(b.SubCommands, c.ToCobra())
+		b.SubCmds = append(b.SubCmds, c.ToCobra())
 	}
 	return b
 }
@@ -237,6 +237,23 @@ func (b Cmd) Run() {
 // RunH executes the command with the specified ResultHandler for
 // custom error and panic handling.
 func (b Cmd) RunH(handler ResultHandler) {
+	RunH(b.ToCobra(), handler)
+}
+
+// RunArgs executes the command with default error handling.
+// This is a convenience method that creates a Cobra command from the Cmd
+// and runs it with the default ResultHandler. It also allows you to
+// inject command line arguments directly instead of using os.Args.
+func (b Cmd) RunArgs(rawArgs []string) {
+	b.RawArgs = rawArgs
+	b.RunH(ResultHandler{})
+}
+
+// RunHArgs executes the command with the specified ResultHandler for
+// custom error and panic handling.It also allows you to
+// // inject command line arguments directly instead of using os.Args.
+func (b Cmd) RunHArgs(handler ResultHandler, rawArgs []string) {
+	b.RawArgs = rawArgs
 	RunH(b.ToCobra(), handler)
 }
 
