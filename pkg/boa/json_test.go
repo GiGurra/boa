@@ -148,27 +148,33 @@ func TestJsonSerializationEmbeddedStruct(t *testing.T) {
 
 func TestJsonSerializationEmbeddedStructPointerValid(t *testing.T) {
 
-	err := Validate(&EmbeddedConfigStructPointer{
-		Foobar: Req("foobar"),
-		AppConfig: &AppConfig{
-			Host:                Req("someHost"),
-			Port:                Req(12345),
-			KafkaCredentials:    Opt("someCredentials"),
-			KafkaNilCredentials: OptP[string](nil),
+	err := Cmd{
+		Params: &EmbeddedConfigStructPointer{
+			Foobar: Req("foobar"),
+			AppConfig: &AppConfig{
+				Host:                Req("someHost"),
+				Port:                Req(12345),
+				KafkaCredentials:    Opt("someCredentials"),
+				KafkaNilCredentials: OptP[string](nil),
+			},
 		},
-	}, Cmd{ParamEnrich: ParamEnricherName, RawArgs: []string{}})
+		ParamEnrich: ParamEnricherName, RawArgs: []string{},
+	}.Validate()
 	if err != nil {
 		t.Errorf("Validation error: %v", err)
 	}
 
-	err = Validate(&EmbeddedConfigStructPointer{
-		Foobar: Req("foobar"),
-		AppConfig: &AppConfig{
-			Port:                Req(12345),
-			KafkaCredentials:    Opt("someCredentials"),
-			KafkaNilCredentials: OptP[string](nil),
+	err = Cmd{
+		Params: &EmbeddedConfigStructPointer{
+			Foobar: Req("foobar"),
+			AppConfig: &AppConfig{
+				Port:                Req(12345),
+				KafkaCredentials:    Opt("someCredentials"),
+				KafkaNilCredentials: OptP[string](nil),
+			},
 		},
-	}, Cmd{ParamEnrich: ParamEnricherName, RawArgs: []string{}})
+		ParamEnrich: ParamEnricherName, RawArgs: []string{},
+	}.Validate()
 	if err == nil {
 		t.Errorf("Expected validation error, got nil")
 	} else {

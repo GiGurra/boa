@@ -317,10 +317,9 @@ func (b CmdT[Struct]) RunHArgs(handler ResultHandler, rawArgs []string) {
 }
 
 // Validate validates parameter values without executing the command's RunFunc.
-// This is useful for validating parameters independently from command execution,
-// such as in tests or when validating configuration before use.
+// This is useful for testing.
 func (b CmdT[Struct]) Validate() error {
-	return Validate(b.Params, b.ToCmd())
+	return b.ToCmd().Validate()
 }
 
 // UnMarshalFromFileParam reads a file path from a parameter and unmarshals its contents into a target struct.

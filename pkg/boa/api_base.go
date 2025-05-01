@@ -244,19 +244,11 @@ func (b Cmd) RunH(handler ResultHandler) {
 	RunH(b.ToCobra(), handler)
 }
 
-// Default creates a pointer to a value of a supported type.
-// This is used to define default values for parameters in a type-safe way.
-func Default[T SupportedTypes](val T) *T {
-	return &val
-}
-
 // Validate validates parameter values without executing the command's RunFunc.
-// This is useful for validating parameters independently from command execution,
-// such as in tests or when validating configuration before use.
-func Validate[T any](structPtr *T, w Cmd) error {
-	w.Params = structPtr
-	w.RunFunc = func(cmd *cobra.Command, args []string) {}
-	w.UseCobraErrLog = false
+// This is used mostly in tests.
+func (b Cmd) Validate() error {
+	b.RunFunc = func(cmd *cobra.Command, args []string) {}
+	b.UseCobraErrLog = false
 	var err error
 	handler := ResultHandler{
 		Panic: func(a any) {
@@ -266,11 +258,17 @@ func Validate[T any](structPtr *T, w Cmd) error {
 			err = e
 		},
 	}
-	cobraCmd := w.ToCobra()
+	cobraCmd := b.ToCobra()
 	cobraCmd.SilenceErrors = true
 	cobraCmd.SilenceUsage = true
 	RunH(cobraCmd, handler)
 	return err
+}
+
+// Default creates a pointer to a value of a supported type.
+// This is used to define default values for parameters in a type-safe way.
+func Default[T SupportedTypes](val T) *T {
+	return &val
 }
 
 // CfgStructInit is an interface that parameter structs can implement

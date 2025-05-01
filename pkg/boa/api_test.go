@@ -119,7 +119,7 @@ func TestDoubleDefault(t *testing.T) {
 		os.Args = osArgsBefore
 	}()
 
-	err := Validate(&params, Cmd{ParamEnrich: ParamEnricherName})
+	err := Cmd{Params: &params, ParamEnrich: ParamEnricherName}.Validate()
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestInit(t *testing.T) {
 		os.Args = osArgsBefore
 	}()
 
-	err := Validate(&params, Cmd{ParamEnrich: ParamEnricherName})
+	err := Cmd{Params: &params, ParamEnrich: ParamEnricherName}.Validate()
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestPreExecute(t *testing.T) {
 		os.Args = osArgsBefore
 	}()
 
-	err := Validate(&params, Cmd{ParamEnrich: ParamEnricherName})
+	err := Cmd{Params: &params, ParamEnrich: ParamEnricherName}.Validate()
 	if err != nil {
 		if !strings.Contains(err.Error(), errExpected.Error()) {
 			t.Errorf("Expected error to contain: %s, got: %v", errExpected.Error(), err)
@@ -205,7 +205,7 @@ func (s *CustomValidatorTestStruct) Init() error {
 
 func TestCustomValidator(t *testing.T) {
 
-	err := Validate(&CustomValidatorTestStruct{}, Cmd{ParamEnrich: ParamEnricherName, RawArgs: []string{"--flag2", "-1"}})
+	err := Cmd{Params: &CustomValidatorTestStruct{}, ParamEnrich: ParamEnricherName, RawArgs: []string{"--flag2", "-1"}}.Validate()
 	if err == nil {
 		t.Errorf("Expected error, got: nil")
 	} else {
@@ -214,21 +214,23 @@ func TestCustomValidator(t *testing.T) {
 		}
 	}
 
-	err = Validate(&CustomValidatorTestStruct{}, Cmd{ParamEnrich: ParamEnricherName, RawArgs: []string{"--flag2", "0"}})
+	err = Cmd{Params: &CustomValidatorTestStruct{}, ParamEnrich: ParamEnricherName, RawArgs: []string{"--flag2", "0"}}.Validate()
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
 
-	err = Validate(&CustomValidatorTestStruct{
-		Flag2: Required[int]{Default: Default(42)},
-	}, Cmd{ParamEnrich: ParamEnricherName, RawArgs: []string{}})
+	err = Cmd{
+		Params:      &CustomValidatorTestStruct{Flag2: Required[int]{Default: Default(42)}},
+		ParamEnrich: ParamEnricherName, RawArgs: []string{},
+	}.Validate()
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
 
-	err = Validate(&CustomValidatorTestStruct{
-		Flag2: Required[int]{Default: Default(-42)},
-	}, Cmd{ParamEnrich: ParamEnricherName, RawArgs: []string{}})
+	err = Cmd{
+		Params:      &CustomValidatorTestStruct{Flag2: Required[int]{Default: Default(-42)}},
+		ParamEnrich: ParamEnricherName, RawArgs: []string{},
+	}.Validate()
 	if err == nil {
 		t.Errorf("Expected error, got: nil")
 	} else {
