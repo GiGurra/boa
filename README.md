@@ -461,7 +461,7 @@ func (i *MyConfigStruct) Init() error {
 	return nil
 }
 
-// Alternatively, use the InitFunc in Wrap
+// Alternatively, use the InitFunc in Cmd
 func main() {
 	boa.Cmd{
 		Params: &params,
@@ -505,7 +505,7 @@ func (i *MyConfigStruct) PreValidate() error {
 	return nil
 }
 
-// Alternatively, use the PreValidateFunc in Wrap
+// Alternatively, use the PreValidateFunc in Cmd
 func main() {
 	boa.Cmd{
 		Params: &params,
@@ -547,7 +547,7 @@ func (i *MyConfigStruct) PreExecute() error {
 	return nil
 }
 
-// Alternatively, use the PreExecuteFunc in Wrap
+// Alternatively, use the PreExecuteFunc in Cmd
 func main() {
 	boa.Cmd{
 		Params: &params,
