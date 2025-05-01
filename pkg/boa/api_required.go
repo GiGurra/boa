@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/spf13/cobra"
+	"log/slog"
 	"reflect"
 )
 
@@ -104,17 +105,16 @@ func (f *Required[T]) markSetFromEnv() {
 // This will panic if the parameter doesn't have a value, which shouldn't happen
 // with proper validation as Required parameters must have a value.
 func (f *Required[T]) Value() T {
-	if !HasValue(f) {
-		panic(fmt.Errorf("tried to access flag.Value() of '%s', which was not set. This is a bug in util_cobra", f.GetName()))
-	}
-	if f.valuePtr != nil {
-		return *f.valuePtr.(*T)
-	} else {
-		if f.hasDefaultValue() {
-			return *f.Default
+	if HasValue(f) {
+		if f.valuePtr != nil {
+			return *f.valuePtr.(*T)
 		} else {
-			panic(fmt.Errorf("tried to access flag.Value() of '%s', which was not set. This is a bug in util_cobra", f.GetName()))
+			return *f.Default
 		}
+	} else {
+		slog.Warn(fmt.Sprintf("tried to access Optional[..].Value() of '%s', which was not set.", f.GetName()))
+		var zero T
+		return zero
 	}
 }
 

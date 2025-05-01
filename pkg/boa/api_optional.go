@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/spf13/cobra"
+	"log/slog"
 	"reflect"
 )
 
@@ -153,13 +154,10 @@ func (f *Optional[T]) Value() *T {
 		if f.valuePtr != nil {
 			return f.valuePtr.(*T)
 		} else {
-			if f.hasDefaultValue() {
-				return f.Default
-			} else {
-				panic(fmt.Errorf("tried to access flag.Value() of '%s', which was not set. This is a bug in util_cobra", f.GetName()))
-			}
+			return f.Default
 		}
 	} else {
+		slog.Warn(fmt.Sprintf("tried to access Optional[..].Value() of '%s', which was not set.", f.GetName()))
 		return nil
 	}
 }
