@@ -1,6 +1,7 @@
 package boa
 
 import (
+	"context"
 	"fmt"
 	"github.com/spf13/cobra"
 	"os"
@@ -48,9 +49,20 @@ type Param interface {
 	GetIsEnabledFn() func() bool
 }
 
-func validate(structPtr any) error {
+type processingContext struct {
+	context.Context
+	AddrToParam map[uintptr]Param
+	// We need to keep track of raw params, so we can
+	// override the raw values with cli values in case
+	// the user may have mapped config files to the params
+	// as well - since the config file deserialization will
+	// not be aware of the raw values, and just overwrite them.
+	RawParams []uintptr
+}
 
-	return traverse(structPtr, func(param Param, _ string, _ reflect.StructTag) error {
+func validate(ctx *processingContext, structPtr any) error {
+
+	return traverse(ctx, structPtr, func(param Param, _ string, _ reflect.StructTag) error {
 
 		if !param.IsEnabled() {
 			return nil
@@ -116,7 +128,7 @@ func toTypedSlice[T SupportedTypes](slice any) []T {
 	}
 }
 
-func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
+func connect(ctx *processingContext, f Param, cmd *cobra.Command, posArgs []Param) error {
 
 	if f.GetName() == "" {
 		return fmt.Errorf("invalid conf for param '%s': long param name cannot be empty", f.GetName())
@@ -591,6 +603,7 @@ func kebabCaseToUpperSnakeCase(in string) string {
 }
 
 func traverse(
+	ctx *processingContext,
 	structPtr any,
 	fParam func(param Param, paramFieldName string, tags reflect.StructTag) error,
 	fStruct func(structPtr any) error,
@@ -606,7 +619,7 @@ func traverse(
 
 	if c, ok := reflect.ValueOf(structPtr).Interface().(*StructComposition); ok {
 		for _, structPtr := range c.StructPtrs {
-			if err := traverse(structPtr, fParam, fStruct); err != nil {
+			if err := traverse(ctx, structPtr, fParam, fStruct); err != nil {
 				return err
 			}
 		}
@@ -642,7 +655,7 @@ func traverse(
 
 			// check if it is a struct
 			if field.Type.Kind() == reflect.Struct {
-				if err := traverse(fieldValue.Interface(), fParam, fStruct); err != nil {
+				if err := traverse(ctx, fieldValue.Interface(), fParam, fStruct); err != nil {
 					return err
 				}
 				continue
@@ -651,12 +664,14 @@ func traverse(
 			// check if it is a pointer to a struct
 			if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct {
 				if !fieldValue.IsNil() && !fieldValue.Elem().IsNil() {
-					if err := traverse(fieldValue.Elem().Interface(), fParam, fStruct); err != nil {
+					if err := traverse(ctx, fieldValue.Elem().Interface(), fParam, fStruct); err != nil {
 						return err
 					}
 				}
 				continue
 			}
+
+			// TODO: Check if it is a raw SupportedTypes type. If so, create (or get) a Parameter mirror, and use that
 
 			fmt.Printf("WARNING: field %s is not a param. It will be ignored\n", field.Name)
 			continue // not a param
@@ -682,9 +697,12 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		cmd.SetArgs(b.RawArgs)
 	}
 
+	ctx := &processingContext{}
+	ctx.Context = context.Background() // prepare to override later?
+
 	// if b.params or any inner struct implements CfgStructPreExecute, call it
 	if b.Params != nil {
-		err := traverse(b.Params, nil, func(innerParams any) error {
+		err := traverse(ctx, b.Params, nil, func(innerParams any) error {
 			if preParse, ok := b.Params.(CfgStructInit); ok {
 				err := preParse.Init()
 				if err != nil {
@@ -716,7 +734,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 	if b.Params != nil {
 
 		// look in tags for info about positional args
-		err := traverse(b.Params, func(param Param, _ string, tags reflect.StructTag) error {
+		err := traverse(ctx, b.Params, func(param Param, _ string, tags reflect.StructTag) error {
 			if tags.Get("positional") == "true" || tags.Get("pos") == "true" {
 				param.setPositional(true)
 			}
@@ -780,7 +798,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 			b.ParamEnrich = ParamEnricherDefault
 		}
 		processed := make([]Param, 0)
-		err = traverse(b.Params, func(param Param, paramFieldName string, _ reflect.StructTag) error {
+		err = traverse(ctx, b.Params, func(param Param, paramFieldName string, _ reflect.StructTag) error {
 			err := b.ParamEnrich(processed, param, paramFieldName)
 			if err != nil {
 				return err
@@ -817,8 +835,8 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 			cmd.Args = cobra.RangeArgs(numReqPositional, len(positional))
 		}
 
-		err = traverse(b.Params, func(param Param, _ string, tags reflect.StructTag) error {
-			err := connect(param, cmd, positional)
+		err = traverse(ctx, b.Params, func(param Param, _ string, tags reflect.StructTag) error {
+			err := connect(ctx, param, cmd, positional)
 			if err != nil {
 				return err
 			}
@@ -836,7 +854,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		if b.Params != nil {
 
 			// if b.params or any inner struct implements CfgStructPreValidate, call it
-			err := traverse(b.Params, nil, func(innerParams any) error {
+			err := traverse(ctx, b.Params, nil, func(innerParams any) error {
 				if s, ok := innerParams.(CfgStructPreValidate); ok {
 					err := s.PreValidate()
 					if err != nil {
@@ -857,12 +875,12 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 				}
 			}
 
-			if err = validate(b.Params); err != nil {
+			if err = validate(ctx, b.Params); err != nil {
 				return err
 			}
 
 			// if b.params or any inner struct implements CfgStructPreExecute, call it
-			err = traverse(b.Params, nil, func(innerParams any) error {
+			err = traverse(ctx, b.Params, nil, func(innerParams any) error {
 				if preExecute, ok := innerParams.(CfgStructPreExecute); ok {
 					err := preExecute.PreExecute()
 					if err != nil {
