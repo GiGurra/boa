@@ -195,7 +195,8 @@ func (f *Required[T]) parentCmd() *cobra.Command {
 
 func (f *Required[T]) defaultValueStr() string {
 	if !f.hasDefaultValue() {
-		panic("flag has no default value")
+		slog.Error(fmt.Sprintf("defaultValueStr called on Required parameter '%s' without default value", f.Name))
+		return ""
 	}
 	return fmt.Sprintf("%v", *f.Default)
 }
