@@ -239,3 +239,17 @@ func TestCustomValidator(t *testing.T) {
 		}
 	}
 }
+
+func TestAlternatives(t *testing.T) {
+	type Conf struct {
+		MyEnum Required[string] `short:"e" default:"e1" alts:"e1,e2,e3"`
+	}
+
+	if err := NewCmdT[Conf]("test").WithRawArgs([]string{}).Validate(); err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+
+	if err := NewCmdT[Conf]("test").WithRawArgs([]string{"-e", "e2"}).Validate(); err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+}
