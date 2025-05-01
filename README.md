@@ -61,11 +61,11 @@ Usage:
   hello-world [flags]
 
 Flags:
-  -b, --bar int        [required] (env: BAR)
-      --baz string     [required] (env: BAZ)
-      --f-b string     (env: F_B)
-      --file string    [required] (env: FILE)
-  -f, --foo string     [required] (env: FOO)
+  -b, --baz string     (env: BAZ, required)
+  -f, --f-b string     (env: F_B)
+      --foo string     (env: FOO, required)
+      --bar int        (env: BAR) (default 4)
+      --file string    (env: FILE)
   -h, --help          help for hello-world
 ```
 
