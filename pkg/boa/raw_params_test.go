@@ -10,6 +10,7 @@ type RawConfig struct {
 	Port   int              `long:"port" env:"PORT" default:"8080"`
 	Extra1 string           `long:"extra1" env:"EXTRA1" required:"false"`
 	Extra2 string           `long:"extra2" env:"EXTRA2" optional:"true"`
+	Extra3 string           `long:"extra2" env:"EXTRA2" required:"true" default:"blah"`
 }
 
 func TestRawConfig(t *testing.T) {
@@ -19,6 +20,7 @@ func TestRawConfig(t *testing.T) {
 		Port:   12345,
 		Extra1: "ex1",
 		Extra2: "ex2",
+		Extra3: "blah",
 	}
 
 	config := RawConfig{}
@@ -50,5 +52,9 @@ func TestRawConfig(t *testing.T) {
 
 	if config.Extra2 != expected.Extra2 {
 		t.Fatalf("Expected Extra2: %v, got: %v", expected.Extra2, config.Extra2)
+	}
+
+	if config.Extra3 != expected.Extra3 {
+		t.Fatalf("Expected Extra3: %v, got: %v", expected.Extra3, config.Extra3)
 	}
 }
