@@ -39,6 +39,7 @@ type Param interface {
 	defaultValueStr() string
 	setParentCmd(cmd *cobra.Command)
 	setValuePtr(any)
+	injectValuePtr(any)
 	markSetFromEnv()
 	isPositional() bool
 	wasSetPositionally() bool
@@ -53,13 +54,13 @@ type Param interface {
 
 type processingContext struct {
 	context.Context
-	AddrToParam map[uintptr]Param
+	RawAddrToMirror map[uintptr]Param
 	// We need to keep track of raw params, so we can
 	// override the raw values with cli values in case
 	// the user may have mapped config files to the params
 	// as well - since the config file deserialization will
 	// not be aware of the raw values, and just overwrite them.
-	RawParams []uintptr
+	RawAddresses []uintptr
 }
 
 func validate(ctx *processingContext, structPtr any) error {
@@ -675,10 +676,10 @@ func traverse(
 				// check if we already have a mirror for this field
 				var addr uintptr = fieldAddr.Pointer()
 				var ok bool
-				if param, ok = ctx.AddrToParam[addr]; !ok {
+				if param, ok = ctx.RawAddrToMirror[addr]; !ok {
 					param = newParam(&field, field.Type)
-					ctx.RawParams = append(ctx.RawParams, addr)
-					ctx.AddrToParam[addr] = param
+					ctx.RawAddresses = append(ctx.RawAddresses, addr)
+					ctx.RawAddrToMirror[addr] = param
 				}
 
 				if fParam != nil {
@@ -716,9 +717,9 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 	}
 
 	ctx := &processingContext{
-		Context:     context.Background(), // prepare to override later?
-		AddrToParam: map[uintptr]Param{},
-		RawParams:   []uintptr{},
+		Context:         context.Background(), // prepare to override later?
+		RawAddrToMirror: map[uintptr]Param{},
+		RawAddresses:    []uintptr{},
 	}
 
 	// if b.params or any inner struct implements CfgStructPreExecute, call it
@@ -874,6 +875,8 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		if b.Params != nil {
 
+			syncMirrors(ctx)
+
 			// if b.params or any inner struct implements CfgStructPreValidate, call it
 			err := traverse(ctx, b.Params, nil, func(innerParams any) error {
 				if s, ok := innerParams.(CfgStructPreValidate); ok {
@@ -896,37 +899,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 				}
 			}
 
-			// TODO: ensure that mirrors also take raw values into account
-			// when validating. i.e. we must take values from for example
-			// config files and put them into the mirror Param
-
-			// Copy env and cli values from mirrors back over our raw params, so we don't
-			// overwrite things with config file values when env vars and cli vars (higher prio)
-			// have been set.
-			for _, addr := range ctx.RawParams {
-				param := ctx.AddrToParam[addr]
-				if param.wasSetOnCli() || param.wasSetByEnv() {
-					valueToWrite := reflect.ValueOf(param.valuePtrF()).Elem()
-
-					// Convert uintptr to unsafe.Pointer
-					//goland:noinspection ALL
-					unsafePtr := unsafe.Pointer(addr)
-
-					// Convert unsafe.Pointer to a reflect.Value of the appropriate pointer type
-					// without needing to create an unused ptrType variable
-					ptrValue := reflect.NewAt(valueToWrite.Type(), unsafePtr)
-
-					// Get the element that the pointer points to
-					destValue := ptrValue.Elem()
-
-					// Make sure the destination is settable
-					if destValue.CanSet() {
-						destValue.Set(valueToWrite)
-					} else {
-						panic(fmt.Errorf("could not set value for parameter %s", param.GetName()))
-					}
-				}
-			}
+			syncMirrors(ctx)
 
 			if err = validate(ctx, b.Params); err != nil {
 				return err
@@ -959,6 +932,38 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 	}
 
 	return cmd
+}
+
+func syncMirrors(ctx *processingContext) {
+	// 1. First, copy non-zero values from the raw fields -> mirrors as injected values.
+	// 2. Then copy back cli & env set values to the raw fields
+
+	for _, rawAddr := range ctx.RawAddresses {
+		mirror := ctx.RawAddrToMirror[rawAddr]
+
+		// Convert unsafe.Pointer to a reflect.Value of the appropriate pointer type
+		// without needing to create an unused ptrType variable
+		//goland:noinspection ALL
+		ptrToRawValue := reflect.NewAt(mirror.GetType(), unsafe.Pointer(rawAddr))
+
+		if !mirror.wasSetOnCli() && !mirror.wasSetByEnv() && !ptrToRawValue.Elem().IsZero() {
+			mirror.injectValuePtr(ptrToRawValue.Interface())
+		}
+
+		if mirror.wasSetOnCli() || mirror.wasSetByEnv() || (mirror.HasValue() && ptrToRawValue.Elem().IsZero()) {
+			mirrorValue := reflect.ValueOf(mirror.valuePtrF()).Elem()
+
+			// Get the element that the pointer points to
+			rawValue := ptrToRawValue.Elem()
+
+			// Make sure the destination is settable
+			if rawValue.CanSet() {
+				rawValue.Set(mirrorValue)
+			} else {
+				panic(fmt.Errorf("could not set value for parameter %s", mirror.GetName()))
+			}
+		}
+	}
 }
 
 func runImpl(cmd *cobra.Command, handler ResultHandler) {

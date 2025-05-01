@@ -289,6 +289,11 @@ func (f *Optional[T]) setValuePtr(val any) {
 	f.valuePtr = val
 }
 
+func (f *Optional[T]) injectValuePtr(val any) {
+	f.valuePtr = val
+	f.injected = val != nil
+}
+
 func (p Optional[T]) MarshalJSON() ([]byte, error) {
 	return json.Marshal(p.Value())
 }

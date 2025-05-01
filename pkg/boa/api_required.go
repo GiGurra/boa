@@ -225,6 +225,11 @@ func (f *Required[T]) setValuePtr(val any) {
 	f.valuePtr = val
 }
 
+func (f *Required[T]) injectValuePtr(val any) {
+	f.valuePtr = val
+	f.injected = val != nil
+}
+
 // GetAlternatives returns the list of allowed values for this parameter.
 // Used for command line completion and validation.
 func (f *Required[T]) GetAlternatives() []string {
