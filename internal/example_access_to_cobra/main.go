@@ -22,7 +22,7 @@ func main() {
 		},
 		RunFunc: func(params *Params, _ *cobra.Command, _ []string) {
 			fmt.Printf(
-				"Hello world with params: %s, %d, %s, %s, %v\n",
+				"Hello world with params: %s, %s\n",
 				params.Baz, // string
 				params.FB,  // *string
 			)

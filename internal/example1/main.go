@@ -23,7 +23,7 @@ func main() {
 		Long:  `A generic cli tool that has a longer description. See the README.MD for more information`,
 		RunFunc: func(params *Params, _ *cobra.Command, _ []string) {
 			fmt.Printf(
-				"Hello world with params: %s, %d, %s, %s, %v\n",
+				"Hello world with params: %s, %d, %v, %s, %v\n",
 				params.Foo.Value(),  // string
 				params.Bar.Value(),  // int
 				params.File.Value(), // *string
