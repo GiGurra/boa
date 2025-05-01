@@ -1,5 +1,7 @@
 # BOA
 
+[![CI Status](https://github.com/GiGurra/boa/actions/workflows/ci.yml/badge.svg)](https://github.com/GiGurra/boa/actions/workflows/ci.yml)
+
 Boa adds a declarative layer on top of `github.com/spf13/cobra`.
 
 The goal is making the process of creating a command line interface as simple as possible, while still providing access
