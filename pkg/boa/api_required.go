@@ -102,8 +102,6 @@ func (f *Required[T]) markSetFromEnv() {
 
 // Value returns the parameter value.
 // Unlike Optional parameters, this returns the actual value, not a pointer.
-// This will panic if the parameter doesn't have a value, which shouldn't happen
-// with proper validation as Required parameters must have a value.
 func (f *Required[T]) Value() T {
 	if HasValue(f) {
 		if f.valuePtr != nil {
@@ -112,7 +110,7 @@ func (f *Required[T]) Value() T {
 			return *f.Default
 		}
 	} else {
-		slog.Warn(fmt.Sprintf("tried to access Optional[..].Value() of '%s', which was not set.", f.GetName()))
+		slog.Warn(fmt.Sprintf("tried to access Required[..].Value() of '%s', which was not set.", f.GetName()))
 		var zero T
 		return zero
 	}
