@@ -86,7 +86,7 @@ func validate(ctx *processingContext, structPtr any) error {
 		// special types validation, e.g. only time.Time so far
 		if HasValue(param) {
 			if param.GetKind() == reflect.Struct {
-				if param.GetType().String() == "time.Time" {
+				if param.GetType() == timeType {
 					strVal := *param.valuePtrF().(*string)
 					res, err := parsePtr(param.GetName(), param.GetType(), param.GetKind(), strVal)
 					if err != nil {
@@ -310,7 +310,7 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 		f.setValuePtr(cmd.Flags().BoolP(f.GetName(), f.GetShort(), def, descr))
 		return nil
 	case reflect.Struct:
-		if f.GetType().String() == "time.Time" {
+		if f.GetType() == timeType {
 			if f.hasDefaultValue() {
 				def := *reflect.ValueOf(f.defaultValuePtr()).Interface().(*time.Time)
 				f.setValuePtr(cmd.Flags().StringP(f.GetName(), f.GetShort(), def.Format(time.RFC3339), descr))
@@ -554,7 +554,7 @@ func parsePtr(
 		}
 		return &parsedBool, nil
 	case reflect.Struct:
-		if tpe.String() == "time.Time" {
+		if tpe == timeType {
 			parsedTime, err := time.Parse(time.RFC3339, strVal)
 			if err != nil {
 				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
@@ -1039,7 +1039,7 @@ func isSupportedType(t reflect.Type) bool {
 		reflect.Float64:
 		return true
 	case reflect.Struct:
-		if t.String() == "time.Time" {
+		if t == timeType {
 			return true
 		} else {
 			return false
@@ -1148,7 +1148,7 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 			return &Optional[bool]{}
 		}
 	case reflect.Struct:
-		if t.String() == "time.Time" {
+		if t == timeType {
 			if required {
 				return &Required[time.Time]{}
 			} else {
@@ -1202,3 +1202,5 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 		panic(fmt.Errorf("unsupported type %s", t.String()))
 	}
 }
+
+var timeType = reflect.TypeOf(time.Time{})
