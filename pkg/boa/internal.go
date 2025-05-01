@@ -734,10 +734,10 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 	// if b.params or any inner struct implements CfgStructPreExecute, call it
 	if b.Params != nil {
 		err := traverse(ctx, b.Params, nil, func(innerParams any) error {
-			if preParse, ok := b.Params.(CfgStructInit); ok {
-				err := preParse.Init()
+			if toInit, ok := b.Params.(CfgStructInit); ok {
+				err := toInit.Init()
 				if err != nil {
-					return fmt.Errorf("error in PreParse: %s", err.Error())
+					return fmt.Errorf("error in CfgStructInit.Init(): %s", err.Error())
 				}
 			}
 			return nil
