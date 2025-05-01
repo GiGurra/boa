@@ -39,4 +39,16 @@ func TestRawConfig(t *testing.T) {
 	if config.Host.Value() != expected.Host.Value() {
 		t.Fatalf("Expected Host: %v, got: %v", expected.Host.Value(), config.Host.Value())
 	}
+
+	if config.Port != expected.Port {
+		t.Fatalf("Expected Port: %v, got: %v", expected.Port, config.Port)
+	}
+
+	if config.Extra1 != expected.Extra1 {
+		t.Fatalf("Expected Extra1: %v, got: %v", expected.Extra1, config.Extra1)
+	}
+
+	if config.Extra2 != expected.Extra2 {
+		t.Fatalf("Expected Extra2: %v, got: %v", expected.Extra2, config.Extra2)
+	}
 }

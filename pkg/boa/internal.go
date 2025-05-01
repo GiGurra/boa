@@ -677,6 +677,7 @@ func traverse(
 				continue
 			}
 
+			// For raw fields, we store parameter mirrors in the processing context
 			if isSupportedType(field.Type) {
 
 				// check if we already have a mirror for this field
@@ -1022,7 +1023,27 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 			panic(fmt.Errorf("invalid value for field %s's required tag: %s", field.Name, requiredTag))
 		}
 	}
+	if requiredTag, ok := field.Tag.Lookup("req"); ok {
+		switch requiredTag {
+		case "true":
+			required = true
+		case "false":
+			required = false
+		default:
+			panic(fmt.Errorf("invalid value for field %s's required tag: %s", field.Name, requiredTag))
+		}
+	}
 	if optionalTag, ok := field.Tag.Lookup("optional"); ok {
+		switch optionalTag {
+		case "true":
+			required = false
+		case "false":
+			required = true
+		default:
+			panic(fmt.Errorf("invalid value for field %s's optional tag: %s", field.Name, optionalTag))
+		}
+	}
+	if optionalTag, ok := field.Tag.Lookup("opt"); ok {
 		switch optionalTag {
 		case "true":
 			required = false
