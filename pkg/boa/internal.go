@@ -677,9 +677,25 @@ func traverse(
 				continue
 			}
 
-			// TODO: Check if it is a raw SupportedTypes type. If so, create (or get) a Parameter mirror, and use that
 			if isSupportedType(field.Type) {
-				slog.Warn(fmt.Sprintf("field %s is a raw supported type. This will soon be implemented. It is ignored, for now", field.Name))
+
+				// check if we already have a mirror for this field
+				var addr uintptr = fieldAddr.Pointer()
+				var ok bool
+				if param, ok = ctx.AddrToParam[addr]; !ok {
+					param = newParam(&field, field.Type)
+					ctx.RawParams = append(ctx.RawParams, addr)
+					ctx.AddrToParam[addr] = param
+					fmt.Printf("field %s addr: %d\n", field.Name, addr)
+				}
+
+				if fParam != nil {
+					err := fParam(param, field.Name, field.Tag)
+					if err != nil {
+						return err
+					}
+				}
+
 				continue
 			}
 
@@ -707,8 +723,11 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		cmd.SetArgs(b.RawArgs)
 	}
 
-	ctx := &processingContext{}
-	ctx.Context = context.Background() // prepare to override later?
+	ctx := &processingContext{
+		Context:     context.Background(), // prepare to override later?
+		AddrToParam: map[uintptr]Param{},
+		RawParams:   []uintptr{},
+	}
 
 	// if b.params or any inner struct implements CfgStructPreExecute, call it
 	if b.Params != nil {
@@ -988,5 +1007,128 @@ func isSupportedType(t reflect.Type) bool {
 		}
 	default:
 		return false
+	}
+}
+
+func newParam(field *reflect.StructField, t reflect.Type) Param {
+
+	required := true
+	if requiredTag, ok := field.Tag.Lookup("required"); ok {
+		switch requiredTag {
+		case "true":
+			required = true
+		case "false":
+			required = false
+		default:
+			panic(fmt.Errorf("invalid value for field %s's required tag: %s", field.Name, requiredTag))
+		}
+	}
+	if optionalTag, ok := field.Tag.Lookup("optional"); ok {
+		switch optionalTag {
+		case "true":
+			required = false
+		case "false":
+			required = true
+		default:
+			panic(fmt.Errorf("invalid value for field %s's optional tag: %s", field.Name, optionalTag))
+		}
+	}
+
+	switch t.Kind() {
+	case reflect.String:
+		if required {
+			return &Required[string]{}
+		} else {
+			return &Optional[string]{}
+		}
+	case reflect.Int:
+		if required {
+			return &Required[int]{}
+		} else {
+			return &Optional[int]{}
+		}
+	case reflect.Int32:
+		if required {
+			return &Required[int32]{}
+		} else {
+			return &Optional[int32]{}
+		}
+	case reflect.Int64:
+		if required {
+			return &Required[int64]{}
+		} else {
+			return &Optional[int64]{}
+		}
+	case reflect.Float32:
+		if required {
+			return &Required[float32]{}
+		} else {
+			return &Optional[float32]{}
+		}
+	case reflect.Float64:
+		if required {
+			return &Required[float64]{}
+		} else {
+			return &Optional[float64]{}
+		}
+	case reflect.Bool:
+		if required {
+			return &Required[bool]{}
+		} else {
+			return &Optional[bool]{}
+		}
+	case reflect.Struct:
+		if t.String() == "time.Time" {
+			if required {
+				return &Required[time.Time]{}
+			} else {
+				return &Optional[time.Time]{}
+			}
+		} else {
+			panic(fmt.Errorf("unsupported type %s", t.String()))
+		}
+	case reflect.Slice:
+		switch t.Elem().Kind() {
+		case reflect.String:
+			if required {
+				return &Required[[]string]{}
+			} else {
+				return &Optional[[]string]{}
+			}
+		case reflect.Int:
+			if required {
+				return &Required[[]int]{}
+			} else {
+				return &Optional[[]int]{}
+			}
+		case reflect.Int32:
+			if required {
+				return &Required[[]int32]{}
+			} else {
+				return &Optional[[]int32]{}
+			}
+		case reflect.Int64:
+			if required {
+				return &Required[[]int64]{}
+			} else {
+				return &Optional[[]int64]{}
+			}
+		case reflect.Float32:
+			if required {
+				return &Required[[]float32]{}
+			} else {
+				return &Optional[[]float32]{}
+			}
+		case reflect.Float64:
+			if required {
+				return &Required[[]float64]{}
+			} else {
+				return &Optional[[]float64]{}
+			}
+		default:
+			panic(fmt.Errorf("unsupported slice type %s", t.String()))
+		}
+	default:
+		panic(fmt.Errorf("unsupported type %s", t.String()))
 	}
 }
