@@ -247,6 +247,10 @@ func (b CmdT[Struct]) WithRawArgs(rawArgs []string) CmdT[Struct] {
 // ToCmd converts a type-safe CmdT to a non-generic Cmd.
 // This converts the type-safe functions to their non-generic equivalents.
 func (b CmdT[Struct]) ToCmd() Cmd {
+	
+	if b.Params == nil {
+		b.Params = new(Struct)
+	}
 
 	var runFcn func(cmd *cobra.Command, args []string) = nil
 	if b.RunFunc != nil {
@@ -283,6 +287,12 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		}
 	}
 
+	// Due to golang nil upcast bullshit
+	var params any = nil
+	if b.Params != nil {
+		params = b.Params
+	}
+
 	return Cmd{
 		Use:             b.Use,
 		Short:           b.Short,
@@ -290,7 +300,7 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		Version:         b.Version,
 		Args:            b.Args,
 		SubCommands:     b.SubCommands,
-		Params:          b.Params,
+		Params:          params,
 		ParamEnrich:     b.ParamEnrich,
 		RunFunc:         runFcn,
 		UseCobraErrLog:  b.UseCobraErrLog,

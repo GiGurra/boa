@@ -164,3 +164,60 @@ func TestCmdTree(t *testing.T) {
 		t.Fatalf("expected inner command to run but it didn't")
 	}
 }
+
+func TestGolangUpcastBullShit(t *testing.T) {
+	ran := false
+	type Args struct {
+	}
+	CmdT[Args]{
+		Use: "test",
+		RunFunc: func(params *Args, cmd *cobra.Command, args []string) {
+			ran = true
+		},
+	}.RunArgs([]string{})
+
+	if !ran {
+		t.Fatalf("expected inner command to run but it didn't")
+	}
+}
+
+func TestTypedManual(t *testing.T) {
+	ran := false
+	type Args struct {
+		MyInt int
+	}
+	CmdT[Args]{
+		Use:    "test",
+		Params: &Args{},
+		RunFunc: func(params *Args, cmd *cobra.Command, args []string) {
+			ran = true
+			if params.MyInt != 42 {
+				t.Fatalf("expected 42 but got %d", params.MyInt)
+			}
+		},
+	}.RunArgs([]string{"--my-int", "42"})
+
+	if !ran {
+		t.Fatalf("expected inner command to run but it didn't")
+	}
+}
+
+func TestAutoGenerateParamsFieldWhenOmitted(t *testing.T) {
+	ran := false
+	type Args struct {
+		MyInt int
+	}
+	CmdT[Args]{
+		Use: "test",
+		RunFunc: func(params *Args, cmd *cobra.Command, args []string) {
+			ran = true
+			if params.MyInt != 42 {
+				t.Fatalf("expected 42 but got %d", params.MyInt)
+			}
+		},
+	}.RunArgs([]string{"--my-int", "42"})
+
+	if !ran {
+		t.Fatalf("expected inner command to run but it didn't")
+	}
+}
