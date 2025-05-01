@@ -22,7 +22,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var params struct {
+type Params struct {
 	// Simple parameter declarations
 	Baz  string `required:"true"`
 	FB   string `required:"false"`
@@ -33,12 +33,11 @@ var params struct {
 }
 
 func main() {
-	boa.Cmd{
+	boa.CmdT[Params]{
 		Use:    "hello-world",
 		Short:  "a generic cli tool",
 		Long:   `A generic cli tool that has a longer description. See the README.MD for more information`,
-		Params: &params,
-		RunFunc: func(cmd *cobra.Command, args []string) {
+		RunFunc: func(params *Params) {
 			fmt.Printf(
 				"Hello world with params: %s, %d, %s, %s, %v\n",
 				params.Foo.Value(),  // string
