@@ -4,31 +4,6 @@ Boa is a compact CLI and environment variable parameter utility. It enhances and
 
 The primary goal of Boa is to maintain a declarative approach. In its simplest form, you only need to define a struct with parameter fields, and Boa handles the rest.
 
-## Features
-
-* **Declarative Design**: Boa allows for fully declarative definition and validation.
-* **Optional Values**: Boa supports true optional values and provides knowledge if a field was set. It also offers opt-in default values built into the type system.
-    * A `boa.Required[string]`'s `.Value()` is type aware and returns a `string`.
-    * A `boa.Optional[string]`'s `.Value()` is type aware and returns a `*string`.
-* **Auto-Generated Properties**: Boa generates flag/param properties from field name, type, tags, and more.
-    * For instance, `Foo boa.Required[string]` will generate:
-        * flags `--foo` (and short version `-f` if it is not already taken)
-        * `FOO` env var mapping
-        * `[required] (env: FOO)` in the help text
-        * You can supplement this with your own help text, custom generation logic, etc.
-    * You can opt out of auto generation, override specific properties, and cherry-pick and/or add your own auto-generation logic.
-* **Input Validation**: Boa validates all inputs before the `Run` function is invoked.
-* **Config Flexibility**: Use explicit fields for config or tags as per your preference.
-* **Cobra Compatibility**: Mix and match Boa with regular Cobra code as you see fit. Boa works with regular Cobra commands.
-* **Conditional Parameters**: Parameters can be conditionally required or enabled based on other parameter values.
-* **Flag Alternatives**: Support for alternative flag names and auto-completion.
-* **Slices Support**: Handle array types like `[]string`, `[]int`, etc. with proper parsing.
-* **Time Support**: Native support for `time.Time` parameters.
-* **Config file Support**: Built-in capability to marshal/unmarshal configurations/sub-configurations to/from JSON or other formats.
-* **Structured Builder API**: A fluent API for building commands.
-* **Custom Validation**: Provide custom validation functions for parameters.
-* **Initialization and Lifecycle Hooks**: Support for initialization, pre-validation, and pre-execution hooks.
-
 ## Installation
 
 To install Boa, use the following command:
@@ -340,9 +315,9 @@ func main() {
 }
 ```
 
-### Alternative flag names
+### Constraining parameter values
 
-You can specify alternative flag names:
+You can specify that a parameter must be one of a set of values:
 
 ```go
 var params = struct {
