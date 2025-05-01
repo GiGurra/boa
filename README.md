@@ -431,12 +431,10 @@ func main() {
 
 ```
 
-# Lifecycle Hooks in Boa
+## Lifecycle Hooks in Boa
 
 Boa provides several lifecycle hooks that can be implemented or defined to customize behavior at different stages of
 command execution. These hooks give you fine-grained control over parameter initialization, validation, and execution.
-
-## Available Hooks
 
 ### Init Hook
 
@@ -569,7 +567,7 @@ func main() {
 
 ```
 
-## Hook Execution Order
+### Hook Execution Order
 
 Hooks are executed in the following order:
 
@@ -579,16 +577,60 @@ Hooks are executed in the following order:
 4. **PreExecute** - After validation but before command execution
 5. **Run** - The actual command execution
 
-## Common Use Cases
+### Common Use Cases
 
 - **Init**: Set up default values, configure custom validators
 - **PreValidate**: Load configurations from files, set derived parameters
 - **PreExecute**: Establish connections, prepare resources needed for execution
 
-## Error Handling
+### Error Handling
 
 All hooks can return errors to abort command execution. If any hook returns an error, the command will not proceed to
 the next phase, and the error will be reported to the user.
+
+## Experimental/Work in progress
+
+### Raw types
+
+It is currently being evaluated if a sufficiently good API can be provided using raw types. Boa currently has an
+implementation of this, but it is not very well tested, and relies on golang's zero value semantics to work.
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/GiGurra/boa/pkg/boa"
+	"github.com/spf13/cobra"
+)
+
+var params struct {
+	Foo  string `descr:"a foo"`
+	Bar  int    `descr:"a bar" env:"BAR_X" default:"4" required:"false"`
+	Path string `pos:"true"`
+	Baz  string `pos:"true" default:"cba"`
+	FB   string `pos:"true"`
+}
+
+func main() {
+	boa.Cmd{
+		Use:    "hello-world",
+		Short:  "a generic cli tool",
+		Long:   `A generic cli tool that has a longer description. See the README.MD for more information`,
+		Params: &params,
+		RunFunc: func(cmd *cobra.Command, args []string) {
+			fmt.Printf(
+				"Hello world with params: %s, %d, %s, %s, %v\n",
+				params.Foo,  // string
+				params.Bar,  // int
+				params.Path, // string
+				params.Baz,  // string
+				params.FB,   // *string
+			)
+		},
+	}.Run()
+}
+```
 
 ## Missing features
 
