@@ -90,7 +90,7 @@ func TestTypedWithInitFunc(t *testing.T) {
 
 	builder :=
 		NewCmdT[TestStruct]("test").
-			WithInitFunc(func(params *TestStruct) { params.Flag2.Default = Default(42) }).
+			WithInitFunc(func(params *TestStruct, cmd *cobra.Command) { params.Flag2.Default = Default(42) }).
 			WithRunFunc(func(params *TestStruct) {
 				fmt.Printf("params: %+v\n", params)
 				if params.Flag1.Value() != "value1" {

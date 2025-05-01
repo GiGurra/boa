@@ -49,7 +49,7 @@ type Cmd struct {
 	ValidArgsFunc func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
 	// Lifecycle hook functions
 	// InitFunc runs during initialization before any flags are parsed
-	InitFunc func(params any) error
+	InitFunc func(params any, cmd *cobra.Command) error
 	// PreValidateFunc runs after flags are parsed but before validation
 	PreValidateFunc func(params any, cmd *cobra.Command, args []string) error
 	// PreExecuteFunc runs after validation but before command execution

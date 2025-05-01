@@ -700,7 +700,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 
 	// if we have a custom init function, call it
 	if b.InitFunc != nil {
-		err := b.InitFunc(b.Params)
+		err := b.InitFunc(b.Params, cmd)
 		if err != nil {
 			panic(fmt.Errorf("error in InitFunc: %s", err.Error()))
 		}

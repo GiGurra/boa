@@ -35,7 +35,7 @@ type CmdT[Struct any] struct {
 	// RunFunc is the function to run when this command is called, with type-safe parameters
 	RunFunc func(params *Struct, cmd *cobra.Command, args []string)
 	// InitFunc runs during initialization with type-safe parameters
-	InitFunc func(params *Struct) error
+	InitFunc func(params *Struct, cmd *cobra.Command) error
 	// PreValidateFunc runs after flags are parsed but before validation with type-safe parameters
 	PreValidateFunc func(params *Struct, cmd *cobra.Command, args []string) error
 	// PreExecuteFunc runs after validation but before command execution with type-safe parameters
@@ -205,9 +205,9 @@ func (b CmdT[Struct]) WithPreExecuteFuncE(preExecuteFunc func(params *Struct, cm
 
 // WithInitFunc sets a function to run during initialization, before any flags are parsed.
 // This version does not return an error and always succeeds.
-func (b CmdT[Struct]) WithInitFunc(initFunc func(params *Struct)) CmdT[Struct] {
-	return b.WithInitFuncE(func(params *Struct) error {
-		initFunc(params)
+func (b CmdT[Struct]) WithInitFunc(initFunc func(params *Struct, cmd *cobra.Command)) CmdT[Struct] {
+	return b.WithInitFuncE(func(params *Struct, cmd *cobra.Command) error {
+		initFunc(params, cmd)
 		return nil
 	})
 }
@@ -215,7 +215,7 @@ func (b CmdT[Struct]) WithInitFunc(initFunc func(params *Struct)) CmdT[Struct] {
 // WithInitFuncE sets a function to run during initialization, before any flags are parsed.
 // This version can return an error to abort command execution.
 // This is useful for setting up default values and parameter relationships.
-func (b CmdT[Struct]) WithInitFuncE(initFunc func(params *Struct) error) CmdT[Struct] {
+func (b CmdT[Struct]) WithInitFuncE(initFunc func(params *Struct, cmd *cobra.Command) error) CmdT[Struct] {
 	b.InitFunc = initFunc
 	return b
 }
@@ -244,10 +244,10 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		}
 	}
 
-	var initFunc func(params any) error = nil
+	var initFunc func(params any, cmd *cobra.Command) error = nil
 	if b.InitFunc != nil {
-		initFunc = func(params any) error {
-			return b.InitFunc(params.(*Struct))
+		initFunc = func(params any, cmd *cobra.Command) error {
+			return b.InitFunc(params.(*Struct), cmd)
 		}
 	}
 
