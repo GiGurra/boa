@@ -205,8 +205,16 @@ func (b CmdT[Struct]) WithPreExecuteFuncE(preExecuteFunc func(params *Struct, cm
 
 // WithInitFunc sets a function to run during initialization, before any flags are parsed.
 // This version does not return an error and always succeeds.
-func (b CmdT[Struct]) WithInitFunc(initFunc func(params *Struct, cmd *cobra.Command)) CmdT[Struct] {
-	return b.WithInitFuncE(func(params *Struct, cmd *cobra.Command) error {
+func (b CmdT[Struct]) WithInitFunc(initFunc func(params *Struct)) CmdT[Struct] {
+	return b.WithInitFunc2(func(params *Struct, cmd *cobra.Command) {
+		initFunc(params)
+	})
+}
+
+// WithInitFunc2 sets a function to run during initialization, before any flags are parsed.
+// This version does not return an error and always succeeds.
+func (b CmdT[Struct]) WithInitFunc2(initFunc func(params *Struct, cmd *cobra.Command)) CmdT[Struct] {
+	return b.WithInitFunc2E(func(params *Struct, cmd *cobra.Command) error {
 		initFunc(params, cmd)
 		return nil
 	})
@@ -215,7 +223,17 @@ func (b CmdT[Struct]) WithInitFunc(initFunc func(params *Struct, cmd *cobra.Comm
 // WithInitFuncE sets a function to run during initialization, before any flags are parsed.
 // This version can return an error to abort command execution.
 // This is useful for setting up default values and parameter relationships.
-func (b CmdT[Struct]) WithInitFuncE(initFunc func(params *Struct, cmd *cobra.Command) error) CmdT[Struct] {
+func (b CmdT[Struct]) WithInitFuncE(initFunc func(params *Struct) error) CmdT[Struct] {
+	b.InitFunc = func(params *Struct, cmd *cobra.Command) error {
+		return initFunc(params)
+	}
+	return b
+}
+
+// WithInitFunc2E sets a function to run during initialization, before any flags are parsed.
+// This version can return an error to abort command execution.
+// This is useful for setting up default values and parameter relationships.
+func (b CmdT[Struct]) WithInitFunc2E(initFunc func(params *Struct, cmd *cobra.Command) error) CmdT[Struct] {
 	b.InitFunc = initFunc
 	return b
 }

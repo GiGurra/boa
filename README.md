@@ -473,7 +473,7 @@ func main() {
 
 	// Or with the builder API
 	boa.NewCmdT[MyConfigStruct]("command").
-		WithInitFuncE(func(params *MyConfigStruct, _ *cobra.Command) error {
+		WithInitFuncE(func(params *MyConfigStruct) error {
 			// Custom initialization logic
 			return nil
 		})
