@@ -1,6 +1,6 @@
 module github.com/GiGurra/boa
 
-go 1.21.7
+go 1.24.2
 
 require github.com/spf13/cobra v1.9.1
 
