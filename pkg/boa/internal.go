@@ -619,15 +619,6 @@ func traverse(
 		return fmt.Errorf("foreachParam2: expected pointer to struct")
 	}
 
-	if c, ok := reflect.ValueOf(structPtr).Interface().(*StructComposition); ok {
-		for _, structPtr := range c.StructPtrs {
-			if err := traverse(ctx, structPtr, fParam, fStruct); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
 	if fStruct != nil {
 		err := fStruct(structPtr)
 		if err != nil {

@@ -20,13 +20,13 @@ func main() {
 		File2 boa.Required[string]
 	}
 
-	var base3 struct {
+	type Base3 struct {
 		Foo3  boa.Required[string]
 		Bar3  boa.Required[int]
 		File3 boa.Required[string]
 	}
 
-	var base4 struct {
+	type Base4 struct {
 		Foo24  boa.Required[string]
 		Bar24  boa.Required[int]
 		File24 boa.Required[string]
@@ -35,6 +35,8 @@ func main() {
 	var params struct {
 		Base Base1
 		Base2
+		Base3
+		Base4
 		Baz  boa.Required[string]
 		FB   boa.Optional[string]
 		Time boa.Optional[time.Time]
@@ -44,7 +46,7 @@ func main() {
 		Use:    "hello-world",
 		Short:  "a generic cli tool",
 		Long:   `A generic cli tool that has a longer description. See the README.MD for more information`,
-		Params: boa.Compose(&params, &base3, &base4),
+		Params: &params,
 		RunFunc: func(cmd *cobra.Command, args []string) {
 			fmt.Printf(
 				"Hello world from subcommand1 with params: %s, %d, %s, %s, %v, %v\n",

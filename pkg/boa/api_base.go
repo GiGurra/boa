@@ -195,22 +195,6 @@ func (b Cmd) WithSubCmds(cmd ...CmdIfc) Cmd {
 	return b
 }
 
-// Compose creates a composition of multiple struct pointers that will be treated
-// as a single parameter struct. This allows for combining parameters from
-// different structs under one command.
-func Compose(structPtrs ...any) *StructComposition {
-	return &StructComposition{
-		StructPtrs: structPtrs,
-	}
-}
-
-// StructComposition represents a composition of multiple parameter structs
-// that are treated as a single parameter source.
-type StructComposition struct {
-	// StructPtrs contains pointers to the structs that form the composition
-	StructPtrs []any
-}
-
 // ToCobra converts a Cmd to a cobra.Command by setting up flags, parameter binding,
 // and other command properties. This is used when you want to create a Cobra command
 // to use with an existing Cobra command structure.
