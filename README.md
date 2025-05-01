@@ -37,14 +37,14 @@ func main() {
 		Use:    "hello-world",
 		Short:  "a generic cli tool",
 		Long:   `A generic cli tool that has a longer description. See the README.MD for more information`,
-		RunFunc: func(params *Params) {
+		RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
 			fmt.Printf(
 				"Hello world with params: %s, %d, %s, %s, %v\n",
+				params.Baz,  // string
+				params.FB,   // *string
 				params.Foo.Value(),  // string
 				params.Bar.Value(),  // int
 				params.File.Value(), // *string
-				params.Baz,  // string
-				params.FB,   // *string
 			)
 		},
 	}.Run()
@@ -116,7 +116,7 @@ func main() {
 			boa.CmdT[OtherParams]{
 				Use:   "subcommand2",
 				Short: "a subcommand",
-				RunFunc: func(params *OtherParams) {
+				RunFunc: func(params *OtherParams, cmd *cobra.Command, args []string) {
 					fmt.Println("Hello world from subcommand2")
 				},
 			},
