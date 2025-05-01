@@ -686,7 +686,6 @@ func traverse(
 					param = newParam(&field, field.Type)
 					ctx.RawParams = append(ctx.RawParams, addr)
 					ctx.AddrToParam[addr] = param
-					fmt.Printf("field %s addr: %d\n", field.Name, addr)
 				}
 
 				if fParam != nil {
