@@ -1,7 +1,6 @@
 # BOA
 
-Boa is a compact CLI and environment variable parameter utility. It adds a declarative layer on top of
-`github.com/spf13/cobra`.
+Boa adds a declarative layer on top of `github.com/spf13/cobra`.
 
 The goal is making the process of creating a command line interface as simple as possible, while still providing access
 to cobra primitives when needed.
