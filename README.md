@@ -44,7 +44,7 @@ func main() {
 			fmt.Printf(
 				"Hello world with params: %v, %v, %v, %v, %v\n",
 				params.Baz,          // string
-				params.FB,           // *string
+				params.FB,           // string
 				params.Foo.Value(),  // string
 				params.Bar.Value(),  // int
 				params.File.Value(), // *string
