@@ -3,15 +3,17 @@ package boa
 import (
 	"context"
 	"fmt"
-	"github.com/spf13/cobra"
 	"log/slog"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
 	"unsafe"
+
+	"github.com/spf13/cobra"
 )
 
 type Param interface {
@@ -605,6 +607,25 @@ func kebabCaseToUpperSnakeCase(in string) string {
 	return strings.ToUpper(result.String())
 }
 
+func getBoaTags(field reflect.StructField) []string {
+	parts := strings.Split(field.Tag.Get("boa"), ",")
+	results := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			results = append(results, part)
+		}
+	}
+	return results
+}
+
+func isBoaIgnored(field reflect.StructField) bool {
+	boaTags := getBoaTags(field)
+	return slices.Contains(boaTags, "ignore") ||
+		slices.Contains(boaTags, "ignored") ||
+		slices.Contains(boaTags, "-")
+}
+
 func traverse(
 	ctx *processingContext,
 	structPtr any,
@@ -632,6 +653,11 @@ func traverse(
 	rootValue := reflect.ValueOf(structPtr).Elem()
 	for i := 0; i < fields.NumField(); i++ {
 		field := fields.Field(i)
+
+		if isBoaIgnored(field) {
+			continue
+		}
+
 		fieldAddr := rootValue.Field(i).Addr()
 		// check if field is a param
 		param, isParam := fieldAddr.Interface().(Param)
