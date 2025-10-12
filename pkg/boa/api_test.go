@@ -129,6 +129,32 @@ func TestDoubleDefault(t *testing.T) {
 	}
 }
 
+func TestIgnoreBoaIgnored(t *testing.T) {
+	var params = struct {
+		User     Required[string] `default:"defaultUser"`
+		UserIgn1 Required[string] `boa:"-"`
+		UserIgn2 Required[string] `boa:"ignore"`
+		UserIgn3 Required[string] `boa:"ignored"`
+	}{
+		User: Required[string]{Default: Default("123")},
+	}
+
+	osArgsBefore := os.Args
+	os.Args = []string{"test"}
+	defer func() {
+		os.Args = osArgsBefore
+	}()
+
+	err := Cmd{Params: &params, ParamEnrich: ParamEnricherName}.Validate()
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+
+	if params.User.Value() != "123" {
+		t.Errorf("Expected default value to be '123', got: %s", params.User.Value())
+	}
+}
+
 type InitTestStruct struct {
 	User Required[string] `default:"defaultUser"`
 }
