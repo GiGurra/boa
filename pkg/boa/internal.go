@@ -65,6 +65,22 @@ type processingContext struct {
 	RawAddresses []uintptr
 }
 
+func parseEnv(ctx *processingContext, structPtr any) error {
+
+	return traverse(ctx, structPtr, func(param Param, _ string, _ reflect.StructTag) error {
+
+		if !param.IsEnabled() {
+			return nil
+		}
+
+		if err := readEnv(param); err != nil {
+			return err
+		}
+
+		return nil
+	}, nil)
+}
+
 func validate(ctx *processingContext, structPtr any) error {
 
 	return traverse(ctx, structPtr, func(param Param, _ string, _ reflect.StructTag) error {
@@ -78,9 +94,6 @@ func validate(ctx *processingContext, structPtr any) error {
 			envHint = fmt.Sprintf(" (env: %s)", param.GetEnv())
 		}
 
-		if err := readEnv(param); err != nil {
-			return err
-		}
 		if param.IsRequired() && !HasValue(param) {
 			return fmt.Errorf("missing required param '%s'%s", param.GetName(), envHint)
 		}
@@ -96,6 +109,14 @@ func validate(ctx *processingContext, structPtr any) error {
 					}
 					param.setValuePtr(res)
 				}
+			} else if alts := param.GetAlternatives(); alts != nil {
+				ptrVal := param.valuePtrF()
+				if ptrVal != nil {
+					strVal := ptrToAnyToString(ptrVal)
+					if !slices.Contains(alts, strVal) {
+						return fmt.Errorf("invalid value for param '%s': '%s' is not in the list of allowed values: %v", param.GetName(), strVal, alts)
+					}
+				}
 			}
 
 			if err := param.customValidatorOfPtr()(param.valuePtrF()); err != nil {
@@ -105,6 +126,20 @@ func validate(ctx *processingContext, structPtr any) error {
 
 		return nil
 	}, nil)
+}
+
+func ptrToAnyToString(ptr any) string {
+	if ptr == nil {
+		panic("ptrToAnyToString called with nil")
+	}
+
+	val := reflect.ValueOf(ptr)
+	if val.Kind() != reflect.Ptr {
+		panic("ptrToAnyToString called with non-pointer")
+	}
+
+	elem := val.Elem()
+	return fmt.Sprintf("%v", elem.Interface())
 }
 
 func doParsePositional(f Param, strVal string) error {
@@ -922,6 +957,11 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		if b.Params != nil {
 
+			// Must read env values before running any prevalidate code
+			if err := parseEnv(ctx, b.Params); err != nil {
+				return err
+			}
+
 			syncMirrors(ctx)
 
 			// if b.params or any inner struct implements CfgStructPreValidate, call it
@@ -951,8 +991,6 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 			if err = validate(ctx, b.Params); err != nil {
 				return err
 			}
-
-			syncMirrors(ctx)
 
 			// if b.params or any inner struct implements CfgStructPreExecute, call it
 			err = traverse(ctx, b.Params, nil, func(innerParams any) error {

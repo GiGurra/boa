@@ -279,6 +279,11 @@ func TestAlternatives(t *testing.T) {
 		t.Errorf("Expected no error, got: %v", err)
 	}
 
-	// TODO: check that we canot provide e4, when cobra supports it
-	// see https://github.com/spf13/pflag/issues/236
+	if err := NewCmdT[Conf]("test").WithRawArgs([]string{"-e", "e3"}).Validate(); err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+
+	if err := NewCmdT[Conf]("test").WithRawArgs([]string{"-e", "e4"}).Validate(); err == nil {
+		t.Errorf("Expected error, got: nil")
+	}
 }
