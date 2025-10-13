@@ -952,6 +952,8 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 				return err
 			}
 
+			syncMirrors(ctx)
+
 			// if b.params or any inner struct implements CfgStructPreExecute, call it
 			err = traverse(ctx, b.Params, nil, func(innerParams any) error {
 				if preExecute, ok := innerParams.(CfgStructPreExecute); ok {
