@@ -29,7 +29,7 @@ func TestRawConfig(t *testing.T) {
 		Extra3: "blah",          // default is used
 		Extra4: "from-file",     // config file value is used
 		Extra5: "not-from-file", // config file value is overridden by cli arg
-		Extra6: "from-env",      // config file value is overridden by env var
+		Extra6: "from-env",      // env var is used
 	}
 
 	config := RawConfig{}
