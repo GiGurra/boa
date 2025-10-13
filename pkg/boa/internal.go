@@ -634,17 +634,17 @@ func traverse(
 ) error {
 
 	if reflect.TypeOf(structPtr).Kind() != reflect.Ptr {
-		return fmt.Errorf("foreachParam1: expected pointer to struct")
+		return fmt.Errorf("expected pointer to struct")
 	}
 
 	if reflect.TypeOf(structPtr).Elem().Kind() != reflect.Struct {
-		return fmt.Errorf("foreachParam2: expected pointer to struct")
+		return fmt.Errorf("expected pointer to struct")
 	}
 
 	if fStruct != nil {
 		err := fStruct(structPtr)
 		if err != nil {
-			return fmt.Errorf("foreachParam3: error in fStruct: %s", err.Error())
+			return err
 		}
 	}
 
