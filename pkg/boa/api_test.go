@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestSetsDefaultName(t *testing.T) {
@@ -284,6 +286,31 @@ func TestAlternatives(t *testing.T) {
 	}
 
 	if err := NewCmdT[Conf]("test").WithRawArgs([]string{"-e", "e4"}).Validate(); err == nil {
+		t.Errorf("Expected error, got: nil")
+	}
+}
+
+func TestProgrammaticAlternativesMustBeEnforced(t *testing.T) {
+	type Conf struct {
+		MyEnum Required[string] `short:"e" default:"e1"`
+	}
+	preValidateFunc := func(params *Conf, cmd *cobra.Command, args []string) {
+		params.MyEnum.SetAlternatives([]string{"e1", "e2", "e3"})
+	}
+
+	if err := NewCmdT[Conf]("test").WithRawArgs([]string{}).WithPreValidateFunc(preValidateFunc).Validate(); err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+
+	if err := NewCmdT[Conf]("test").WithRawArgs([]string{"-e", "e2"}).WithPreValidateFunc(preValidateFunc).Validate(); err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+
+	if err := NewCmdT[Conf]("test").WithRawArgs([]string{"-e", "e3"}).WithPreValidateFunc(preValidateFunc).Validate(); err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+
+	if err := NewCmdT[Conf]("test").WithRawArgs([]string{"-e", "e4"}).WithPreValidateFunc(preValidateFunc).Validate(); err == nil {
 		t.Errorf("Expected error, got: nil")
 	}
 }
