@@ -1,9 +1,11 @@
 package boa
 
 import (
-	"github.com/spf13/cobra"
+	"os"
 	"strconv"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 type RawConfig struct {
@@ -14,6 +16,7 @@ type RawConfig struct {
 	Extra3 string           `long:"extra3" env:"EXTRA3" required:"true" default:"blah"`
 	Extra4 string           `long:"extra4" env:"EXTRA4" required:"true"`
 	Extra5 string           `long:"extra5" env:"EXTRA5" required:"true"`
+	Extra6 string           `long:"extra6" env:"EXTRA6" required:"true" default:"error"`
 }
 
 func TestRawConfig(t *testing.T) {
@@ -26,11 +29,18 @@ func TestRawConfig(t *testing.T) {
 		Extra3: "blah",          // default is used
 		Extra4: "from-file",     // config file value is used
 		Extra5: "not-from-file", // config file value is overridden by cli arg
+		Extra6: "from-env",      // config file value is overridden by env var
 	}
 
 	config := RawConfig{}
 
-	err := NewCmdT2("root", &config).
+	err := os.Setenv("EXTRA6", "from-env")
+	if err != nil {
+		t.Fatalf("Error setting env var: %v", err)
+	}
+	defer func() { _ = os.Unsetenv("EXTRA6") }()
+
+	err = NewCmdT2("root", &config).
 		WithPreValidateFunc(func(params *RawConfig, cmd *cobra.Command, args []string) {
 			params.Extra4 = "from-file"
 			params.Extra5 = "from-file"
@@ -74,5 +84,9 @@ func TestRawConfig(t *testing.T) {
 
 	if config.Extra5 != expected.Extra5 {
 		t.Fatalf("Expected Extra5: %v, got: %v", expected.Extra5, config.Extra5)
+	}
+
+	if config.Extra6 != expected.Extra6 {
+		t.Fatalf("Expected Extra6: %v, got: %v", expected.Extra6, config.Extra6)
 	}
 }
