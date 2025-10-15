@@ -833,6 +833,9 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 				param.setPositional(true)
 			}
 			if param.descr() == "" {
+				if descr, ok := tags.Lookup("desc"); ok {
+					param.setDescription(descr)
+				}
 				if descr, ok := tags.Lookup("descr"); ok {
 					param.setDescription(descr)
 				}
