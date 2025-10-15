@@ -2,10 +2,11 @@ package boa
 
 import (
 	"encoding/json"
-	"github.com/spf13/cobra"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 type AppConfig struct {
@@ -258,7 +259,7 @@ func TestJsonSerializationEmbeddedStructPointer(t *testing.T) {
 }
 
 type AppConfigFromFile struct {
-	File                Required[string] `long:"host"`
+	File                Required[string] `long:"file"`
 	Host                Required[string] `long:"host"`
 	Port                Required[int]    `long:"port" default:"8080"`
 	KafkaCredentials    Optional[string] `long:"kafka-credentials"`
