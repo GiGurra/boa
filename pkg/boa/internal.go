@@ -856,6 +856,8 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 			if param.GetName() == "" {
 				if name, ok := tags.Lookup("name"); ok {
 					param.SetName(name)
+				} else if name, ok := tags.Lookup("long"); ok {
+					param.SetName(name)
 				}
 			}
 
