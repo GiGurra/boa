@@ -953,6 +953,14 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 			return nil
 		}, nil)
 
+		syncMirrors(ctx)
+
+		if b.PostCreateFunc != nil {
+			err := b.PostCreateFunc(b.Params, cmd)
+			if err != nil {
+				panic(fmt.Errorf("error in PostCreateFunc: %s", err.Error()))
+			}
+		}
 		if err != nil {
 			panic(fmt.Errorf("error connecting params: %s", err.Error()))
 		}
