@@ -61,8 +61,10 @@ type Cmd struct {
 	// ValidArgsFunc is a function returning valid arguments for bash completion
 	ValidArgsFunc func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
 	// Lifecycle hook functions
-	// InitFunc runs during initialization before any flags are parsed
+	// InitFunc runs during initialization before any cobra flags are parsed or created
 	InitFunc func(params any, cmd *cobra.Command) error
+	// PostCreateFunc runs after cobra flags are created but before parsing
+	PostCreateFunc func(params any, cmd *cobra.Command) error
 	// PreValidateFunc runs after flags are parsed but before validation
 	PreValidateFunc func(params any, cmd *cobra.Command, args []string) error
 	// PreExecuteFunc runs after validation but before command execution

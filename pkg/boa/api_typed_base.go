@@ -4,9 +4,10 @@ package boa
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/spf13/cobra"
 	"os"
 	"reflect"
+
+	"github.com/spf13/cobra"
 )
 
 // NoParams is an empty struct that can be used when a command doesn't need parameters.
@@ -36,6 +37,8 @@ type CmdT[Struct any] struct {
 	RunFunc func(params *Struct, cmd *cobra.Command, args []string)
 	// InitFunc runs during initialization with type-safe parameters
 	InitFunc func(params *Struct, cmd *cobra.Command) error
+	// PostCreateFunc runs after cobra flags are created but before parsing
+	PostCreateFunc func(params *Struct, cmd *cobra.Command) error
 	// PreValidateFunc runs after flags are parsed but before validation with type-safe parameters
 	PreValidateFunc func(params *Struct, cmd *cobra.Command, args []string) error
 	// PreExecuteFunc runs after validation but before command execution with type-safe parameters
@@ -273,6 +276,13 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		}
 	}
 
+	var postCreateFunc func(params any, cmd *cobra.Command) error = nil
+	if b.PostCreateFunc != nil {
+		postCreateFunc = func(params any, cmd *cobra.Command) error {
+			return b.PostCreateFunc(params.(*Struct), cmd)
+		}
+	}
+
 	var preExecuteFunc func(params any, cmd *cobra.Command, args []string) error = nil
 	if b.PreExecuteFunc != nil {
 		preExecuteFunc = func(params any, cmd *cobra.Command, args []string) error {
@@ -308,6 +318,7 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		ValidArgs:       b.ValidArgs,
 		ValidArgsFunc:   validArgsFunc,
 		InitFunc:        initFunc,
+		PostCreateFunc:  postCreateFunc,
 		PreValidateFunc: preValidateFunc,
 		PreExecuteFunc:  preExecuteFunc,
 		RawArgs:         b.RawArgs,
