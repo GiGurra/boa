@@ -4,9 +4,10 @@ package boa
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/spf13/cobra"
 	"log/slog"
 	"reflect"
+
+	"github.com/spf13/cobra"
 )
 
 // Required represents a parameter that must have a value.
@@ -105,6 +106,24 @@ func (f *Required[T]) markSetFromEnv() {
 func (f *Required[T]) Value() T {
 	if HasValue(f) {
 		if f.valuePtr != nil {
+			// Try direct type assertion first
+			if val, ok := f.valuePtr.(*T); ok {
+				return *val
+			}
+			// If that fails, use reflection to convert from underlying type to custom type
+			// This handles cases like: type CustomStringType string
+			valPtr := reflect.ValueOf(f.valuePtr)
+			if valPtr.Kind() == reflect.Ptr && !valPtr.IsNil() {
+				valElem := valPtr.Elem()
+				var zero T
+				targetType := reflect.TypeOf(zero)
+				// Convert the underlying value to the target custom type
+				if valElem.Type().ConvertibleTo(targetType) {
+					converted := valElem.Convert(targetType)
+					return converted.Interface().(T)
+				}
+			}
+			// Fallback to panic with the original error
 			return *f.valuePtr.(*T)
 		} else {
 			return *f.Default

@@ -2,9 +2,10 @@ package boa
 
 import (
 	"fmt"
-	"github.com/spf13/cobra"
 	"os"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 type TestStruct struct {
@@ -30,6 +31,105 @@ func TestTyped1(t *testing.T) {
 				}
 				if params.Flag2.Value() != 42 {
 					t.Fatalf("expected 42 but got %d", params.Flag2.Value())
+				}
+			})
+
+	if cmd.Params.Flag1.HasValue() {
+		t.Errorf("Flag1 should not have value")
+	}
+
+	if cmd.Params.Flag2.HasValue() {
+		t.Errorf("Flag2 should not have value")
+	}
+
+	cmd.Run()
+
+	if !cmd.Params.Flag1.HasValue() {
+		t.Errorf("Flag1 should have value")
+	}
+
+	if !cmd.Params.Flag2.HasValue() {
+		t.Errorf("Flag2 should have value")
+	}
+}
+
+type CustomStringType string
+type CustomIntType int
+
+type TestStructCustType struct {
+	Flag1 Required[CustomStringType]
+	Flag2 Required[CustomIntType]
+}
+
+func TestTypedCustType1(t *testing.T) {
+
+	prevArgs := os.Args
+	defer func() {
+		os.Args = prevArgs
+	}()
+
+	os.Args = []string{"test", "--flag1", "value1", "--flag2", "42"}
+
+	cmd :=
+		NewCmdT[TestStructCustType]("test").
+			WithRunFunc(func(params *TestStructCustType) {
+				fmt.Printf("params: %+v\n", params)
+				if params.Flag1.Value() != "value1" {
+					t.Fatalf("expected value1 but got %s", params.Flag1.Value())
+				}
+				if params.Flag2.Value() != 42 {
+					t.Fatalf("expected 42 but got %d", params.Flag2.Value())
+				}
+			})
+
+	if cmd.Params.Flag1.HasValue() {
+		t.Errorf("Flag1 should not have value")
+	}
+
+	if cmd.Params.Flag2.HasValue() {
+		t.Errorf("Flag2 should not have value")
+	}
+
+	cmd.Run()
+
+	if !cmd.Params.Flag1.HasValue() {
+		t.Errorf("Flag1 should have value")
+	}
+
+	if !cmd.Params.Flag2.HasValue() {
+		t.Errorf("Flag2 should have value")
+	}
+}
+
+type TestStructCustTypeOptional struct {
+	Flag1 Optional[CustomStringType]
+	Flag2 Optional[CustomIntType]
+}
+
+func TestTypedCustTypeOptional(t *testing.T) {
+
+	prevArgs := os.Args
+	defer func() {
+		os.Args = prevArgs
+	}()
+
+	os.Args = []string{"test", "--flag1", "value1", "--flag2", "42"}
+
+	cmd :=
+		NewCmdT[TestStructCustTypeOptional]("test").
+			WithRunFunc(func(params *TestStructCustTypeOptional) {
+				fmt.Printf("params: %+v\n", params)
+				if params.Flag1.Value() == nil {
+					t.Fatalf("expected Flag1 to have value")
+				}
+				if *params.Flag1.Value() != "value1" {
+					t.Fatalf("expected value1 but got %s", *params.Flag1.Value())
+				}
+				if params.Flag2.Value() == nil {
+					t.Fatalf("expected Flag2 to have value")
+				}
+				if *params.Flag2.Value() != 42 {
+					t.Fatalf("expected 42 but got %d", *params.Flag2.Value())
 				}
 			})
 
