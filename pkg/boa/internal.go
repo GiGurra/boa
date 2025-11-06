@@ -953,8 +953,6 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 			return nil
 		}, nil)
 
-		syncMirrors(ctx)
-
 		if b.PostCreateFunc != nil {
 			err := b.PostCreateFunc(b.Params, cmd)
 			if err != nil {
