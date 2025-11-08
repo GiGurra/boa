@@ -348,3 +348,28 @@ func TestCmdList(t *testing.T) {
 		t.Fatalf("expected inner command to run but it didn't")
 	}
 }
+
+func TestSliceFlagAlts(t *testing.T) {
+	ran := false
+	type Args struct {
+		Types []string `alts:"file, dir, all" default:"all,dir"`
+	}
+	CmdT[Args]{
+		RunFunc: func(args *Args, cmd *cobra.Command, rawArgs []string) {
+			if len(args.Types) != 2 {
+				t.Fatalf("expected 2 types but got %d", len(args.Types))
+			}
+			if args.Types[0] != "all" {
+				t.Fatalf("expected first type to be 'all' but got '%s'", args.Types[0])
+			}
+			if args.Types[1] != "dir" {
+				t.Fatalf("expected second type to be 'dir' but got '%s'", args.Types[1])
+			}
+			ran = true
+		},
+	}.RunArgs([]string{})
+
+	if !ran {
+		t.Fatalf("expected inner command to run but it didn't")
+	}
+}

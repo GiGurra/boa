@@ -110,11 +110,26 @@ func validate(ctx *processingContext, structPtr any) error {
 					param.setValuePtr(res)
 				}
 			} else if alts := param.GetAlternatives(); alts != nil {
+
 				ptrVal := param.valuePtrF()
-				if ptrVal != nil {
-					strVal := ptrToAnyToString(ptrVal)
-					if !slices.Contains(alts, strVal) {
-						return fmt.Errorf("invalid value for param '%s': '%s' is not in the list of allowed values: %v", param.GetName(), strVal, alts)
+				// check if it is a slice param
+				kind := reflect.TypeOf(ptrVal).Elem().Kind()
+				if kind == reflect.Slice {
+					// run the validation for each slice element
+					sliceVal := reflect.ValueOf(ptrVal).Elem()
+					for i := 0; i < sliceVal.Len(); i++ {
+						elem := sliceVal.Index(i)
+						strVal := fmt.Sprintf("%v", elem.Interface())
+						if !slices.Contains(alts, strVal) {
+							return fmt.Errorf("invalid value for param '%s': '%s' is not in the list of allowed values: %v", param.GetName(), strVal, alts)
+						}
+					}
+				} else {
+					if ptrVal != nil {
+						strVal := ptrToAnyToString(ptrVal)
+						if !slices.Contains(alts, strVal) {
+							return fmt.Errorf("invalid value for param '%s': '%s' is not in the list of allowed values: %v", param.GetName(), strVal, alts)
+						}
 					}
 				}
 			}
