@@ -373,3 +373,60 @@ func TestSliceFlagAlts(t *testing.T) {
 		t.Fatalf("expected inner command to run but it didn't")
 	}
 }
+
+func TestPositionalArgs(t *testing.T) {
+	ran := false
+	type Args struct {
+		MyInt       int    `positional:"true"`
+		MyString    string `pos:"true"`
+		MyStringOpt string `pos:"true" optional:"true"`
+	}
+
+	CmdT[Args]{
+		RunFunc: func(params *Args, cmd *cobra.Command, args []string) {
+			ran = true
+			if params.MyInt != 42 {
+				t.Fatalf("expected 42 but got %d", params.MyInt)
+			}
+			if params.MyString != "hello" {
+				t.Fatalf("expected 'hello' but got '%s'", params.MyString)
+			}
+			if params.MyStringOpt != "" {
+				t.Fatalf("expected '' but got '%s'", params.MyStringOpt)
+			}
+		},
+	}.RunArgs([]string{"42", "hello"})
+
+	if !ran {
+		t.Fatalf("expected inner command to run but it didn't")
+	}
+}
+
+func TestSlicePositionalArgs(t *testing.T) {
+	ran := false
+	type Args struct {
+		Names []string `positional:"true"`
+	}
+
+	CmdT[Args]{
+		RunFunc: func(params *Args, cmd *cobra.Command, args []string) {
+			ran = true
+			if len(params.Names) != 3 {
+				t.Fatalf("expected 3 names but got %d", len(params.Names))
+			}
+			if params.Names[0] != "alice" {
+				t.Fatalf("expected first name to be 'alice' but got '%s'", params.Names[0])
+			}
+			if params.Names[1] != "bob" {
+				t.Fatalf("expected second name to be 'bob' but got '%s'", params.Names[1])
+			}
+			if params.Names[2] != "carol" {
+				t.Fatalf("expected third name to be 'carol' but got '%s'", params.Names[2])
+			}
+		},
+	}.RunArgs([]string{"alice", "bob", "carol"})
+
+	if !ran {
+		t.Fatalf("expected inner command to run but it didn't")
+	}
+}

@@ -286,7 +286,14 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 					return nil
 				}
 			}
-			return doParsePositional(f, args[posArgIndex])
+			if f.GetKind() == reflect.Slice {
+				// Concat all remaining args into a single string, to be parsed as a slice
+				remainingArgs := args[posArgIndex:]
+				joinedArgs := "[" + strings.Join(remainingArgs, ",") + "]"
+				return doParsePositional(f, joinedArgs)
+			} else {
+				return doParsePositional(f, args[posArgIndex])
+			}
 		}
 		return nil // no need to attach cobra flags
 	}
@@ -935,13 +942,24 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		positional := make([]Param, 0)
 		for _, param := range processed {
 			if param.isPositional() {
+				// if the last positional is a slice, error out
+				if len(positional) >= 1 {
+					lastPos := positional[len(positional)-1]
+					if lastPos.GetKind() == reflect.Slice {
+						panic(fmt.Errorf("positional param %s cannot come after slice positional param %s", param.GetName(), lastPos.GetName()))
+					}
+				}
 				positional = append(positional, param)
 			}
 		}
 
 		// Check that no required positional arg exists after on optional positional arg
 		numReqPositional := 0
+		allowArbitraryNumPositional := false
 		for i, param := range positional {
+			if param.GetKind() == reflect.Slice {
+				allowArbitraryNumPositional = true
+			}
 			if param.IsRequired() {
 				numReqPositional++
 			}
@@ -954,7 +972,11 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		}
 
 		if cmd.Args == nil {
-			cmd.Args = cobra.RangeArgs(numReqPositional, len(positional))
+			if allowArbitraryNumPositional {
+				cmd.Args = cobra.MinimumNArgs(numReqPositional)
+			} else {
+				cmd.Args = cobra.RangeArgs(numReqPositional, len(positional))
+			}
 		}
 
 		syncMirrors(ctx)
