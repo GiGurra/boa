@@ -157,6 +157,59 @@ func TestIgnoreBoaIgnored(t *testing.T) {
 	}
 }
 
+func TestUseHInsteadOFHelp(t *testing.T) {
+
+	var params = struct {
+		User Required[string] `short:"h"`
+	}{
+		User: Required[string]{Default: Default("123")},
+	}
+
+	ran := false
+	Cmd{
+		Use:    "test",
+		Short:  "test",
+		Params: &params,
+		InitFunc: func(params any, cmd *cobra.Command) error {
+			cmd.Flags().BoolP("help", "", false, "help for test")
+			return nil
+		},
+		RunFunc: func(cmd *cobra.Command, args []string) {
+			ran = true
+		},
+	}.RunArgs([]string{"-h", "user-x"})
+
+	if !ran {
+		t.Errorf("Expected command to run")
+	}
+
+	if params.User.Value() != "user-x" {
+		t.Errorf("Expected user to be 'user-x', got: %s", params.User.Value())
+	}
+}
+
+func TestUseHInsteadOFHelpIncorrectUse(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("The code did not panic")
+		}
+	}()
+
+	var params = struct {
+		User Required[string] `short:"h"`
+	}{
+		User: Required[string]{Default: Default("123")},
+	}
+
+	Cmd{
+		Use:    "test",
+		Short:  "test",
+		Params: &params,
+		RunFunc: func(cmd *cobra.Command, args []string) {
+		},
+	}.Run()
+}
+
 type InitTestStruct struct {
 	User Required[string] `default:"defaultUser"`
 }

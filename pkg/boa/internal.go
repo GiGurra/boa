@@ -190,7 +190,14 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 	}
 
 	if f.GetShort() == "h" {
-		return fmt.Errorf("invalid conf for param '%s': short param cannot be 'h'. It collides with -h for help", f.GetName())
+		// Check if we already have a help flag
+		if hf := cmd.Flags().Lookup("help"); hf != nil {
+			if hf.Shorthand == "h" {
+				return fmt.Errorf("invalid conf for param '%s': short param cannot be 'h'. It collides with -h for help", f.GetName())
+			}
+		} else {
+			return fmt.Errorf("invalid conf for param '%s': short param cannot be 'h'. It collides with the default help flag. Set a custom help flag if you wish to override -h", f.GetName())
+		}
 	}
 
 	if f.GetName() == "help" {
