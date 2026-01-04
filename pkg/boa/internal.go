@@ -52,6 +52,8 @@ type Param interface {
 	GetAlternatives() []string
 	GetAlternativesFunc() func(cmd *cobra.Command, args []string, toComplete string) []string
 	GetIsEnabledFn() func() bool
+	SetStrictAlts(bool)
+	GetStrictAlts() bool
 }
 
 type processingContext struct {
@@ -109,7 +111,7 @@ func validate(ctx *processingContext, structPtr any) error {
 					}
 					param.setValuePtr(res)
 				}
-			} else if alts := param.GetAlternatives(); alts != nil {
+			} else if alts := param.GetAlternatives(); alts != nil && param.GetStrictAlts() {
 
 				ptrVal := param.valuePtrF()
 				// check if it is a slice param
@@ -911,6 +913,13 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 			}
 			if alts, ok := tags.Lookup("alternatives"); ok {
 				setAlts(alts)
+			}
+
+			if strictAlts, ok := tags.Lookup("strict-alts"); ok {
+				param.SetStrictAlts(strictAlts == "true")
+			}
+			if strictAlts, ok := tags.Lookup("strict"); ok {
+				param.SetStrictAlts(strictAlts == "true")
 			}
 
 			if !param.hasDefaultValue() {

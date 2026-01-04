@@ -367,3 +367,61 @@ func TestProgrammaticAlternativesMustBeEnforced(t *testing.T) {
 		t.Errorf("Expected error, got: nil")
 	}
 }
+
+func TestNonStrictAlternativesAllowAnyValue(t *testing.T) {
+	type Conf struct {
+		MyEnum Required[string] `short:"e" default:"e1" alts:"e1,e2,e3" strict:"false"`
+	}
+
+	// Valid alternative should work
+	if err := NewCmdT[Conf]("test").WithRawArgs([]string{"-e", "e2"}).Validate(); err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+
+	// Non-listed value should also be accepted when strict is false
+	if err := NewCmdT[Conf]("test").WithRawArgs([]string{"-e", "custom-value"}).Validate(); err != nil {
+		t.Errorf("Expected no error for non-strict alts, got: %v", err)
+	}
+}
+
+func TestStrictAlternativesEnforceValidation(t *testing.T) {
+	type Conf struct {
+		MyEnum Required[string] `short:"e" default:"e1" alts:"e1,e2,e3" strict:"true"`
+	}
+
+	// Valid alternative should work
+	if err := NewCmdT[Conf]("test").WithRawArgs([]string{"-e", "e2"}).Validate(); err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+
+	// Non-listed value should be rejected when strict is true
+	if err := NewCmdT[Conf]("test").WithRawArgs([]string{"-e", "e4"}).Validate(); err == nil {
+		t.Errorf("Expected error for strict alts, got: nil")
+	}
+}
+
+func TestStrictAlternativesDefaultBehavior(t *testing.T) {
+	// Without strict tag, alts should be enforced (default behavior)
+	type Conf struct {
+		MyEnum Required[string] `short:"e" default:"e1" alts:"e1,e2,e3"`
+	}
+
+	if err := NewCmdT[Conf]("test").WithRawArgs([]string{"-e", "e4"}).Validate(); err == nil {
+		t.Errorf("Expected error when strict is not specified (default should enforce), got: nil")
+	}
+}
+
+func TestProgrammaticStrictAlts(t *testing.T) {
+	type Conf struct {
+		MyEnum Required[string] `short:"e" default:"e1"`
+	}
+	preValidateFunc := func(params *Conf, cmd *cobra.Command, args []string) {
+		params.MyEnum.SetAlternatives([]string{"e1", "e2", "e3"})
+		params.MyEnum.SetStrictAlts(false)
+	}
+
+	// With strict set to false programmatically, any value should be accepted
+	if err := NewCmdT[Conf]("test").WithRawArgs([]string{"-e", "custom-value"}).WithPreValidateFunc(preValidateFunc).Validate(); err != nil {
+		t.Errorf("Expected no error for programmatic non-strict alts, got: %v", err)
+	}
+}

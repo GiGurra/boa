@@ -35,6 +35,9 @@ type Required[T SupportedTypes] struct {
 	Alternatives []string
 	// AlternativesFunc provides a dynamic function to generate valid value suggestions for bash completion
 	AlternativesFunc func(cmd *cobra.Command, args []string, toComplete string) []string
+	// StrictAlts controls whether Alternatives are strictly enforced (validated) or just used as suggestions.
+	// When nil or true, values must be in the Alternatives list. When false, any value is accepted.
+	StrictAlts *bool
 
 	// Internal state fields
 	setByEnv        bool
@@ -59,6 +62,17 @@ func (f *Required[T]) GetIsEnabledFn() func() bool {
 // SetAlternatives sets the list of allowed values for this parameter.
 func (f *Required[T]) SetAlternatives(strings []string) {
 	f.Alternatives = strings
+}
+
+// SetStrictAlts sets whether Alternatives are strictly enforced.
+func (f *Required[T]) SetStrictAlts(strict bool) {
+	f.StrictAlts = &strict
+}
+
+// GetStrictAlts returns whether Alternatives should be strictly enforced.
+// Returns true if StrictAlts is nil (default behavior) or explicitly set to true.
+func (f *Required[T]) GetStrictAlts() bool {
+	return f.StrictAlts == nil || *f.StrictAlts
 }
 
 // This assertion proves that Required[T] implements the Param interface.
