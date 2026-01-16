@@ -25,6 +25,12 @@ type CmdT[Struct any] struct {
 	Long string
 	// Version is the version for this command
 	Version string
+	// Aliases are alternative names for this command
+	Aliases []string
+	// GroupID is the group id to which this command belongs (for help categorization)
+	GroupID string
+	// Groups defines command groups for organizing subcommands in help output (optional, auto-generated if not specified)
+	Groups []*cobra.Group
 	// Args defines how cobra should validate positional arguments
 	Args cobra.PositionalArgs
 	// SubCmds contains sub-commands for this command
@@ -103,6 +109,26 @@ func (b CmdT[Struct]) WithLong(long string) CmdT[Struct] {
 // WithVersion sets the command's version and returns the updated command.
 func (b CmdT[Struct]) WithVersion(version string) CmdT[Struct] {
 	b.Version = version
+	return b
+}
+
+// WithAliases sets alternative names for this command and returns the updated command.
+func (b CmdT[Struct]) WithAliases(aliases ...string) CmdT[Struct] {
+	b.Aliases = aliases
+	return b
+}
+
+// WithGroupID sets the group ID for this command (for help categorization) and returns the updated command.
+func (b CmdT[Struct]) WithGroupID(groupID string) CmdT[Struct] {
+	b.GroupID = groupID
+	return b
+}
+
+// WithGroups sets command groups for organizing subcommands in help output.
+// This is optional - any GroupIDs used by subcommands that don't have a corresponding
+// group defined here will be auto-generated with Title = ID + ":".
+func (b CmdT[Struct]) WithGroups(groups ...*cobra.Group) CmdT[Struct] {
+	b.Groups = groups
 	return b
 }
 
@@ -308,6 +334,9 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		Short:           b.Short,
 		Long:            b.Long,
 		Version:         b.Version,
+		Aliases:         b.Aliases,
+		GroupID:         b.GroupID,
+		Groups:          b.Groups,
 		Args:            b.Args,
 		SubCmds:         b.SubCmds,
 		Params:          params,

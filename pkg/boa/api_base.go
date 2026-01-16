@@ -42,6 +42,12 @@ type Cmd struct {
 	Long string
 	// Version is the version for this command
 	Version string
+	// Aliases are alternative names for this command
+	Aliases []string
+	// GroupID is the group id to which this command belongs (for help categorization)
+	GroupID string
+	// Groups defines command groups for organizing subcommands in help output (optional, auto-generated if not specified)
+	Groups []*cobra.Group
 	// Args defines how cobra should validate positional arguments
 	Args cobra.PositionalArgs
 	// SubCmds contains sub-commands for this command
@@ -180,6 +186,26 @@ func ParamEnricherEnvPrefix(prefix string) ParamEnricher {
 		}
 		return nil
 	}
+}
+
+// WithAliases sets alternative names for this command and returns the modified Cmd.
+func (b Cmd) WithAliases(aliases ...string) Cmd {
+	b.Aliases = aliases
+	return b
+}
+
+// WithGroupID sets the group ID for this command (for help categorization) and returns the modified Cmd.
+func (b Cmd) WithGroupID(groupID string) Cmd {
+	b.GroupID = groupID
+	return b
+}
+
+// WithGroups sets command groups for organizing subcommands in help output.
+// This is optional - any GroupIDs used by subcommands that don't have a corresponding
+// group defined here will be auto-generated with Title = ID + ":".
+func (b Cmd) WithGroups(groups ...*cobra.Group) Cmd {
+	b.Groups = groups
+	return b
 }
 
 // WithCobraSubCmds adds sub-commands to a Cmd and returns the modified Cmd.

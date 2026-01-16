@@ -851,9 +851,26 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 
 	cmd.Flags().SortFlags = b.SortFlags
 	cmd.Version = b.Version
+	cmd.Aliases = b.Aliases
+	cmd.GroupID = b.GroupID
 
 	for _, subcommand := range b.SubCmds {
 		cmd.AddCommand(subcommand)
+	}
+
+	// Add explicit groups first, tracking which IDs are defined
+	definedGroups := make(map[string]bool)
+	for _, group := range b.Groups {
+		cmd.AddGroup(group)
+		definedGroups[group.ID] = true
+	}
+
+	// Auto-generate groups for any subcommand GroupIDs not already defined
+	for _, subcommand := range b.SubCmds {
+		if subcommand.GroupID != "" && !definedGroups[subcommand.GroupID] {
+			cmd.AddGroup(&cobra.Group{ID: subcommand.GroupID, Title: subcommand.GroupID + ":"})
+			definedGroups[subcommand.GroupID] = true
+		}
 	}
 
 	if b.Params != nil {
