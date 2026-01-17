@@ -27,7 +27,7 @@ import (
 
 type Params struct {
 	Foo  string `descr:"a foo"`
-	Bar  int    `descr:"a bar" env:"BAR_X" default:"4" optional:"true"`
+	Bar  int    `descr:"a bar" env:"BAR_X" optional:"true"`
 	Path string `positional:"true"`
 	Baz  string `positional:"true" default:"cba"`
 	FB   string `positional:"true" optional:"true"`
