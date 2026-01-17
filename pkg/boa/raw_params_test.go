@@ -535,3 +535,193 @@ func TestGetParam_ParamMethods(t *testing.T) {
 		WithRunFunc(func(params *Params) {}).
 		RunArgs([]string{"--name", "a"})
 }
+
+// Tests for RunFuncCtx and HookContext.HasValue
+
+func TestRunFuncCtx_Basic(t *testing.T) {
+	type Params struct {
+		Name string `optional:"true" default:"default-name"`
+		Port int    `optional:"true" default:"8080"`
+	}
+
+	ran := false
+	config := Params{}
+
+	NewCmdT2("test", &config).
+		WithRunFuncCtx(func(ctx *HookContext, params *Params) {
+			ran = true
+			if params.Name != "custom-name" {
+				t.Fatalf("expected Name to be 'custom-name' but got '%s'", params.Name)
+			}
+			if params.Port != 8080 {
+				t.Fatalf("expected Port to be 8080 but got %d", params.Port)
+			}
+		}).
+		RunArgs([]string{"--name", "custom-name"})
+
+	if !ran {
+		t.Fatal("expected command to run")
+	}
+}
+
+func TestRunFuncCtx4_FullSignature(t *testing.T) {
+	type Params struct {
+		Name string `optional:"true"`
+	}
+
+	ran := false
+	config := Params{}
+
+	NewCmdT2("test", &config).
+		WithRunFuncCtx4(func(ctx *HookContext, params *Params, cmd *cobra.Command, args []string) {
+			ran = true
+			if cmd == nil {
+				t.Fatal("expected cmd to not be nil")
+			}
+			if params.Name != "test-name" {
+				t.Fatalf("expected Name to be 'test-name' but got '%s'", params.Name)
+			}
+		}).
+		RunArgs([]string{"--name", "test-name"})
+
+	if !ran {
+		t.Fatal("expected command to run")
+	}
+}
+
+func TestRunFuncCtx_HasValue_SetByCli(t *testing.T) {
+	type Params struct {
+		Name string `optional:"true" default:"default-name"`
+		Port int    `optional:"true" default:"8080"`
+	}
+
+	ran := false
+	config := Params{}
+
+	NewCmdT2("test", &config).
+		WithRunFuncCtx(func(ctx *HookContext, params *Params) {
+			ran = true
+
+			// Name was set via CLI
+			if !ctx.HasValue(&params.Name) {
+				t.Fatal("expected HasValue to return true for Name (set via CLI)")
+			}
+
+			// Port was not set via CLI but has default
+			if !ctx.HasValue(&params.Port) {
+				t.Fatal("expected HasValue to return true for Port (has default)")
+			}
+		}).
+		RunArgs([]string{"--name", "custom-name"})
+
+	if !ran {
+		t.Fatal("expected command to run")
+	}
+}
+
+func TestRunFuncCtx_HasValue_SetByEnv(t *testing.T) {
+	type Params struct {
+		Name string `optional:"true" env:"TEST_RUN_NAME"`
+	}
+
+	ran := false
+	config := Params{}
+
+	err := os.Setenv("TEST_RUN_NAME", "from-env")
+	if err != nil {
+		t.Fatalf("Error setting env var: %v", err)
+	}
+	defer func() { _ = os.Unsetenv("TEST_RUN_NAME") }()
+
+	NewCmdT2("test", &config).
+		WithRunFuncCtx(func(ctx *HookContext, params *Params) {
+			ran = true
+
+			if !ctx.HasValue(&params.Name) {
+				t.Fatal("expected HasValue to return true for Name (set via env)")
+			}
+			if params.Name != "from-env" {
+				t.Fatalf("expected Name to be 'from-env' but got '%s'", params.Name)
+			}
+		}).
+		RunArgs([]string{})
+
+	if !ran {
+		t.Fatal("expected command to run")
+	}
+}
+
+func TestRunFuncCtx_HasValue_NoValueSet(t *testing.T) {
+	type Params struct {
+		Name string `optional:"true"`
+	}
+
+	ran := false
+	config := Params{}
+
+	NewCmdT2("test", &config).
+		WithRunFuncCtx(func(ctx *HookContext, params *Params) {
+			ran = true
+
+			// Name has no default and was not set
+			if ctx.HasValue(&params.Name) {
+				t.Fatal("expected HasValue to return false for Name (no value set)")
+			}
+		}).
+		RunArgs([]string{})
+
+	if !ran {
+		t.Fatal("expected command to run")
+	}
+}
+
+func TestRunFuncCtx_HasValue_WithWrappedParams(t *testing.T) {
+	type Params struct {
+		Name Required[string]
+		Port Optional[int]
+	}
+
+	ran := false
+	config := Params{}
+
+	NewCmdT2("test", &config).
+		WithRunFuncCtx(func(ctx *HookContext, params *Params) {
+			ran = true
+
+			// Name was set via CLI
+			if !ctx.HasValue(&params.Name) {
+				t.Fatal("expected HasValue to return true for Name (set via CLI)")
+			}
+
+			// Port was not set
+			if ctx.HasValue(&params.Port) {
+				t.Fatal("expected HasValue to return false for Port (not set)")
+			}
+		}).
+		RunArgs([]string{"--name", "test"})
+
+	if !ran {
+		t.Fatal("expected command to run")
+	}
+}
+
+func TestRunFuncCtx_PanicsWhenBothRunFuncsSet(t *testing.T) {
+	type Params struct {
+		Name string `optional:"true"`
+	}
+
+	config := Params{}
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when both RunFunc and RunFuncCtx are set")
+		}
+	}()
+
+	// This should panic because we're setting both RunFunc and RunFuncCtx
+	NewCmdT2("test", &config).
+		WithRunFunc(func(params *Params) {}).
+		WithRunFuncCtx(func(ctx *HookContext, params *Params) {}).
+		RunArgs([]string{})
+}
+

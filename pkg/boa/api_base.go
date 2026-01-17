@@ -5,6 +5,7 @@ package boa
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"reflect"
@@ -69,6 +70,8 @@ type Cmd struct {
 	ParamEnrich ParamEnricher
 	// RunFunc is the function to run when this command is called
 	RunFunc func(cmd *cobra.Command, args []string)
+	// RunFuncCtx is the function to run when this command is called, with access to HookContext
+	RunFuncCtx func(ctx *HookContext, cmd *cobra.Command, args []string)
 	// UseCobraErrLog determines whether to use Cobra's error logging
 	UseCobraErrLog bool
 	// SortFlags determines whether to sort command flags alphabetically
@@ -456,6 +459,28 @@ func (c *HookContext) AllMirrors() []Param {
 	}
 	return result
 }
+
+// HasValue returns true if the parameter has a value from any source.
+// Returns true if the parameter was set by environment variable, command line,
+// default value, or programmatic injection.
+//
+// Usage:
+//
+//	cmd := boa.NewCmdT[Params]("cmd").
+//	    WithRunFuncCtx(func(ctx *boa.HookContext, params *Params, cmd *cobra.Command, args []string) {
+//	        if ctx.HasValue(&params.Port) {
+//	            fmt.Println("Port has a value:", params.Port)
+//	        }
+//	    })
+func (c *HookContext) HasValue(fieldPtr any) bool {
+	param := c.GetParam(fieldPtr)
+	if param == nil {
+		slog.Error("HookContext.HasValue: could not find param for field pointer", "fieldPtr", fieldPtr)
+		return false
+	}
+	return HasValue(param)
+}
+
 
 // CmdList converts a list of CmdIfc to a slice of cobra.Command.
 func CmdList(cmds ...CmdIfc) []*cobra.Command {

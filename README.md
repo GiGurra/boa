@@ -557,6 +557,7 @@ For advanced use cases, especially when working with raw parameter types (plain 
 
 The `HookContext` provides:
 - `GetParam(fieldPtr any) Param` - Get the Param interface for any field (raw or wrapped)
+- `HasValue(fieldPtr any) bool` - Check if a parameter has a value from any source (CLI, env, default, or injection)
 - `AllMirrors() []Param` - Get all auto-generated mirrors for raw fields
 
 #### Interface-based Context Hooks
@@ -646,6 +647,40 @@ Available function-based context hooks:
 - `WithPostCreateFuncCtx` - After cobra flags are created
 - `WithPreValidateFuncCtx` - After parsing, before validation
 - `WithPreExecuteFuncCtx` - After validation, before execution
+- `WithRunFuncCtx` / `WithRunFuncCtx4` - Command execution with HookContext access
+
+#### RunFuncCtx - Checking Parameter Sources at Runtime
+
+Use `WithRunFuncCtx` when you need to check whether parameters were explicitly set during command execution:
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/GiGurra/boa/pkg/boa"
+)
+
+type Params struct {
+	Host string `default:"localhost"`
+	Port int    `default:"8080" optional:"true"`
+}
+
+func main() {
+	boa.NewCmdT[Params]("server").
+		WithRunFuncCtx(func(ctx *boa.HookContext, params *Params) {
+			// Check if parameters have values (from CLI, env, default, or injection)
+			if ctx.HasValue(&params.Port) {
+				fmt.Printf("Starting server on %s:%d\n", params.Host, params.Port)
+			} else {
+				fmt.Printf("Starting server on %s (no port specified)\n", params.Host)
+			}
+		}).
+		Run()
+}
+```
+
+Note: You cannot use both `WithRunFunc` and `WithRunFuncCtx` on the same command - choose one or the other.
 
 ## Migration Guide
 

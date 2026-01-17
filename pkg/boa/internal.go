@@ -1487,6 +1487,17 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		return nil
 	}
 
+	// Set the Run function - support either RunFunc or RunFuncCtx but not both
+	if b.RunFunc != nil && b.RunFuncCtx != nil {
+		panic("cannot set both RunFunc and RunFuncCtx - use one or the other")
+	}
+	if b.RunFuncCtx != nil {
+		cmd.Run = func(cmd *cobra.Command, args []string) {
+			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+			b.RunFuncCtx(hookCtx, cmd, args)
+		}
+	}
+
 	return cmd
 }
 

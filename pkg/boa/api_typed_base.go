@@ -41,6 +41,9 @@ type CmdT[Struct any] struct {
 	ParamEnrich ParamEnricher
 	// RunFunc is the function to run when this command is called, with type-safe parameters
 	RunFunc func(params *Struct, cmd *cobra.Command, args []string)
+	// RunFuncCtx is the function to run when this command is called, with access to HookContext
+	// for checking parameter sources (e.g., whether a value was explicitly set or uses defaults)
+	RunFuncCtx func(ctx *HookContext, params *Struct, cmd *cobra.Command, args []string)
 	// InitFunc runs during initialization with type-safe parameters
 	InitFunc func(params *Struct, cmd *cobra.Command) error
 	// PostCreateFunc runs after cobra flags are created but before parsing
@@ -166,6 +169,21 @@ func (b CmdT[Struct]) WithRunFunc(run func(params *Struct)) CmdT[Struct] {
 // that includes the parameter struct, cobra.Command, and args.
 func (b CmdT[Struct]) WithRunFunc3(run func(params *Struct, cmd *cobra.Command, args []string)) CmdT[Struct] {
 	b.RunFunc = run
+	return b
+}
+
+// WithRunFuncCtx sets the command's run function with access to HookContext.
+// This allows checking parameter sources during execution (e.g., ctx.HasValue(&params.Field)).
+func (b CmdT[Struct]) WithRunFuncCtx(run func(ctx *HookContext, params *Struct)) CmdT[Struct] {
+	return b.WithRunFuncCtx4(func(ctx *HookContext, params *Struct, _ *cobra.Command, _ []string) {
+		run(ctx, params)
+	})
+}
+
+// WithRunFuncCtx4 sets the command's run function with the full signature
+// including HookContext, parameter struct, cobra.Command, and args.
+func (b CmdT[Struct]) WithRunFuncCtx4(run func(ctx *HookContext, params *Struct, cmd *cobra.Command, args []string)) CmdT[Struct] {
+	b.RunFuncCtx = run
 	return b
 }
 
@@ -390,6 +408,13 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		}
 	}
 
+	var runFuncCtx func(ctx *HookContext, cmd *cobra.Command, args []string) = nil
+	if b.RunFuncCtx != nil {
+		runFuncCtx = func(ctx *HookContext, cmd *cobra.Command, args []string) {
+			b.RunFuncCtx(ctx, b.Params, cmd, args)
+		}
+	}
+
 	// Due to golang nil upcast bullshit
 	var params any = nil
 	if b.Params != nil {
@@ -409,6 +434,7 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		Params:             params,
 		ParamEnrich:        b.ParamEnrich,
 		RunFunc:            runFcn,
+		RunFuncCtx:         runFuncCtx,
 		UseCobraErrLog:     b.UseCobraErrLog,
 		SortFlags:          b.SortFlags,
 		ValidArgs:          b.ValidArgs,
