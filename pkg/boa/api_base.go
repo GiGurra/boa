@@ -382,6 +382,20 @@ type CfgStructPreExecuteCtx interface {
 	PreExecuteCtx(ctx *HookContext) error
 }
 
+// CfgStructPostCreate is an interface that parameter structs can implement
+// to perform logic after cobra flags are created but before parsing.
+type CfgStructPostCreate interface {
+	// PostCreate is called after cobra flags are created but before parsing
+	PostCreate() error
+}
+
+// CfgStructPostCreateCtx is an interface that parameter structs can implement
+// to perform logic after cobra flags are created but before parsing with access to HookContext.
+type CfgStructPostCreateCtx interface {
+	// PostCreateCtx is called after cobra flags are created but before parsing
+	PostCreateCtx(ctx *HookContext) error
+}
+
 // CmdIfc common interface between Cmd and CmdT for reusing code
 type CmdIfc interface {
 	ToCobra() *cobra.Command

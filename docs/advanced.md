@@ -227,6 +227,8 @@ Available interfaces:
 
 - `CfgStructInit` - `Init() error`
 - `CfgStructInitCtx` - `InitCtx(ctx *HookContext) error`
+- `CfgStructPostCreate` - `PostCreate() error`
+- `CfgStructPostCreateCtx` - `PostCreateCtx(ctx *HookContext) error`
 - `CfgStructPreValidate` - `PreValidate() error`
 - `CfgStructPreValidateCtx` - `PreValidateCtx(ctx *HookContext) error`
 - `CfgStructPreExecute` - `PreExecute() error`

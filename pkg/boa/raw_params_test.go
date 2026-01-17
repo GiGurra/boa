@@ -385,6 +385,65 @@ func TestCfgStructPreExecuteCtx(t *testing.T) {
 	}
 }
 
+type ParamsWithPostCreate struct {
+	Name       string `optional:"true"`
+	WasCalled  bool
+	FlagExists bool
+}
+
+func (p *ParamsWithPostCreate) PostCreate() error {
+	p.WasCalled = true
+	return nil
+}
+
+func TestCfgStructPostCreate(t *testing.T) {
+	ran := false
+	config := ParamsWithPostCreate{}
+
+	NewCmdT2("test", &config).
+		WithRunFunc(func(params *ParamsWithPostCreate) {
+			ran = true
+			if !params.WasCalled {
+				t.Fatal("expected PostCreate to be called")
+			}
+		}).
+		RunArgs([]string{})
+
+	if !ran {
+		t.Fatal("expected command to run")
+	}
+}
+
+type ParamsWithPostCreateCtx struct {
+	Name       string `optional:"true"`
+	FlagExists bool
+}
+
+func (p *ParamsWithPostCreateCtx) PostCreateCtx(ctx *HookContext) error {
+	// Verify we can access param mirrors after flags are created
+	param := ctx.GetParam(&p.Name)
+	p.FlagExists = param != nil && param.GetName() == "name"
+	return nil
+}
+
+func TestCfgStructPostCreateCtx(t *testing.T) {
+	ran := false
+	config := ParamsWithPostCreateCtx{}
+
+	NewCmdT2("test", &config).
+		WithRunFunc(func(params *ParamsWithPostCreateCtx) {
+			ran = true
+			if !params.FlagExists {
+				t.Fatal("expected PostCreateCtx to find the 'name' param")
+			}
+		}).
+		RunArgs([]string{})
+
+	if !ran {
+		t.Fatal("expected command to run")
+	}
+}
+
 func TestPreValidateFuncCtx(t *testing.T) {
 	ran := false
 	config := RawParamsWithCtx{}

@@ -50,6 +50,22 @@ boa.NewCmdT[Params]("cmd").
 
 Runs after cobra flags are created but before arguments are parsed. Useful for inspecting or modifying cobra flags.
 
+### Interface-based
+
+```go
+func (c *MyConfig) PostCreate() error {
+    // Flags are now registered
+    return nil
+}
+
+// With HookContext
+func (c *MyConfig) PostCreateCtx(ctx *boa.HookContext) error {
+    return nil
+}
+```
+
+### Function-based
+
 ```go
 boa.NewCmdT[Params]("cmd").
     WithPostCreateFuncCtx(func(ctx *boa.HookContext, params *Params, cmd *cobra.Command) error {

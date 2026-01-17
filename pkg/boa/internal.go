@@ -1367,6 +1367,18 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 			return nil
 		}, nil)
 
+		// if b.Params implements CfgStructPostCreate, call it
+		if postCreate, ok := b.Params.(CfgStructPostCreate); ok {
+			if err := postCreate.PostCreate(); err != nil {
+				panic(fmt.Errorf("error in CfgStructPostCreate.PostCreate(): %s", err.Error()))
+			}
+		}
+		if postCreateCtx, ok := b.Params.(CfgStructPostCreateCtx); ok {
+			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+			if err := postCreateCtx.PostCreateCtx(hookCtx); err != nil {
+				panic(fmt.Errorf("error in CfgStructPostCreateCtx.PostCreateCtx(): %s", err.Error()))
+			}
+		}
 		if b.PostCreateFunc != nil {
 			err := b.PostCreateFunc(b.Params, cmd)
 			if err != nil {
