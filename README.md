@@ -400,8 +400,9 @@ command execution. These hooks give you fine-grained control over parameter init
 
 ### Init Hook
 
-The Init hook runs during the initialization phase, before any command-line arguments or environment variables are
-processed.
+The Init hook runs during the initialization phase, after boa creates internal parameter mirrors but before cobra
+flags are registered. This allows you to configure parameters (set defaults, env vars, validators) via `HookContext`
+before they become CLI flags.
 
 ```go
 package main
@@ -559,8 +560,8 @@ func main() {
 
 Hooks are executed in the following order:
 
-1. **Init** - During command initialization, before any flags are created
-2. **PostCreate** - After cobra flags are created, before arguments are parsed
+1. **Init** - Parameter mirrors exist, cobra flags not yet created (configure params here)
+2. **PostCreate** - Cobra flags are now registered (inspect/modify flags here)
 3. **PreValidate** - After flags are parsed but before validation
 4. **Validation** - Built-in parameter validation
 5. **PreExecute** - After validation but before command execution
