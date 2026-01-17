@@ -15,6 +15,11 @@ import (
 // don't cause validation errors when not set.
 //
 // The type parameter T must be one of the types supported by SupportedTypes.
+//
+// Deprecated: Use raw Go types with struct tags instead.
+// Example: `Name string `descr:"User name" optional:"true"`` instead of `Name Optional[string]`.
+// Access values directly (params.Name) instead of params.Name.Value().
+// For programmatic configuration, use HookContext.GetParam().
 type Optional[T SupportedTypes] struct {
 	// Name is the flag name (without the -- prefix)
 	Name string
@@ -364,6 +369,9 @@ func (p *Optional[T]) UnmarshalJSON(data []byte) error {
 
 // Opt creates an Optional parameter with a default value.
 // This is a convenience factory function for creating Optional parameters.
+//
+// Deprecated: Use raw Go types with struct tags instead.
+// Example: `Name string `descr:"User name" optional:"true" default:"value"`` instead of `Name: boa.Opt("value")`.
 func Opt[T SupportedTypes](defaultValue T) Optional[T] {
 	return Optional[T]{
 		Default: &defaultValue,
@@ -372,6 +380,9 @@ func Opt[T SupportedTypes](defaultValue T) Optional[T] {
 
 // OptP creates an Optional parameter with a default value from a pointer.
 // This allows passing nil as a default value or reusing an existing pointer.
+//
+// Deprecated: Use raw Go types with struct tags instead.
+// Example: `Name string `descr:"User name" optional:"true"`` instead of `Name: boa.OptP(nil)`.
 func OptP[T SupportedTypes](defaultValue *T) Optional[T] {
 	return Optional[T]{
 		Default:  defaultValue,

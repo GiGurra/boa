@@ -15,6 +15,11 @@ import (
 // default value, or programmatic injection, it will cause a validation error.
 //
 // The type parameter T must be one of the types supported by SupportedTypes.
+//
+// Deprecated: Use raw Go types with struct tags instead.
+// Example: `Name string `descr:"User name" required:"true"`` instead of `Name Required[string]`.
+// Access values directly (params.Name) instead of params.Name.Value().
+// For programmatic configuration, use HookContext.GetParam().
 type Required[T SupportedTypes] struct {
 	// Name is the flag name (without the -- prefix)
 	Name string
@@ -313,9 +318,24 @@ func (p *Required[T]) UnmarshalJSON(data []byte) error {
 // This is a convenience factory function for creating Required parameters.
 // Even though the parameter is required, providing a default value ensures
 // it always has a value, preventing validation errors.
+//
+// Deprecated: Use raw Go types with struct tags instead.
+// Example: `Name string `descr:"User name" default:"value"`` instead of `Name: boa.Req("value")`.
 func Req[T SupportedTypes](defaultValue T) Required[T] {
 	return Required[T]{
 		Default:  &defaultValue,
 		injected: true,
 	}
 }
+
+// SetIsEnabledFn is a no-op for Required parameters.
+// Required parameters cannot be disabled.
+func (f *Required[T]) SetIsEnabledFn(_ func() bool) {}
+
+// SetRequiredFn is a no-op for Required parameters.
+// Required parameters are always required.
+func (f *Required[T]) SetRequiredFn(_ func() bool) {}
+
+// GetRequiredFn returns nil for Required parameters.
+// Required parameters don't use conditional requirement functions.
+func (f *Required[T]) GetRequiredFn() func() bool { return nil }

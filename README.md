@@ -16,6 +16,8 @@ to cobra primitives when needed.
 
 ### Minimum setup
 
+Use raw Go types with struct tags to define your CLI parameters:
+
 ```go
 package main
 
@@ -26,13 +28,11 @@ import (
 )
 
 type Params struct {
-	// Simple parameter declarations
-	Baz string `required:"true"`
-	FB  string `required:"false"`
-	// More flexible declarations
-	Foo  boa.Required[string]
-	Bar  boa.Required[int] `default:"4"`
-	File boa.Optional[string]
+	Foo  string `descr:"a foo"`
+	Bar  int    `descr:"a bar" env:"BAR_X" default:"4" optional:"true"`
+	Path string `positional:"true"`
+	Baz  string `positional:"true" default:"cba"`
+	FB   string `positional:"true" optional:"true"`
 }
 
 func main() {
@@ -42,12 +42,12 @@ func main() {
 		Long:  `A generic cli tool that has a longer description. See the README.MD for more information`,
 		RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
 			fmt.Printf(
-				"Hello world with params: %v, %v, %v, %v, %v\n",
-				params.Baz,          // string
-				params.FB,           // string
-				params.Foo.Value(),  // string
-				params.Bar.Value(),  // int
-				params.File.Value(), // *string
+				"Hello world with params: %s, %d, %s, %s, %s\n",
+				params.Foo,  // string (access directly)
+				params.Bar,  // int (access directly)
+				params.Path, // string
+				params.Baz,  // string
+				params.FB,   // string
 			)
 		},
 	}.Run()
@@ -61,65 +61,34 @@ Help output for the above:
 A generic cli tool that has a longer description. See the README.MD for more information
 
 Usage:
-  hello-world [flags]
+  hello-world <path> <baz> [f-b] [flags]
 
 Flags:
-  -b, --baz string     (env: BAZ, required)
-  -f, --f-b string     (env: F_B)
-      --foo string     (env: FOO, required)
-      --bar int        (env: BAR) (default 4)
-      --file string    (env: FILE)
-  -h, --help          help for hello-world
+      --bar int      a bar (env: BAR_X) (default 4)
+  -f, --foo string   a foo (env: FOO, required)
+  -h, --help         help for hello-world
 ```
 
-### Raw parameter types
+### Struct Tags Reference
 
-Boa also supports using raw Go types (`string`, `int`, `bool`, etc.) instead of the `Required[T]`/`Optional[T]` wrappers.
-This provides a simpler syntax while still supporting all features via struct tags:
+| Tag | Description | Example |
+|-----|-------------|---------|
+| `descr` / `desc` / `description` | Description text for help | `descr:"User name"` |
+| `default` | Default value | `default:"8080"` |
+| `env` | Environment variable name | `env:"PORT"` |
+| `short` | Short flag (single char) | `short:"p"` |
+| `positional` / `pos` | Marks positional argument | `positional:"true"` |
+| `required` / `req` | Marks as required | `required:"true"` |
+| `optional` / `opt` | Marks as optional | `optional:"true"` |
+| `alts` / `alternatives` | Allowed values (enum) | `alts:"debug,info,warn,error"` |
+| `strict-alts` / `strict` | Validate against alts | `strict:"true"` |
 
-```go
-package main
-
-import (
-	"fmt"
-	"github.com/GiGurra/boa/pkg/boa"
-	"github.com/spf13/cobra"
-)
-
-var params struct {
-	Foo  string `descr:"a foo"`
-	Bar  int    `descr:"a bar" env:"BAR_X" default:"4" optional:"true"`
-	Path string `pos:"true"`
-	Baz  string `pos:"true" default:"cba"`
-	FB   string `pos:"true" optional:"true"`
-}
-
-func main() {
-	boa.Cmd{
-		Use:    "hello-world",
-		Short:  "a generic cli tool",
-		Long:   `A generic cli tool that has a longer description`,
-		Params: &params,
-		RunFunc: func(cmd *cobra.Command, args []string) {
-			fmt.Printf(
-				"Hello world with params: %s, %d, %s, %s, %s\n",
-				params.Foo,
-				params.Bar,
-				params.Path,
-				params.Baz,
-				params.FB,
-			)
-		},
-	}.Run()
-}
-```
-
-For advanced customization of raw parameters (setting defaults, alternatives, env vars programmatically),
+For advanced programmatic configuration (setting defaults, alternatives, conditional requirements),
 see the [Context-Aware Hooks](#context-aware-hooks-hookcontext) section.
 
-### Sub-commands and tags
+### Sub-commands
 
-Most customization is available through field tags:
+Create hierarchical CLI tools with sub-commands:
 
 ```go
 package main
@@ -130,46 +99,36 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var params struct {
-	Foo  boa.Required[string] `descr:"a foo"`
-	Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X" default:"4"`
-	Path boa.Required[string] `pos:"true"`
-	Baz  boa.Required[string] `pos:"true" default:"cba"`
-	FB   boa.Optional[string] `pos:"true"`
+type SubParams struct {
+	Foo  string `descr:"a foo"`
+	Bar  int    `descr:"a bar" env:"BAR_X" default:"4"`
+	Path string `positional:"true"`
+	Baz  string `positional:"true" default:"cba"`
+	FB   string `positional:"true" optional:"true"`
 }
 
 type OtherParams struct {
-	Foo2 boa.Required[string] `descr:"a foo"`
+	Foo2 string `descr:"a foo"`
 }
 
 func main() {
-	boa.Cmd{
-		Use:   "hello-world",
-		Short: "a generic cli tool",
-		Long:  `A generic cli tool that has a longer description.See the README.MD for more information`,
-		SubCmds: boa.SubCmds(
-			boa.Cmd{
-				Use:         "subcommand1",
-				Short:       "a subcommand",
-				Params:      &params,
-				ParamEnrich: boa.ParamEnricherCombine(boa.ParamEnricherName, boa.ParamEnricherEnv),
-				RunFunc: func(cmd *cobra.Command, args []string) {
-					p1 := params.Foo.Value()
-					p2 := params.Bar.Value()
-					p3 := params.Path.Value()
-					p4 := params.Baz.Value()
-					fmt.Printf("Hello world from subcommand1 with params: %s, %d, %s, %s\n", p1, p2, p3, p4)
-				},
-			},
-			boa.CmdT[OtherParams]{
-				Use:   "subcommand2",
-				Short: "a subcommand",
-				RunFunc: func(params *OtherParams, cmd *cobra.Command, args []string) {
+	boa.NewCmdT[boa.NoParams]("hello-world").
+		WithShort("a generic cli tool").
+		WithLong("A generic cli tool that has a longer description").
+		WithSubCmds(
+			boa.NewCmdT[SubParams]("subcommand1").
+				WithShort("a subcommand").
+				WithRunFunc(func(params *SubParams) {
+					fmt.Printf("Hello world from subcommand1 with params: %s, %d, %s, %s\n",
+						params.Foo, params.Bar, params.Path, params.Baz)
+				}),
+			boa.NewCmdT[OtherParams]("subcommand2").
+				WithShort("a subcommand").
+				WithRunFunc(func(params *OtherParams) {
 					fmt.Println("Hello world from subcommand2")
-				},
-			},
-		),
-	}.Run()
+				}),
+		).
+		Run()
 }
 ```
 
@@ -183,77 +142,7 @@ Usage:
 
 Flags:
       --bar int      a bar (env: BAR_X) (default 4)
-      --foo string   a foo [required] (env: FOO)
-  -h, --help         help for subcommand1
-```
-
-### Sub-commands, tags and explicit fields
-
-Some customization is only available through explicit field definitions:
-
-```go
-package main
-
-import (
-	"fmt"
-	"github.com/GiGurra/boa/pkg/boa"
-	"github.com/spf13/cobra"
-)
-
-var params = struct {
-	Foo  boa.Required[string]
-	Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X" default:"111"`
-	Path boa.Required[string] `pos:"true"`
-	Baz  boa.Required[string]
-	FB   boa.Optional[string] `pos:"true"`
-}{
-	Foo: boa.Required[string]{Descr: "a foo"},                                                          // add additional info if you like. This means we get "a foo [required] (env: FOO)" in the help text
-	Bar: boa.Required[int]{Default: boa.Default(4), CustomValidator: func(x int) error { return nil }}, // optional custom validation logic
-	Baz: boa.Required[string]{Positional: true, Default: boa.Default("cba")},                           // positional arguments
-}
-
-func main() {
-	boa.Cmd{
-		Use:   "hello-world",
-		Short: "a generic cli tool",
-		Long:  `A generic cli tool that has a longer description.See the README.MD for more information`,
-		SubCmds: []*cobra.Command{
-			boa.Cmd{
-				Use:         "subcommand1",
-				Short:       "a subcommand",
-				Params:      &params,
-				ParamEnrich: boa.ParamEnricherCombine(boa.ParamEnricherName, boa.ParamEnricherEnv),
-				RunFunc: func(cmd *cobra.Command, args []string) {
-					p1 := params.Foo.Value()
-					p2 := params.Bar.Value()
-					p3 := params.Path.Value()
-					p4 := params.Baz.Value()
-					fmt.Printf("Hello world from subcommand1 with params: %s, %d, %s, %s\n", p1, p2, p3, p4)
-				},
-			}.ToCobra(),
-			boa.Cmd{
-				Use:   "subcommand2",
-				Short: "a subcommand",
-				RunFunc: func(cmd *cobra.Command, args []string) {
-					fmt.Println("Hello world from subcommand2")
-				},
-			}.ToCobra(),
-		},
-	}.Run()
-}
-```
-
-Help output for the above:
-
-```
-a subcommand
-
-Usage:
-  hello-world subcommand1 <path> <baz> [f-b] [flags]
-
-Flags:
-      --bar int      a bar (env: BAR_X) (default 111)
-      --foo string   a foo [required] (env: FOO)
+  -f, --foo string   a foo (env: FOO, required)
   -h, --help         help for subcommand1
 ```
 
@@ -267,66 +156,51 @@ package main
 import (
 	"fmt"
 	"github.com/GiGurra/boa/pkg/boa"
-	"github.com/spf13/cobra"
 	"time"
 )
 
 type Base1 struct {
-	Foo  boa.Required[string]
-	Bar  boa.Required[int]
-	File boa.Required[string]
+	Foo  string
+	Bar  int
+	File string
 }
 
 type Base2 struct {
-	Foo2  boa.Required[string]
-	Bar2  boa.Required[int]
-	File2 boa.Required[string]
+	Foo2  string
+	Bar2  int
+	File2 string
 }
 
-type Base3 struct {
-	Foo3  boa.Required[string]
-	Bar3  boa.Required[int]
-	File3 boa.Required[string]
-}
-
-type Base4 struct {
-	Foo24  boa.Required[string]
-	Bar24  boa.Required[int]
-	File24 boa.Required[string]
-}
-
-var combined struct {
+type Combined struct {
 	Base Base1
 	Base2
-	Base3
-	Base4
-	Baz  boa.Required[string]
-	FB   boa.Optional[string]
-	Time boa.Optional[time.Time]
+	Baz  string
+	FB   string    `optional:"true"`
+	Time time.Time `optional:"true"`
 }
 
 func main() {
-	boa.Cmd{
-		Use:    "hello-world",
-		Short:  "a generic cli tool",
-		Long:   `A generic cli tool that has a longer description. See the README.MD for more information`,
-		Params: &combined,
-		RunFunc: func(cmd *cobra.Command, args []string) {
+	boa.NewCmdT[Combined]("hello-world").
+		WithShort("a generic cli tool").
+		WithLong("A generic cli tool that has a longer description").
+		WithRunFunc(func(params *Combined) {
 			fmt.Printf(
-				"Hello world from subcommand1 with params: %s, %d, %s, %s, %v, %v\n",
-				params.Base.Foo.Value(),  // string
-				params.Base.Bar.Value(),  // int
-				params.Base.File.Value(), // string
-				params.Baz.Value(),       // string
-				params.FB.Value(),        // *string
-				params.Time.Value(),      // *time.Time
+				"Hello world with params: %s, %d, %s, %s, %s, %v\n",
+				params.Base.Foo,  // string
+				params.Base.Bar,  // int
+				params.Base.File, // string
+				params.Baz,       // string
+				params.FB,        // string
+				params.Time,      // time.Time
 			)
-		},
-	}.Run()
+		}).
+		Run()
 }
 ```
 
-### Leverage all of cobra's features:
+### Leverage all of Cobra's features
+
+Access the underlying Cobra command for advanced customization:
 
 ```go
 package main
@@ -343,28 +217,26 @@ type Params struct {
 }
 
 func main() {
-	boa.CmdT[Params]{
-		Use:   "hello-world",
-		Short: "a generic cli tool",
-		Long:  `A generic cli tool that has a longer description. See the README.MD for more information`,
-		InitFunc: func(params *Params, cmd *cobra.Command) error {
+	boa.NewCmdT[Params]("hello-world").
+		WithShort("a generic cli tool").
+		WithLong("A generic cli tool that has a longer description").
+		WithInitFunc2E(func(params *Params, cmd *cobra.Command) error {
 			cmd.Deprecated = "this command is deprecated"
 			return nil
-		},
-		RunFunc: func(params *Params, _ *cobra.Command, _ []string) {
-			fmt.Printf(
-				"Hello world with params: %s, %d, %s, %s, %v\n",
-				params.Baz, // string
-				params.FB,  // *string
+		}).
+		WithRunFunc(func(params *Params) {
+			fmt.Printf("Hello world with params: %s, %s\n",
+				params.Baz,
+				params.FB,
 			)
-		},
-	}.Run()
+		}).
+		Run()
 }
 ```
 
 ### Conditional parameters
 
-You can make parameters conditionally required or enabled:
+You can make parameters conditionally required or enabled using `HookContext`:
 
 ```go
 package main
@@ -375,51 +247,45 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type Params struct {
+	Mode     string // when "file", FilePath is required
+	FilePath string `optional:"true"`
+	Verbose  bool   `optional:"true"` // only enabled when Debug is true
+	Debug    bool   `optional:"true"`
+}
+
 func main() {
-	var params = struct {
-		Foo boa.Optional[string]
-		Bar boa.Optional[int]
-		Baz boa.Optional[string]
-	}{}
+	boa.NewCmdT[Params]("hello-world").
+		WithShort("a generic cli tool").
+		WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+			// FilePath is required when Mode is "file"
+			ctx.GetParam(&p.FilePath).SetRequiredFn(func() bool {
+				return p.Mode == "file"
+			})
 
-	// Bar is only enabled if Foo has a value
-	params.Bar.SetIsEnabledFn(func() bool {
-		return params.Foo.HasValue()
-	})
+			// Verbose is only enabled when Debug is true
+			ctx.GetParam(&p.Verbose).SetIsEnabledFn(func() bool {
+				return p.Debug
+			})
 
-	// Baz is required if Foo has a value
-	params.Baz.SetRequiredFn(func() bool {
-		return params.Foo.HasValue()
-	})
-
-	boa.Cmd{
-		Use:    "hello-world",
-		Short:  "a generic cli tool",
-		Long:   `A generic cli tool that has a longer description.`,
-		Params: &params,
-		RunFunc: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("Hello World!\n")
-		},
-	}.Run()
+			return nil
+		}).
+		WithRunFunc(func(params *Params) {
+			fmt.Printf("Hello World! Mode=%s\n", params.Mode)
+		}).
+		Run()
 }
 ```
 
 ### Constraining parameter values
 
-You can specify that a parameter must be one of a set of values:
+You can specify that a parameter must be one of a set of values using the `alts` tag:
 
 ```go
-package main
-
-import (
-	"github.com/GiGurra/boa/pkg/boa"
-	"github.com/spf13/cobra"
-)
-
-var params = struct {
-	Foo boa.Required[string] `alts:"abc,cde,fgh"`
-}{}
-
+type Params struct {
+	LogLevel string `alts:"debug,info,warn,error" strict:"true"`
+	Format   string `alts:"json,yaml,toml"` // suggestions only (strict defaults to true)
+}
 ```
 
 ### Array/slice parameters
@@ -427,18 +293,11 @@ var params = struct {
 Boa supports array/slice types with proper parsing:
 
 ```go
-package main
-
-import (
-	"github.com/GiGurra/boa/pkg/boa"
-	"github.com/spf13/cobra"
-)
-
-var params struct {
-	WithoutDefaults boa.Required[[]float64]
-	WithDefaults    boa.Required[[]int64] `default:"[1,2,3]"`
+type Params struct {
+	Numbers []int    `descr:"list of numbers"`
+	Tags    []string `descr:"tags" default:"[a,b,c]"`
+	Ports   []int64  `descr:"ports" default:"[8080,8081,8082]"`
 }
-
 ```
 
 ### Fluent builder API
@@ -449,33 +308,32 @@ A structured builder API is available for more complex command creation:
 package main
 
 import (
+	"fmt"
 	"github.com/GiGurra/boa/pkg/boa"
-	"github.com/spf13/cobra"
 )
 
-type TestStruct struct {
-	Flag1 boa.Required[string]
-	Flag2 boa.Required[int]
+type Params struct {
+	Flag1 string
+	Flag2 int
 }
 
 func main() {
-	cmd := boa.NewCmdT[TestStruct]("my-command").
+	cmd := boa.NewCmdT[Params]("my-command").
 		WithShort("A command description").
 		WithLong("A longer command description").
-		WithRunFunc(func(params *TestStruct) {
+		WithRunFunc(func(params *Params) {
 			fmt.Printf("Running with: %s, %d\n",
-				params.Flag1.Value(),
-				params.Flag2.Value(),
+				params.Flag1,
+				params.Flag2,
 			)
 		}).
 		WithSubCmds(
-			boa.NewCmdT[TestStruct]("subcommand1"),
+			boa.NewCmdT[Params]("subcommand1"),
 			//...etc
 		)
 
 	cmd.Run()
 }
-
 ```
 
 ### Config file serialization and configuration
@@ -484,40 +342,39 @@ func main() {
 package main
 
 import (
+	"fmt"
 	"github.com/GiGurra/boa/pkg/boa"
 	"github.com/spf13/cobra"
 )
 
 type AppConfig struct {
-	Host boa.Required[string]
-	Port boa.Required[int]
+	Host string
+	Port int
 }
 
 type ConfigFromFile struct {
-	File boa.Required[string]
+	File string `descr:"config file path"`
 	AppConfig
 }
 
 func main() {
 	boa.NewCmdT[ConfigFromFile]("my-app").
-		WithPreValidateFuncE(func(params *ConfigFromFile, cmd *cobra.Command, args []string) error {
-			// boa.UnMarshalFromFileParam is a helper to unmarshal from a file, but you can run
-			// any custom code here.
-			// boa.Optional and boa.Required have implementations of json.Unmarshaler.
-			// This implementation will also respect pre-assigned cli and env var values, 
-			// and not overwrite them with the file values.
-			return boa.UnMarshalFromFileParam(&params.File, &params.AppConfig, nil /* custom unmarshaller function */)
+		WithPreValidateFuncCtx(func(ctx *boa.HookContext, params *ConfigFromFile, cmd *cobra.Command, args []string) error {
+			// Load configuration from file if provided
+			// boa.UnMarshalFromFileParam is a helper to unmarshal from a file
+			// CLI and env var values take precedence over file values
+			fileParam := ctx.GetParam(&params.File)
+			return boa.UnMarshalFromFileParam(fileParam, &params.AppConfig, nil)
 		}).
 		WithRunFunc(func(params *ConfigFromFile) {
 			// Use parameters loaded from the file
 			fmt.Printf("Host: %s, Port: %d\n",
-				params.Host.Value(),
-				params.Port.Value(),
+				params.Host,
+				params.Port,
 			)
 		}).
 		Run()
 }
-
 ```
 
 ## Parameter value source priority
@@ -533,8 +390,7 @@ files. When multiple sources are available, the following priority order is used
 4. **Default values**: If no value is provided from any source, the default value specified in the parameter
    definition will be used.
 5. **Zero value**: If no value is provided from any source and no default value is specified, the zero value for the
-   parameter type will be used. If you are using the `boa.Required` or `boa.Optional` types, you should use the
-   `HasValue` method to check if a value has been set.
+   parameter type will be used.
 
 ## Lifecycle Hooks in Boa
 
@@ -790,26 +646,71 @@ Available function-based context hooks:
 - `WithPreValidateFuncCtx` - After parsing, before validation
 - `WithPreExecuteFuncCtx` - After validation, before execution
 
-#### GetParam Works for Both Raw and Wrapped Fields
+## Migration Guide
 
-The `GetParam` method provides a unified API that works for both raw fields and wrapped `Required[T]`/`Optional[T]` fields:
+If you're migrating from the deprecated `Required[T]`/`Optional[T]` wrapper types to raw Go types:
+
+### Before (Deprecated)
+```go
+type Params struct {
+	Name boa.Required[string] `descr:"User name"`
+	Port boa.Optional[int]    `descr:"Port number" default:"8080"`
+}
+
+// Accessing values
+fmt.Println(params.Name.Value())       // string
+fmt.Println(*params.Port.Value())      // int (via pointer)
+```
+
+### After (Recommended)
+```go
+type Params struct {
+	Name string `descr:"User name"`                           // required by default
+	Port int    `descr:"Port number" default:"8080" optional:"true"`
+}
+
+// Accessing values - direct access
+fmt.Println(params.Name)  // string
+fmt.Println(params.Port)  // int (direct value)
+```
+
+### Programmatic Configuration
+
+For programmatic configuration that was previously done directly on wrapper types:
+
+**Before:**
+```go
+params.Port.SetRequiredFn(func() bool { return params.Mode == "server" })
+```
+
+**After:**
+```go
+// Use HookContext in InitFuncCtx
+cmd := boa.NewCmdT[Params]("app").
+	WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+		ctx.GetParam(&p.Port).SetRequiredFn(func() bool { return p.Mode == "server" })
+		return nil
+	})
+```
+
+## Legacy API (Deprecated)
+
+The `Required[T]` and `Optional[T]` wrapper types are deprecated but still functional for backward compatibility.
 
 ```go
-type MixedConfig struct {
-	RawHost     string             // raw field
-	WrappedPort boa.Required[int]  // wrapped field
+// DEPRECATED - prefer raw types instead
+type Params struct {
+	Name boa.Required[string]   // Use: Name string
+	Port boa.Optional[int]      // Use: Port int `optional:"true"`
 }
 
-func (c *MixedConfig) InitCtx(ctx *boa.HookContext) error {
-	// Works for raw fields - returns the auto-generated mirror
-	ctx.GetParam(&c.RawHost).SetDefault(boa.Default("localhost"))
-
-	// Also works for wrapped fields - returns the field itself
-	ctx.GetParam(&c.WrappedPort).SetDefault(boa.Default(8080))
-
-	return nil
-}
+// DEPRECATED factory functions
+name := boa.Req("default")    // Use: struct tag `default:"default"`
+port := boa.Opt(8080)         // Use: struct tag `default:"8080" optional:"true"`
+def := boa.Default(value)     // Use: struct tag `default:"value"`
 ```
+
+The wrapper types require calling `.Value()` to access values, which adds verbosity compared to direct field access with raw types.
 
 ## Missing features
 
@@ -819,4 +720,5 @@ func (c *MixedConfig) InitCtx(ctx *boa.HookContext) error {
 
 ## State
 
-- [x] Pretty early. Use at your own risk. I'm using it in most of my own projects and some production code at work.
+- [x] Stable API with raw Go types as the primary interface
+- [x] Used in production projects

@@ -54,6 +54,9 @@ type Param interface {
 	GetAlternatives() []string
 	GetAlternativesFunc() func(cmd *cobra.Command, args []string, toComplete string) []string
 	GetIsEnabledFn() func() bool
+	SetIsEnabledFn(func() bool)
+	SetRequiredFn(func() bool)
+	GetRequiredFn() func() bool
 	SetStrictAlts(bool)
 	GetStrictAlts() bool
 }
