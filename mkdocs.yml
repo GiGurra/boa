@@ -44,4 +44,5 @@ nav:
   - Validation: validation.md
   - Lifecycle Hooks: hooks.md
   - Advanced: advanced.md
+  - Cobra Interoperability: cobra-interop.md
   - Migration Guide: migration.md
