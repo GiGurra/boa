@@ -349,6 +349,46 @@ Organize subcommands into groups in help output:
     cmd.RunArgs([]string{"--name", "test", "--port", "8080"})
     ```
 
+### Testing with Error Returns
+
+Use `RunFuncE` and `RunArgsE` for testable commands that return errors:
+
+```go
+func TestMyCommand(t *testing.T) {
+    err := boa.NewCmdT[Params]("app").
+        WithRunFuncE(func(p *Params) error {
+            if p.Port < 1024 {
+                return fmt.Errorf("port must be >= 1024")
+            }
+            return nil
+        }).
+        RunArgsE([]string{"--port", "80"})
+
+    if err == nil {
+        t.Fatal("expected error for port < 1024")
+    }
+}
+```
+
+Use `ToCobraE()` when you need the underlying cobra command with `RunE` set:
+
+```go
+func TestMyCommand(t *testing.T) {
+    cmd, err := boa.NewCmdT[Params]("app").
+        WithRunFuncE(func(p *Params) error {
+            return nil
+        }).
+        ToCobraE()
+    if err != nil {
+        t.Fatalf("setup failed: %v", err)
+    }
+
+    cmd.SetArgs([]string{"--name", "test"})
+    err = cmd.Execute()
+    // Assert on err
+}
+```
+
 ### Validate Without Running
 
 === "Direct API"

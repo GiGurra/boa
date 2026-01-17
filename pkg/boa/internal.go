@@ -1119,12 +1119,15 @@ func traverse(
 	return nil
 }
 
-func (b Cmd) toCobraImpl() *cobra.Command {
+// toCobraBase sets up the cobra command with all common configuration (flags, validation, lifecycle hooks)
+// but does NOT set the Run/RunE function. Returns both the command and the processing context
+// so callers can set up the appropriate run function with access to the context.
+// Returns an error if any setup/initialization fails.
+func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 	cmd := &cobra.Command{
 		Use:               b.Use,
 		Short:             b.Short,
 		Long:              b.Long,
-		Run:               b.RunFunc,
 		Args:              b.Args,
 		SilenceErrors:     !b.UseCobraErrLog,
 		ValidArgs:         b.ValidArgs,
@@ -1170,7 +1173,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 			return nil
 		})
 		if err != nil {
-			panic(err)
+			return nil, nil, err
 		}
 	}
 
@@ -1178,7 +1181,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 	if b.InitFunc != nil {
 		err := b.InitFunc(b.Params, cmd)
 		if err != nil {
-			panic(fmt.Errorf("error in InitFunc: %s", err.Error()))
+			return nil, nil, fmt.Errorf("error in InitFunc: %s", err.Error())
 		}
 	}
 
@@ -1187,7 +1190,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
 		err := b.InitFuncCtx(hookCtx, b.Params, cmd)
 		if err != nil {
-			panic(fmt.Errorf("error in InitFuncCtx: %s", err.Error()))
+			return nil, nil, fmt.Errorf("error in InitFuncCtx: %s", err.Error())
 		}
 	}
 
@@ -1297,7 +1300,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		}, nil)
 
 		if err != nil {
-			panic(fmt.Errorf("error parsing tags: %w", err))
+			return nil, nil, fmt.Errorf("error parsing tags: %w", err)
 		}
 
 		if b.ParamEnrich == nil {
@@ -1313,7 +1316,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 			return nil
 		}, nil)
 		if err != nil {
-			panic(fmt.Errorf("error enriching params: %s", err.Error()))
+			return nil, nil, fmt.Errorf("error enriching params: %s", err.Error())
 		}
 
 		positional := make([]Param, 0)
@@ -1323,7 +1326,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 				if len(positional) >= 1 {
 					lastPos := positional[len(positional)-1]
 					if lastPos.GetKind() == reflect.Slice {
-						panic(fmt.Errorf("positional param %s cannot come after slice positional param %s", param.GetName(), lastPos.GetName()))
+						return nil, nil, fmt.Errorf("positional param %s cannot come after slice positional param %s", param.GetName(), lastPos.GetName())
 					}
 				}
 				positional = append(positional, param)
@@ -1343,7 +1346,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 			if param.IsRequired() && i >= 1 {
 				prev := positional[i-1]
 				if !prev.IsRequired() {
-					panic(fmt.Errorf("required positional arg %s must come before optional positional arg %s", param.GetName(), prev.GetName()))
+					return nil, nil, fmt.Errorf("required positional arg %s must come before optional positional arg %s", param.GetName(), prev.GetName())
 				}
 			}
 		}
@@ -1370,30 +1373,30 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		// if b.Params implements CfgStructPostCreate, call it
 		if postCreate, ok := b.Params.(CfgStructPostCreate); ok {
 			if err := postCreate.PostCreate(); err != nil {
-				panic(fmt.Errorf("error in CfgStructPostCreate.PostCreate(): %s", err.Error()))
+				return nil, nil, fmt.Errorf("error in CfgStructPostCreate.PostCreate(): %s", err.Error())
 			}
 		}
 		if postCreateCtx, ok := b.Params.(CfgStructPostCreateCtx); ok {
 			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
 			if err := postCreateCtx.PostCreateCtx(hookCtx); err != nil {
-				panic(fmt.Errorf("error in CfgStructPostCreateCtx.PostCreateCtx(): %s", err.Error()))
+				return nil, nil, fmt.Errorf("error in CfgStructPostCreateCtx.PostCreateCtx(): %s", err.Error())
 			}
 		}
 		if b.PostCreateFunc != nil {
 			err := b.PostCreateFunc(b.Params, cmd)
 			if err != nil {
-				panic(fmt.Errorf("error in PostCreateFunc: %s", err.Error()))
+				return nil, nil, fmt.Errorf("error in PostCreateFunc: %s", err.Error())
 			}
 		}
 		if b.PostCreateFuncCtx != nil {
 			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
 			err := b.PostCreateFuncCtx(hookCtx, b.Params, cmd)
 			if err != nil {
-				panic(fmt.Errorf("error in PostCreateFuncCtx: %s", err.Error()))
+				return nil, nil, fmt.Errorf("error in PostCreateFuncCtx: %s", err.Error())
 			}
 		}
 		if err != nil {
-			panic(fmt.Errorf("error connecting params: %s", err.Error()))
+			return nil, nil, fmt.Errorf("error connecting params: %s", err.Error())
 		}
 	}
 
@@ -1499,18 +1502,103 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		return nil
 	}
 
-	// Set the Run function - support either RunFunc or RunFuncCtx but not both
-	if b.RunFunc != nil && b.RunFuncCtx != nil {
-		panic("cannot set both RunFunc and RunFuncCtx - use one or the other")
+	return cmd, ctx, nil
+}
+
+// validateRunFuncs checks that at most one run function is set and returns an error if more than one is configured.
+func (b Cmd) validateRunFuncs() error {
+	runFuncCount := 0
+	if b.RunFunc != nil {
+		runFuncCount++
 	}
 	if b.RunFuncCtx != nil {
+		runFuncCount++
+	}
+	if b.RunFuncE != nil {
+		runFuncCount++
+	}
+	if b.RunFuncCtxE != nil {
+		runFuncCount++
+	}
+	if runFuncCount > 1 {
+		return fmt.Errorf("cannot set multiple run functions (RunFunc, RunFuncCtx, RunFuncE, RunFuncCtxE) - use only one")
+	}
+	return nil
+}
+
+// toCobraImpl converts a Cmd to a cobra.Command using cmd.Run (panics on error).
+func (b Cmd) toCobraImpl() *cobra.Command {
+	if err := b.validateRunFuncs(); err != nil {
+		panic(err)
+	}
+	cmd, ctx, err := b.toCobraBase()
+	if err != nil {
+		panic(err)
+	}
+
+	// Set the Run function based on which variant is configured
+	if b.RunFunc != nil {
+		cmd.Run = b.RunFunc
+	} else if b.RunFuncCtx != nil {
 		cmd.Run = func(cmd *cobra.Command, args []string) {
 			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
 			b.RunFuncCtx(hookCtx, cmd, args)
 		}
+	} else if b.RunFuncE != nil {
+		cmd.Run = func(cmd *cobra.Command, args []string) {
+			if err := b.RunFuncE(cmd, args); err != nil {
+				panic(err)
+			}
+		}
+	} else if b.RunFuncCtxE != nil {
+		cmd.Run = func(cmd *cobra.Command, args []string) {
+			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+			if err := b.RunFuncCtxE(hookCtx, cmd, args); err != nil {
+				panic(err)
+			}
+		}
 	}
 
 	return cmd
+}
+
+// toCobraImplE converts a Cmd to a cobra.Command using cmd.RunE (returns error).
+// Returns (*cobra.Command, error) to propagate setup errors.
+func (b Cmd) toCobraImplE() (*cobra.Command, error) {
+	if err := b.validateRunFuncs(); err != nil {
+		return nil, err
+	}
+	cmd, ctx, err := b.toCobraBase()
+	if err != nil {
+		return nil, err
+	}
+
+	// Set the RunE function based on which variant is configured
+	if b.RunFuncE != nil {
+		cmd.RunE = func(cmd *cobra.Command, args []string) error {
+			return b.RunFuncE(cmd, args)
+		}
+	} else if b.RunFuncCtxE != nil {
+		cmd.RunE = func(cmd *cobra.Command, args []string) error {
+			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+			return b.RunFuncCtxE(hookCtx, cmd, args)
+		}
+	} else if b.RunFunc != nil {
+		// Wrap non-E variant to return nil (no error)
+		cmd.RunE = func(cmd *cobra.Command, args []string) error {
+			b.RunFunc(cmd, args)
+			return nil
+		}
+	} else if b.RunFuncCtx != nil {
+		// Wrap non-E variant to return nil (no error)
+		cmd.RunE = func(cmd *cobra.Command, args []string) error {
+			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+			b.RunFuncCtx(hookCtx, cmd, args)
+			return nil
+		}
+	}
+
+	return cmd, nil
 }
 
 func syncMirrors(ctx *processingContext) {
@@ -1567,8 +1655,7 @@ func runImpl(cmd *cobra.Command, handler ResultHandler) {
 		if handler.Failure != nil {
 			handler.Failure(err)
 		} else {
-			fmt.Printf("error executing command: %v\n", err)
-			os.Exit(1)
+			panic(err)
 		}
 	} else {
 		if handler.Success != nil {

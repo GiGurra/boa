@@ -44,6 +44,10 @@ type CmdT[Struct any] struct {
 	// RunFuncCtx is the function to run when this command is called, with access to HookContext
 	// for checking parameter sources (e.g., whether a value was explicitly set or uses defaults)
 	RunFuncCtx func(ctx *HookContext, params *Struct, cmd *cobra.Command, args []string)
+	// RunFuncE is like RunFunc but returns an error instead of requiring manual error handling
+	RunFuncE func(params *Struct, cmd *cobra.Command, args []string) error
+	// RunFuncCtxE is like RunFuncCtx but returns an error instead of requiring manual error handling
+	RunFuncCtxE func(ctx *HookContext, params *Struct, cmd *cobra.Command, args []string) error
 	// InitFunc runs during initialization with type-safe parameters
 	InitFunc func(params *Struct, cmd *cobra.Command) error
 	// PostCreateFunc runs after cobra flags are created but before parsing
@@ -184,6 +188,34 @@ func (b CmdT[Struct]) WithRunFuncCtx(run func(ctx *HookContext, params *Struct))
 // including HookContext, parameter struct, cobra.Command, and args.
 func (b CmdT[Struct]) WithRunFuncCtx4(run func(ctx *HookContext, params *Struct, cmd *cobra.Command, args []string)) CmdT[Struct] {
 	b.RunFuncCtx = run
+	return b
+}
+
+// WithRunFuncE sets the command's run function that returns an error.
+// This is useful when you want proper error propagation instead of manual os.Exit handling.
+func (b CmdT[Struct]) WithRunFuncE(run func(params *Struct) error) CmdT[Struct] {
+	return b.WithRunFuncE3(func(params *Struct, _ *cobra.Command, _ []string) error {
+		return run(params)
+	})
+}
+
+// WithRunFuncE3 sets the command's run function with the full signature that returns an error.
+func (b CmdT[Struct]) WithRunFuncE3(run func(params *Struct, cmd *cobra.Command, args []string) error) CmdT[Struct] {
+	b.RunFuncE = run
+	return b
+}
+
+// WithRunFuncCtxE sets the command's run function with HookContext that returns an error.
+func (b CmdT[Struct]) WithRunFuncCtxE(run func(ctx *HookContext, params *Struct) error) CmdT[Struct] {
+	return b.WithRunFuncCtxE4(func(ctx *HookContext, params *Struct, _ *cobra.Command, _ []string) error {
+		return run(ctx, params)
+	})
+}
+
+// WithRunFuncCtxE4 sets the command's run function with the full signature
+// including HookContext that returns an error.
+func (b CmdT[Struct]) WithRunFuncCtxE4(run func(ctx *HookContext, params *Struct, cmd *cobra.Command, args []string) error) CmdT[Struct] {
+	b.RunFuncCtxE = run
 	return b
 }
 
@@ -415,6 +447,20 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		}
 	}
 
+	var runFuncE func(cmd *cobra.Command, args []string) error = nil
+	if b.RunFuncE != nil {
+		runFuncE = func(cmd *cobra.Command, args []string) error {
+			return b.RunFuncE(b.Params, cmd, args)
+		}
+	}
+
+	var runFuncCtxE func(ctx *HookContext, cmd *cobra.Command, args []string) error = nil
+	if b.RunFuncCtxE != nil {
+		runFuncCtxE = func(ctx *HookContext, cmd *cobra.Command, args []string) error {
+			return b.RunFuncCtxE(ctx, b.Params, cmd, args)
+		}
+	}
+
 	// Due to golang nil upcast bullshit
 	var params any = nil
 	if b.Params != nil {
@@ -435,6 +481,8 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		ParamEnrich:        b.ParamEnrich,
 		RunFunc:            runFcn,
 		RunFuncCtx:         runFuncCtx,
+		RunFuncE:           runFuncE,
+		RunFuncCtxE:        runFuncCtxE,
 		UseCobraErrLog:     b.UseCobraErrLog,
 		SortFlags:          b.SortFlags,
 		ValidArgs:          b.ValidArgs,
@@ -485,6 +533,25 @@ func (b CmdT[Struct]) RunHArgs(handler ResultHandler, rawArgs []string) {
 // This is useful for testing.
 func (b CmdT[Struct]) Validate() error {
 	return b.ToCmd().Validate()
+}
+
+// ToCobraE converts this command to a cobra.Command that uses RunE for error handling.
+// This is used when you want errors to propagate instead of using ResultHandler.
+// Returns an error if command setup fails (e.g., invalid configuration, hook errors).
+func (b CmdT[Struct]) ToCobraE() (*cobra.Command, error) {
+	return b.ToCmd().ToCobraE()
+}
+
+// RunE executes the command and returns any error that occurred.
+// This is useful when you want proper error propagation instead of os.Exit behavior.
+func (b CmdT[Struct]) RunE() error {
+	return b.ToCmd().RunE()
+}
+
+// RunArgsE executes the command with the provided arguments and returns any error.
+// This is useful for testing and programmatic execution with error handling.
+func (b CmdT[Struct]) RunArgsE(rawArgs []string) error {
+	return b.WithRawArgs(rawArgs).RunE()
 }
 
 // UnMarshalFromFileParam reads a file path from a parameter and unmarshals its contents into a target struct.

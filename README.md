@@ -746,6 +746,100 @@ func main() {
 
 Note: You cannot use both `WithRunFunc` and `WithRunFuncCtx` on the same command - choose one or the other.
 
+### Error-Returning Run Functions (RunFuncE)
+
+Boa provides error-returning variants of the run functions for better error handling in your commands:
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/GiGurra/boa/pkg/boa"
+)
+
+type Params struct {
+	File string
+}
+
+func main() {
+	err := boa.NewCmdT[Params]("process").
+		WithRunFuncE(func(params *Params) error {
+			if params.File == "" {
+				return fmt.Errorf("file cannot be empty")
+			}
+			// Process file...
+			return nil
+		}).
+		RunE() // Returns error instead of calling os.Exit
+
+	if err != nil {
+		fmt.Printf("Command failed: %v\n", err)
+	}
+}
+```
+
+#### Available Error-Returning Variants
+
+| Builder Method | Signature |
+|----------------|-----------|
+| `WithRunFuncE` | `func(params *T) error` |
+| `WithRunFuncE3` | `func(params *T, cmd *cobra.Command, args []string) error` |
+| `WithRunFuncCtxE` | `func(ctx *HookContext, params *T) error` |
+| `WithRunFuncCtxE4` | `func(ctx *HookContext, params *T, cmd *cobra.Command, args []string) error` |
+
+#### Execution Methods
+
+| Method | Description |
+|--------|-------------|
+| `Run()` | Executes command, panics on any error |
+| `RunE()` | Executes command, returns error |
+| `RunArgs(args)` | Executes with args, panics on any error |
+| `RunArgsE(args)` | Executes with args, returns error |
+| `ToCobra()` | Returns `*cobra.Command` with `cmd.Run` set (panics on setup error) |
+| `ToCobraE()` | Returns `(*cobra.Command, error)` with `cmd.RunE` set |
+
+#### Run() vs RunE() Error Handling
+
+The two execution methods handle errors differently:
+
+- **`Run()`** - All errors (hook errors, runtime errors, config errors) cause **panics**
+- **`RunE()`** - All errors are **returned** for programmatic handling
+
+```go
+// With Run() - errors panic
+boa.NewCmdT[Params]("cmd").
+	WithRunFuncE(func(p *Params) error {
+		return fmt.Errorf("something went wrong")
+	}).
+	Run() // Panics with the error
+
+// With RunE() - errors are returned
+err := boa.NewCmdT[Params]("cmd").
+	WithRunFuncE(func(p *Params) error {
+		return fmt.Errorf("something went wrong")
+	}).
+	RunE() // err contains "something went wrong"
+
+if err != nil {
+	// Handle error programmatically
+}
+```
+
+This includes all error types:
+- Hook errors (`InitFunc`, `PreValidate`, `PreExecute`)
+- Runtime errors from `RunFuncE`
+- Configuration errors (e.g., setting multiple run functions)
+
+#### When to Use Which
+
+- Use `RunFunc` / `Run()` for simple CLIs where errors should terminate the program
+- Use `RunFuncE` / `RunE()` when you need to:
+  - Handle errors programmatically
+  - Write testable command logic
+  - Integrate with frameworks that expect error returns
+  - Build commands that are called from other Go code
+
 ## Migration Guide
 
 If you're migrating from the deprecated `Required[T]`/`Optional[T]` wrapper types:

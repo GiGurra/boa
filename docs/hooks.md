@@ -272,8 +272,117 @@ func (c *ServerConfig) InitCtx(ctx *boa.HookContext) error {
     ```
 
 !!! note
-    You cannot use both `WithRunFunc` and `WithRunFuncCtx` on the same command.
+    You can only use one run function variant per command: `RunFunc`, `RunFuncCtx`, `RunFuncE`, or `RunFuncCtxE`.
+
+## Error-Returning Run Functions
+
+BOA provides error-returning variants of run functions for better error handling:
+
+=== "Direct API"
+
+    ```go
+    boa.CmdT[Params]{
+        Use: "cmd",
+        RunFuncE: func(params *Params, cmd *cobra.Command, args []string) error {
+            if err := doSomething(); err != nil {
+                return fmt.Errorf("failed: %w", err)
+            }
+            return nil
+        },
+    }
+
+    // With HookContext
+    boa.CmdT[Params]{
+        Use: "cmd",
+        RunFuncCtxE: func(ctx *boa.HookContext, params *Params, cmd *cobra.Command, args []string) error {
+            return nil
+        },
+    }
+    ```
+
+=== "Builder API"
+
+    ```go
+    boa.NewCmdT[Params]("cmd").
+        WithRunFuncE(func(params *Params) error {
+            return nil
+        })
+
+    // With full signature
+    boa.NewCmdT[Params]("cmd").
+        WithRunFuncE3(func(params *Params, cmd *cobra.Command, args []string) error {
+            return nil
+        })
+
+    // With HookContext
+    boa.NewCmdT[Params]("cmd").
+        WithRunFuncCtxE(func(ctx *boa.HookContext, params *Params) error {
+            return nil
+        })
+    ```
+
+### Execution Methods
+
+| Method | Description |
+|--------|-------------|
+| `Run()` | Executes command, panics on any error |
+| `RunE()` | Executes command, returns error |
+| `RunArgs(args)` | Executes with args, panics on any error |
+| `RunArgsE(args)` | Executes with args, returns error |
+| `ToCobra()` | Returns `*cobra.Command` with `cmd.Run` set (panics on setup error) |
+| `ToCobraE()` | Returns `(*cobra.Command, error)` with `cmd.RunE` set |
 
 ## Error Handling
 
-All hooks can return errors to abort execution. If any hook returns an error, the command stops and reports the error to the user.
+### Run() vs RunE() Behavior
+
+The two execution methods handle errors differently:
+
+| Method | Hook Errors | RunFuncE Errors | Config Errors |
+|--------|-------------|-----------------|---------------|
+| `Run()` | Panic | Panic | Panic |
+| `RunE()` | Return error | Return error | Return error |
+
+### Using Run()
+
+With `Run()`, all errors cause panics. This is suitable for simple CLIs where errors should terminate the program:
+
+```go
+// All errors panic with Run()
+boa.NewCmdT[Params]("cmd").
+    WithInitFuncE(func(p *Params) error {
+        return fmt.Errorf("init failed") // Panics
+    }).
+    Run()
+```
+
+### Using RunE()
+
+With `RunE()`, all errors are returned for programmatic handling. This includes:
+
+- Hook errors (`InitFunc`, `PreValidate`, `PreExecute`)
+- Runtime errors from `RunFuncE`
+- Configuration errors (e.g., setting multiple run functions)
+
+```go
+// All errors are returned with RunE()
+err := boa.NewCmdT[Params]("cmd").
+    WithInitFuncE(func(p *Params) error {
+        return fmt.Errorf("init failed")
+    }).
+    WithRunFuncE(func(p *Params) error {
+        return fmt.Errorf("run failed")
+    }).
+    RunE()
+
+if err != nil {
+    // Handle any error programmatically
+    fmt.Printf("Command failed: %v\n", err)
+}
+```
+
+This makes `RunE()` ideal for:
+
+- Testing command logic
+- Embedding commands in larger applications
+- Custom error handling and logging

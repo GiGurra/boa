@@ -72,6 +72,10 @@ type Cmd struct {
 	RunFunc func(cmd *cobra.Command, args []string)
 	// RunFuncCtx is the function to run when this command is called, with access to HookContext
 	RunFuncCtx func(ctx *HookContext, cmd *cobra.Command, args []string)
+	// RunFuncE is like RunFunc but returns an error instead of requiring manual error handling
+	RunFuncE func(cmd *cobra.Command, args []string) error
+	// RunFuncCtxE is like RunFuncCtx but returns an error instead of requiring manual error handling
+	RunFuncCtxE func(ctx *HookContext, cmd *cobra.Command, args []string) error
 	// UseCobraErrLog determines whether to use Cobra's error logging
 	UseCobraErrLog bool
 	// SortFlags determines whether to sort command flags alphabetically
@@ -328,6 +332,34 @@ func (b Cmd) Validate() error {
 	cobraCmd.SilenceUsage = true
 	RunH(cobraCmd, handler)
 	return err
+}
+
+// ToCobraE converts a Cmd to a cobra.Command that uses RunE for error handling.
+// This is used when you want errors to propagate instead of using ResultHandler.
+// Returns an error if command setup fails (e.g., invalid configuration, hook errors).
+func (b Cmd) ToCobraE() (*cobra.Command, error) {
+	return b.toCobraImplE()
+}
+
+// RunE executes the command and returns any error that occurred.
+// This is useful when you want proper error propagation instead of os.Exit behavior.
+// All errors (from hooks like InitFunc, PreValidate, PreExecute, and RunFuncE) are
+// returned as errors rather than causing panics.
+// Note: Cobra will still print errors and usage by default. Use SilenceErrors/SilenceUsage
+// on the cobra command if you want to suppress that output.
+func (b Cmd) RunE() error {
+	cmd, err := b.ToCobraE()
+	if err != nil {
+		return err
+	}
+	return cmd.Execute()
+}
+
+// RunArgsE executes the command with the provided arguments and returns any error.
+// This is useful for testing and programmatic execution with error handling.
+func (b Cmd) RunArgsE(rawArgs []string) error {
+	b.RawArgs = rawArgs
+	return b.RunE()
 }
 
 // Default creates a pointer to a value of a supported type.
