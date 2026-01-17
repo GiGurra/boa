@@ -1566,7 +1566,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 // Returns (*cobra.Command, error) to propagate setup errors.
 func (b Cmd) toCobraImplE() (*cobra.Command, error) {
 	if err := b.validateRunFuncs(); err != nil {
-		return nil, err
+		panic(err) // API misuse - should be caught during development
 	}
 	cmd, ctx, err := b.toCobraBase()
 	if err != nil {

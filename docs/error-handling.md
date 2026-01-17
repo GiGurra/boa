@@ -4,16 +4,19 @@ BOA provides two execution modes with different error handling behaviors: `Run()
 
 ## Run() vs RunE()
 
-| Method | Wiring Errors | Config Errors | Hook Errors | Runtime Errors |
-|--------|---------------|---------------|-------------|----------------|
-| `Run()` | Panic | Panic | Panic | Panic |
-| `RunE()` | Panic | Return | Return | Return |
-| `RunArgs(args)` | Panic | Panic | Panic | Panic |
-| `RunArgsE(args)` | Panic | Return | Return | Return |
+| Method | Setup Errors | Hook Errors | Runtime Errors |
+|--------|--------------|-------------|----------------|
+| `Run()` | Panic | Panic | Panic |
+| `RunE()` | Panic | Return | Return |
+| `RunArgs(args)` | Panic | Panic | Panic |
+| `RunArgsE(args)` | Panic | Return | Return |
 
-**Wiring Errors** are programming mistakes in struct tags (e.g., invalid default type, malformed tag syntax). These always panic as they indicate bugs that should be fixed in code.
+**Setup Errors** are programming mistakes that should be caught during development - they always panic regardless of whether you use `Run()` or `RunE()`. This includes:
 
-**Config Errors** are issues like setting multiple run functions. These return errors with `RunE()` methods.
+- Invalid struct tags (e.g., `default:"abc"` on an `int` field)
+- Malformed tag syntax
+- Setting multiple run functions
+- Unsupported field types
 
 ### Using Run()
 
@@ -99,41 +102,33 @@ BOA provides error-returning variants of all run function types:
 
 ## Error Types
 
-BOA handles four categories of errors:
+BOA handles three categories of errors:
 
-### 1. Wiring Errors (Always Panic)
+### 1. Setup Errors (Always Panic)
 
-These are programming mistakes in struct tags that indicate bugs in your code. They always panic regardless of whether you use `Run()` or `RunE()`:
+These are programming mistakes that indicate bugs in your code. They always panic regardless of whether you use `Run()` or `RunE()`:
 
 - Invalid default value types (e.g., `default:"abc"` on an `int` field)
 - Malformed struct tag syntax
 - Unsupported field types
+- Setting multiple run functions
+- Positional argument ordering errors
 
 ```go
 type Params struct {
     Port int `default:"not-a-number"` // Will panic during setup
 }
+
+// This also panics - multiple run functions configured
+boa.CmdT[Params]{
+    RunFunc:  func(p *Params, cmd *cobra.Command, args []string) {},
+    RunFuncE: func(p *Params, cmd *cobra.Command, args []string) error { return nil },
+}.RunE() // Panics!
 ```
 
 These should be caught during development and fixed in the source code.
 
-### 2. Configuration Errors
-
-These occur during command construction and can be returned as errors with `ToCobraE()` or `RunE()`:
-
-- Setting multiple run functions
-- Positional argument ordering errors
-
-```go
-// This returns an error - multiple run functions configured
-_, err := boa.CmdT[Params]{
-    RunFunc:  func(p *Params, cmd *cobra.Command, args []string) {},
-    RunFuncE: func(p *Params, cmd *cobra.Command, args []string) error { return nil },
-}.ToCobraE()
-// err: "cannot set multiple run functions..."
-```
-
-### 3. Hook Errors
+### 2. Hook Errors
 
 These occur during the command lifecycle:
 
@@ -151,7 +146,7 @@ err := boa.NewCmdT[Params]("app").
 // err: "error in InitFunc: initialization failed"
 ```
 
-### 4. Runtime Errors
+### 3. Runtime Errors
 
 These occur during command execution from your `RunFuncE`:
 
@@ -168,23 +163,24 @@ err := boa.NewCmdT[Params]("app").
 
 When you need the underlying Cobra command:
 
-| Method | Returns | Wiring Errors | Config Errors |
-|--------|---------|---------------|---------------|
+| Method | Returns | Setup Errors | Hook Errors |
+|--------|---------|--------------|-------------|
 | `ToCobra()` | `*cobra.Command` | Panic | Panic |
 | `ToCobraE()` | `(*cobra.Command, error)` | Panic | Return |
 
 ```go
-// ToCobra - panics on setup error
+// ToCobra - panics on any error
 cmd := boa.NewCmdT[Params]("app").
     WithRunFunc(func(p *Params) {}).
     ToCobra()
 
-// ToCobraE - returns setup error
+// ToCobraE - panics on setup errors, returns hook errors
 cmd, err := boa.NewCmdT[Params]("app").
+    WithInitFuncE(func(p *Params) error { return nil }).
     WithRunFuncE(func(p *Params) error { return nil }).
     ToCobraE()
 if err != nil {
-    // Handle setup error
+    // Handle hook error (InitFunc ran during ToCobraE)
 }
 ```
 

@@ -837,10 +837,16 @@ func TestMultipleRunFuncs_Panics(t *testing.T) {
 	}.RunArgs([]string{}) // Use RunArgs, not RunArgsE
 }
 
-func TestMultipleRunFuncs_ReturnsError(t *testing.T) {
-	// When using RunE(), multiple run functions returns an error instead of panicking
+func TestMultipleRunFuncs_PanicsWithRunE(t *testing.T) {
+	// Multiple run functions should panic even when using RunE() - it's API misuse
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic when setting multiple run functions with RunE")
+		}
+	}()
+
 	type Args struct{}
-	err := CmdT[Args]{
+	_ = CmdT[Args]{
 		Use: "test",
 		RunFunc: func(params *Args, cmd *cobra.Command, args []string) {
 		},
@@ -848,13 +854,6 @@ func TestMultipleRunFuncs_ReturnsError(t *testing.T) {
 			return nil
 		},
 	}.RunArgsE([]string{})
-
-	if err == nil {
-		t.Fatalf("expected error when setting multiple run functions")
-	}
-	if !strings.Contains(err.Error(), "multiple run functions") {
-		t.Fatalf("expected error about multiple run functions but got: %v", err)
-	}
 }
 
 func TestToCobraE(t *testing.T) {
