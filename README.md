@@ -198,6 +198,9 @@ func main() {
 }
 ```
 
+**Note:** Nested struct fields use their own field names as flags, not prefixed with the parent struct name.
+For example, `Base.Foo` becomes `--foo`, not `--base-foo`. See "Missing features" for planned prefix support.
+
 ### Leverage all of Cobra's features
 
 Access the underlying Cobra command for advanced customization:
