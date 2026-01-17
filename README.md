@@ -71,7 +71,8 @@ Flags:
 
 | Tag | Description | Example |
 |-----|-------------|---------|
-| `descr` / `desc` / `description` | Description text for help | `descr:"User name"` |
+| `descr` / `desc` / `description` / `help` | Description text for help | `descr:"User name"` |
+| `name` / `long` | Override flag name | `name:"user-name"` |
 | `default` | Default value | `default:"8080"` |
 | `env` | Environment variable name | `env:"PORT"` |
 | `short` | Short flag (single char) | `short:"p"` |
