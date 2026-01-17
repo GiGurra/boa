@@ -13,7 +13,6 @@ BOA adds a declarative layer on top of [cobra](https://github.com/spf13/cobra), 
 - **Automatic flag generation** - Field names become kebab-case flags
 - **Environment variable binding** - Auto-generated or custom env var names
 - **Built-in validation** - Required fields, alternatives, custom validators
-- **Type safety** - Full Go generics support
 - **Cobra compatible** - Access underlying Cobra commands when needed
 
 ## Quick Example
