@@ -1,105 +1,128 @@
 # Struct Tags Reference
 
-BOA uses struct tags to configure CLI parameters.
+Quick reference for all BOA struct tags.
 
-## Available Tags
+## Tag Reference
 
-| Tag | Description | Example |
-|-----|-------------|---------|
-| `descr` / `desc` / `description` / `help` | Description text for help | `descr:"User name"` |
-| `name` / `long` | Override flag name | `name:"user-name"` |
-| `default` | Default value | `default:"8080"` |
-| `env` | Environment variable name | `env:"PORT"` |
-| `short` | Short flag (single char) | `short:"p"` |
-| `positional` / `pos` | Marks positional argument | `positional:"true"` |
-| `required` / `req` | Marks as required | `required:"true"` |
-| `optional` / `opt` | Marks as optional | `optional:"true"` |
-| `alts` / `alternatives` | Allowed values (enum) | `alts:"debug,info,warn,error"` |
-| `strict-alts` / `strict` | Validate against alts | `strict:"true"` |
+| Tag | Aliases | Description | Example |
+|-----|---------|-------------|---------|
+| `descr` | `desc`, `description`, `help` | Help text | `descr:"User name"` |
+| `name` | `long` | Override flag name | `name:"server-host"` |
+| `short` | | Single-char flag | `short:"n"` |
+| `env` | | Environment variable | `env:"APP_HOST"` |
+| `default` | | Default value | `default:"8080"` |
+| `required` | `req` | Mark as required | `required:"true"` |
+| `optional` | `opt` | Mark as optional | `optional:"true"` |
+| `positional` | `pos` | Positional argument | `positional:"true"` |
+| `alts` | `alternatives` | Allowed values | `alts:"a,b,c"` |
+| `strict-alts` | `strict` | Validate alts | `strict:"true"` |
 
-## Auto-Generated Names
+## Examples
 
-BOA automatically generates flag and environment variable names from field names:
-
-- **Flag name**: `MyParam` becomes `--my-param` (kebab-case)
-- **Env var**: `MyParam` becomes `MY_PARAM` (UPPER_SNAKE_CASE)
-
-## Enrichers
-
-BOA automatically enriches parameters using `ParamEnricherDefault`, which includes:
-
-| Enricher | Behavior |
-|----------|----------|
-| `ParamEnricherName` | Converts field name to kebab-case flag |
-| `ParamEnricherShort` | Auto-assigns short flag from first character |
-| `ParamEnricherEnv` | Generates env var from flag name |
-| `ParamEnricherBool` | Sets default `false` for boolean params |
-
-### Custom Enrichers
-
-Compose your own enricher if you don't want auto-generated env vars:
-
-```go
-// Without auto env vars
-boa.NewCmdT[Params]("cmd").WithParamEnrich(
-    boa.ParamEnricherCombine(
-        boa.ParamEnricherName,
-        boa.ParamEnricherShort,
-        boa.ParamEnricherBool,
-    ),
-)
-
-// With prefixed env vars
-boa.NewCmdT[Params]("cmd").WithParamEnrich(
-    boa.ParamEnricherCombine(
-        boa.ParamEnricherName,
-        boa.ParamEnricherEnv,
-        boa.ParamEnricherEnvPrefix("MYAPP"), // MY_PARAM → MYAPP_MY_PARAM
-    ),
-)
-```
-
-## Constraining Values
-
-Use `alts` to specify allowed values:
+### Basic Flags
 
 ```go
 type Params struct {
-    LogLevel string `alts:"debug,info,warn,error" strict:"true"`
-    Format   string `alts:"json,yaml,toml"` // strict defaults to true
+    Host string `descr:"Server hostname" default:"localhost"`
+    Port int    `descr:"Server port" short:"p" default:"8080"`
 }
 ```
 
-## Conditional Parameters
-
-Make parameters conditionally required or enabled using `HookContext`:
+### Environment Variables
 
 ```go
 type Params struct {
-    Mode     string
-    FilePath string `optional:"true"`
-    Verbose  bool   `optional:"true"`
-    Debug    bool   `optional:"true"`
-}
-
-func main() {
-    boa.NewCmdT[Params]("hello-world").
-        WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-            // FilePath is required when Mode is "file"
-            ctx.GetParam(&p.FilePath).SetRequiredFn(func() bool {
-                return p.Mode == "file"
-            })
-
-            // Verbose is only enabled when Debug is true
-            ctx.GetParam(&p.Verbose).SetIsEnabledFn(func() bool {
-                return p.Debug
-            })
-
-            return nil
-        }).
-        WithRunFunc(func(params *Params) {
-            fmt.Printf("Mode=%s\n", params.Mode)
-        }).
-        Run()
+    APIKey   string `env:"API_KEY" descr:"API authentication key"`
+    LogLevel string `env:"LOG_LEVEL" default:"info"`
 }
 ```
+
+### Positional Arguments
+
+```go
+type Params struct {
+    Source string `positional:"true" descr:"Source file"`
+    Dest   string `positional:"true" descr:"Destination file"`
+}
+// Usage: myapp <source> <dest>
+```
+
+### Optional Positional Arguments
+
+```go
+type Params struct {
+    File   string `positional:"true" descr:"Input file"`
+    Output string `positional:"true" optional:"true" default:"out.txt"`
+}
+// Usage: myapp <file> [output]
+```
+
+### Enum Values
+
+```go
+type Params struct {
+    Format string `alts:"json,yaml,toml" default:"json"`
+    Level  string `alts:"debug,info,warn,error" strict:"true"`
+}
+```
+
+### Combined Example
+
+```go
+type Params struct {
+    // Required flag with short form and env var
+    Config string `short:"c" env:"APP_CONFIG" descr:"Config file path"`
+
+    // Optional flag with default
+    Port int `short:"p" optional:"true" default:"8080" descr:"Listen port"`
+
+    // Positional argument
+    Command string `positional:"true" descr:"Command to run"`
+
+    // Boolean flag (defaults to false automatically)
+    Verbose bool `short:"v" optional:"true" descr:"Verbose output"`
+
+    // Enum with validation
+    Mode string `alts:"dev,prod" default:"dev" descr:"Run mode"`
+}
+```
+
+## Auto-Generated Values
+
+Without explicit tags, BOA derives:
+
+| Field | Flag | Env Var | Short |
+|-------|------|---------|-------|
+| `ServerHost` | `--server-host` | `SERVER_HOST` | `-s` |
+| `MaxRetries` | `--max-retries` | `MAX_RETRIES` | `-m` |
+| `V` | `--v` | `V` | (none - too short) |
+
+See [Enrichers](enrichers.md) to customize this behavior.
+
+## Beyond Struct Tags
+
+Struct tags cover the most common use cases, but for dynamic behavior you'll need programmatic configuration via `HookContext`:
+
+- **Dynamic defaults** - Set defaults based on runtime values
+- **Conditional requirements** - Make fields required based on other fields
+- **Dynamic completions** - Shell completions from APIs, files, or computed at runtime
+- **AlternativesFunc** - Generate completion suggestions dynamically (e.g., list files, query databases)
+- **Custom validation** - Complex validation logic
+
+```go
+boa.NewCmdT[Params]("app").
+    WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+        param := ctx.GetParam(&p.Region)
+        param.SetAlternatives(fetchRegionsFromAPI())
+        param.SetStrictAlts(true)
+        return nil
+    })
+```
+
+See [Advanced](advanced.md) for the full `Param` interface and examples.
+
+## See Also
+
+- [Enrichers](enrichers.md) - Auto-derivation of names
+- [Validation](validation.md) - Constraints and conditional requirements
+- [Advanced](advanced.md) - Programmatic configuration

@@ -38,5 +38,8 @@ nav:
   - Quickstart: quickstart.md
   - Getting Started: getting-started.md
   - Struct Tags: struct-tags.md
+  - Enrichers: enrichers.md
+  - Validation: validation.md
   - Lifecycle Hooks: hooks.md
+  - Advanced: advanced.md
   - Migration Guide: migration.md
