@@ -715,7 +715,7 @@ Available function-based context hooks:
 
 #### RunFuncCtx - Checking Parameter Sources at Runtime
 
-Use `WithRunFuncCtx` when you need to check whether parameters were explicitly set during command execution:
+Use `WithRunFuncCtx` when you need to check whether optional parameters actually have a value, even if that explicitly is the go default zero value:
 
 ```go
 package main
