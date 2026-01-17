@@ -85,9 +85,9 @@ Flags:
 For advanced programmatic configuration (setting defaults, alternatives, conditional requirements),
 see the [Context-Aware Hooks](#context-aware-hooks-hookcontext) section.
 
-### Auto Enrichers
+### Enrichers
 
-By default, boa automatically enriches parameters with sensible defaults. The default enricher (`ParamEnricherDefault`) applies:
+Boa automatically enriches parameters using `ParamEnricherDefault`, which includes:
 
 | Enricher | Behavior |
 |----------|----------|
@@ -96,17 +96,24 @@ By default, boa automatically enriches parameters with sensible defaults. The de
 | `ParamEnricherEnv` | Generates env var from flag name (e.g., `--my-param` → `MY_PARAM`) |
 | `ParamEnricherBool` | Sets default `false` for boolean params without explicit defaults |
 
-You can customize or disable enrichment:
+Consider composing your own enricher if you don't want auto-generated env vars for every parameter:
 
 ```go
-// Disable all auto-enrichment
-boa.NewCmdT[Params]("cmd").WithParamEnrich(boa.ParamEnricherNone)
-
-// Add env var prefix to all params
+// Custom enricher without auto env vars
 boa.NewCmdT[Params]("cmd").WithParamEnrich(
     boa.ParamEnricherCombine(
-        boa.ParamEnricherDefault,
-        boa.ParamEnricherEnvPrefix("MYAPP"),
+        boa.ParamEnricherName,
+        boa.ParamEnricherShort,
+        boa.ParamEnricherBool,
+    ),
+)
+
+// Or with prefixed env vars
+boa.NewCmdT[Params]("cmd").WithParamEnrich(
+    boa.ParamEnricherCombine(
+        boa.ParamEnricherName,
+        boa.ParamEnricherEnv,
+        boa.ParamEnricherEnvPrefix("MYAPP"), // MY_PARAM → MYAPP_MY_PARAM
     ),
 )
 ```
