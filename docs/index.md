@@ -98,5 +98,6 @@ go get github.com/GiGurra/boa@latest
 - [Getting Started](getting-started.md) - Installation and basic usage
 - [Struct Tags](struct-tags.md) - Complete reference for all struct tags
 - [Lifecycle Hooks](hooks.md) - Customize behavior at different stages
+- [Error Handling](error-handling.md) - Run() vs RunE() and error propagation
 - [Cobra Interoperability](cobra-interop.md) - Access Cobra primitives and migrate incrementally
 - [Migration Guide](migration.md) - Migrating from deprecated wrapper types

@@ -43,6 +43,7 @@ nav:
   - Enrichers: enrichers.md
   - Validation: validation.md
   - Lifecycle Hooks: hooks.md
+  - Error Handling: error-handling.md
   - Advanced: advanced.md
   - Cobra Interoperability: cobra-interop.md
   - Migration Guide: migration.md
