@@ -16,8 +16,6 @@ to cobra primitives when needed.
 
 ### Minimum setup
 
-Use raw Go types with struct tags to define your CLI parameters:
-
 ```go
 package main
 
