@@ -85,6 +85,32 @@ Flags:
 For advanced programmatic configuration (setting defaults, alternatives, conditional requirements),
 see the [Context-Aware Hooks](#context-aware-hooks-hookcontext) section.
 
+### Auto Enrichers
+
+By default, boa automatically enriches parameters with sensible defaults. The default enricher (`ParamEnricherDefault`) applies:
+
+| Enricher | Behavior |
+|----------|----------|
+| `ParamEnricherName` | Converts field name to kebab-case flag (e.g., `MyParam` → `--my-param`) |
+| `ParamEnricherShort` | Auto-assigns short flag from first character (skips `h` for help, avoids conflicts) |
+| `ParamEnricherEnv` | Generates env var from flag name (e.g., `--my-param` → `MY_PARAM`) |
+| `ParamEnricherBool` | Sets default `false` for boolean params without explicit defaults |
+
+You can customize or disable enrichment:
+
+```go
+// Disable all auto-enrichment
+boa.NewCmdT[Params]("cmd").WithParamEnrich(boa.ParamEnricherNone)
+
+// Add env var prefix to all params
+boa.NewCmdT[Params]("cmd").WithParamEnrich(
+    boa.ParamEnricherCombine(
+        boa.ParamEnricherDefault,
+        boa.ParamEnricherEnvPrefix("MYAPP"),
+    ),
+)
+```
+
 ### Sub-commands
 
 Create hierarchical CLI tools with sub-commands:
