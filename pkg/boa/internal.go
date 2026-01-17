@@ -823,13 +823,21 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 
 	syncMirrors(ctx)
 
-	// if b.params or any inner struct implements CfgStructPreExecute, call it
+	// if b.params or any inner struct implements CfgStructInit, call it
 	if b.Params != nil {
 		err := traverse(ctx, b.Params, nil, func(innerParams any) error {
 			if toInit, ok := b.Params.(CfgStructInit); ok {
 				err := toInit.Init()
 				if err != nil {
 					return fmt.Errorf("error in CfgStructInit.Init(): %s", err.Error())
+				}
+			}
+			// context-aware interface
+			if toInitCtx, ok := b.Params.(CfgStructInitCtx); ok {
+				hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+				err := toInitCtx.InitCtx(hookCtx)
+				if err != nil {
+					return fmt.Errorf("error in CfgStructInitCtx.InitCtx(): %s", err.Error())
 				}
 			}
 			return nil
@@ -844,6 +852,15 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		err := b.InitFunc(b.Params, cmd)
 		if err != nil {
 			panic(fmt.Errorf("error in InitFunc: %s", err.Error()))
+		}
+	}
+
+	// if we have a context-aware init function, call it
+	if b.InitFuncCtx != nil {
+		hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+		err := b.InitFuncCtx(hookCtx, b.Params, cmd)
+		if err != nil {
+			panic(fmt.Errorf("error in InitFuncCtx: %s", err.Error()))
 		}
 	}
 
@@ -1029,6 +1046,13 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 				panic(fmt.Errorf("error in PostCreateFunc: %s", err.Error()))
 			}
 		}
+		if b.PostCreateFuncCtx != nil {
+			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+			err := b.PostCreateFuncCtx(hookCtx, b.Params, cmd)
+			if err != nil {
+				panic(fmt.Errorf("error in PostCreateFuncCtx: %s", err.Error()))
+			}
+		}
 		if err != nil {
 			panic(fmt.Errorf("error connecting params: %s", err.Error()))
 		}
@@ -1053,6 +1077,14 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 						return fmt.Errorf("error in PreValidate: %s", err.Error())
 					}
 				}
+				// context-aware interface
+				if s, ok := innerParams.(CfgStructPreValidateCtx); ok {
+					hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+					err := s.PreValidateCtx(hookCtx)
+					if err != nil {
+						return fmt.Errorf("error in PreValidateCtx: %s", err.Error())
+					}
+				}
 				return nil
 			})
 			if err != nil {
@@ -1064,6 +1096,15 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 				err := b.PreValidateFunc(b.Params, cmd, args)
 				if err != nil {
 					return fmt.Errorf("error in PreValidate: %s", err.Error())
+				}
+			}
+
+			// if we have a context-aware pre-validate function, call it
+			if b.PreValidateFuncCtx != nil {
+				hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+				err := b.PreValidateFuncCtx(hookCtx, b.Params, cmd, args)
+				if err != nil {
+					return fmt.Errorf("error in PreValidateFuncCtx: %s", err.Error())
 				}
 			}
 
@@ -1081,6 +1122,14 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 						return fmt.Errorf("error in PreExecute: %s", err.Error())
 					}
 				}
+				// context-aware interface
+				if preExecuteCtx, ok := innerParams.(CfgStructPreExecuteCtx); ok {
+					hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+					err := preExecuteCtx.PreExecuteCtx(hookCtx)
+					if err != nil {
+						return fmt.Errorf("error in PreExecuteCtx: %s", err.Error())
+					}
+				}
 				return nil
 			})
 			if err != nil {
@@ -1092,6 +1141,15 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 				err := b.PreExecuteFunc(b.Params, cmd, args)
 				if err != nil {
 					return fmt.Errorf("error in PreExecuteFunc: %s", err.Error())
+				}
+			}
+
+			// if we have a context-aware pre-execute function, call it
+			if b.PreExecuteFuncCtx != nil {
+				hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+				err := b.PreExecuteFuncCtx(hookCtx, b.Params, cmd, args)
+				if err != nil {
+					return fmt.Errorf("error in PreExecuteFuncCtx: %s", err.Error())
 				}
 			}
 

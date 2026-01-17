@@ -648,6 +648,124 @@ Hooks are executed in the following order:
 All hooks can return errors to abort command execution. If any hook returns an error, the command will not proceed to
 the next phase, and the error will be reported to the user.
 
+### Context-Aware Hooks (HookContext)
+
+For advanced use cases, especially when working with raw parameter types (plain `string`, `int`, etc. instead of
+`Required[T]`/`Optional[T]`), boa provides context-aware hooks that give access to the underlying parameter mirrors.
+
+The `HookContext` provides:
+- `GetParam(fieldPtr any) Param` - Get the Param interface for any field (raw or wrapped)
+- `AllMirrors() []Param` - Get all auto-generated mirrors for raw fields
+
+#### Interface-based Context Hooks
+
+```go
+package main
+
+import (
+	"github.com/GiGurra/boa/pkg/boa"
+)
+
+type ServerConfig struct {
+	Host     string // raw field
+	Port     int    // raw field
+	LogLevel string // raw field
+}
+
+// InitCtx is called during initialization with HookContext access
+func (c *ServerConfig) InitCtx(ctx *boa.HookContext) error {
+	// Configure the Host parameter
+	hostParam := ctx.GetParam(&c.Host)
+	hostParam.SetDefault(boa.Default("localhost"))
+	hostParam.SetEnv("SERVER_HOST")
+
+	// Configure the Port parameter
+	portParam := ctx.GetParam(&c.Port)
+	portParam.SetDefault(boa.Default(8080))
+	portParam.SetEnv("SERVER_PORT")
+
+	// Set up alternatives with shell completion for LogLevel
+	logParam := ctx.GetParam(&c.LogLevel)
+	logParam.SetDefault(boa.Default("info"))
+	logParam.SetAlternatives([]string{"debug", "info", "warn", "error"})
+	logParam.SetStrictAlts(true) // Validation fails if value not in list
+
+	return nil
+}
+
+func main() {
+	boa.NewCmdT[ServerConfig]("server").
+		WithRunFunc(func(params *ServerConfig) {
+			// Use params.Host, params.Port, params.LogLevel
+		}).
+		Run()
+}
+```
+
+Available context-aware interfaces:
+- `CfgStructInitCtx` - `InitCtx(ctx *HookContext) error`
+- `CfgStructPreValidateCtx` - `PreValidateCtx(ctx *HookContext) error`
+- `CfgStructPreExecuteCtx` - `PreExecuteCtx(ctx *HookContext) error`
+
+#### Function-based Context Hooks
+
+```go
+package main
+
+import (
+	"github.com/GiGurra/boa/pkg/boa"
+	"github.com/spf13/cobra"
+)
+
+type Config struct {
+	Name    string
+	Verbose bool
+}
+
+func main() {
+	boa.NewCmdT[Config]("app").
+		WithInitFuncCtx(func(ctx *boa.HookContext, params *Config, cmd *cobra.Command) error {
+			// Configure raw parameters programmatically
+			nameParam := ctx.GetParam(&params.Name)
+			nameParam.SetDefault(boa.Default("default-name"))
+			nameParam.SetShort("n")
+			nameParam.SetAlternatives([]string{"alice", "bob", "carol"})
+			return nil
+		}).
+		WithRunFunc(func(params *Config) {
+			// Use params
+		}).
+		Run()
+}
+```
+
+Available function-based context hooks:
+- `WithInitFuncCtx` - During initialization
+- `WithPostCreateFuncCtx` - After cobra flags are created
+- `WithPreValidateFuncCtx` - After parsing, before validation
+- `WithPreExecuteFuncCtx` - After validation, before execution
+
+#### GetParam Works for Both Raw and Wrapped Fields
+
+The `GetParam` method provides a unified API that works for both raw fields and wrapped `Required[T]`/`Optional[T]` fields:
+
+```go
+type MixedConfig struct {
+	RawHost     string             // raw field
+	WrappedPort boa.Required[int]  // wrapped field
+}
+
+func (c *MixedConfig) InitCtx(ctx *boa.HookContext) error {
+	// Works for raw fields - returns the auto-generated mirror
+	ctx.GetParam(&c.RawHost).SetDefault(boa.Default("localhost"))
+
+	// Also works for wrapped fields - returns the field itself
+	ctx.GetParam(&c.WrappedPort).SetDefault(boa.Default(8080))
+
+	return nil
+}
+```
+
 ## Experimental/Work in progress
 
 ### Raw types

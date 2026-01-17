@@ -75,6 +75,15 @@ type Cmd struct {
 	PreValidateFunc func(params any, cmd *cobra.Command, args []string) error
 	// PreExecuteFunc runs after validation but before command execution
 	PreExecuteFunc func(params any, cmd *cobra.Command, args []string) error
+	// Context-aware lifecycle hooks (provide access to parameter mirrors)
+	// InitFuncCtx runs during initialization with access to HookContext
+	InitFuncCtx func(ctx *HookContext, params any, cmd *cobra.Command) error
+	// PostCreateFuncCtx runs after cobra flags are created with access to HookContext
+	PostCreateFuncCtx func(ctx *HookContext, params any, cmd *cobra.Command) error
+	// PreValidateFuncCtx runs after flags are parsed but before validation with access to HookContext
+	PreValidateFuncCtx func(ctx *HookContext, params any, cmd *cobra.Command, args []string) error
+	// PreExecuteFuncCtx runs after validation but before command execution with access to HookContext
+	PreExecuteFuncCtx func(ctx *HookContext, params any, cmd *cobra.Command, args []string) error
 	// RawArgs allows injecting command line arguments instead of using os.Args
 	RawArgs []string
 }
@@ -334,9 +343,104 @@ type CfgStructPreValidate interface {
 	PreValidate() error
 }
 
+// CfgStructInitCtx is an interface that parameter structs can implement
+// to perform initialization logic with access to the HookContext.
+// This allows accessing parameter mirrors for raw fields.
+type CfgStructInitCtx interface {
+	// InitCtx is called during initialization before any flags are parsed
+	InitCtx(ctx *HookContext) error
+}
+
+// CfgStructPreValidateCtx is an interface that parameter structs can implement
+// to perform logic after flags are parsed but before validation with access to HookContext.
+type CfgStructPreValidateCtx interface {
+	// PreValidateCtx is called after flags are parsed but before validation
+	PreValidateCtx(ctx *HookContext) error
+}
+
+// CfgStructPreExecuteCtx is an interface that parameter structs can implement
+// to perform logic after validation but before command execution with access to HookContext.
+type CfgStructPreExecuteCtx interface {
+	// PreExecuteCtx is called after validation but before command execution
+	PreExecuteCtx(ctx *HookContext) error
+}
+
 // CmdIfc common interface between Cmd and CmdT for reusing code
 type CmdIfc interface {
 	ToCobra() *cobra.Command
+}
+
+// HookContext provides access to parameter mirrors and advanced configuration APIs
+// within startup hooks. This allows hooks to access and modify parameters for raw
+// fields that don't use the Required[T]/Optional[T] wrappers.
+type HookContext struct {
+	rawAddrToMirror map[uintptr]Param
+}
+
+// GetParam returns the Param for any field pointer, whether it's a raw field
+// or a wrapped field (Required[T]/Optional[T]).
+//
+// For raw fields (string, int, etc.), it returns the auto-generated mirror.
+// For wrapped fields, it returns the field itself (which implements Param).
+//
+// This provides a unified API for accessing parameter configuration regardless
+// of whether the field uses the wrapper types or not.
+//
+// Usage:
+//
+//	type Params struct {
+//	    Name    string              // raw field
+//	    Age     boa.Required[int]   // wrapped field
+//	}
+//	cmd := boa.NewCmdT[Params]("cmd").
+//	    WithInitFuncCtx(func(ctx *boa.HookContext, params *Params, cmd *cobra.Command) error {
+//	        // Works for raw fields
+//	        nameParam := ctx.GetParam(&params.Name)
+//	        nameParam.SetDefault(boa.Default("default-name"))
+//
+//	        // Also works for wrapped fields
+//	        ageParam := ctx.GetParam(&params.Age)
+//	        ageParam.SetAlternatives([]string{"18", "21", "65"})
+//	        return nil
+//	    })
+func (c *HookContext) GetParam(fieldPtr any) Param {
+	// First, check if the field itself implements Param (wrapped fields)
+	if param, ok := fieldPtr.(Param); ok {
+		return param
+	}
+
+	// Otherwise, look up the mirror for raw fields
+	if c.rawAddrToMirror == nil {
+		return nil
+	}
+	addr := reflect.ValueOf(fieldPtr).Pointer()
+	return c.rawAddrToMirror[addr]
+}
+
+// GetMirror returns the Param mirror for a raw field pointer.
+// This allows accessing advanced Param APIs (SetDefault, SetAlternatives, etc.)
+// for fields that are not wrapped in Required[T] or Optional[T].
+//
+// Deprecated: Use GetParam instead, which works for both raw and wrapped fields.
+func (c *HookContext) GetMirror(fieldPtr any) Param {
+	if c.rawAddrToMirror == nil {
+		return nil
+	}
+	addr := reflect.ValueOf(fieldPtr).Pointer()
+	return c.rawAddrToMirror[addr]
+}
+
+// AllMirrors returns all parameter mirrors in the context.
+// This can be used to iterate over all raw field mirrors.
+func (c *HookContext) AllMirrors() []Param {
+	if c.rawAddrToMirror == nil {
+		return nil
+	}
+	result := make([]Param, 0, len(c.rawAddrToMirror))
+	for _, param := range c.rawAddrToMirror {
+		result = append(result, param)
+	}
+	return result
 }
 
 // CmdList converts a list of CmdIfc to a slice of cobra.Command.

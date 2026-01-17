@@ -49,6 +49,15 @@ type CmdT[Struct any] struct {
 	PreValidateFunc func(params *Struct, cmd *cobra.Command, args []string) error
 	// PreExecuteFunc runs after validation but before command execution with type-safe parameters
 	PreExecuteFunc func(params *Struct, cmd *cobra.Command, args []string) error
+	// Context-aware lifecycle hooks (provide access to parameter mirrors)
+	// InitFuncCtx runs during initialization with access to HookContext for raw field mirrors
+	InitFuncCtx func(ctx *HookContext, params *Struct, cmd *cobra.Command) error
+	// PostCreateFuncCtx runs after cobra flags are created with access to HookContext
+	PostCreateFuncCtx func(ctx *HookContext, params *Struct, cmd *cobra.Command) error
+	// PreValidateFuncCtx runs after flags are parsed but before validation with access to HookContext
+	PreValidateFuncCtx func(ctx *HookContext, params *Struct, cmd *cobra.Command, args []string) error
+	// PreExecuteFuncCtx runs after validation but before command execution with access to HookContext
+	PreExecuteFuncCtx func(ctx *HookContext, params *Struct, cmd *cobra.Command, args []string) error
 	// UseCobraErrLog determines whether to use Cobra's error logging
 	UseCobraErrLog bool
 	// SortFlags determines whether to sort command flags alphabetically
@@ -267,6 +276,35 @@ func (b CmdT[Struct]) WithInitFunc2E(initFunc func(params *Struct, cmd *cobra.Co
 	return b
 }
 
+// WithInitFuncCtx sets a context-aware function to run during initialization.
+// The HookContext provides access to parameter mirrors for raw fields, allowing
+// advanced configuration like SetDefault, SetAlternatives, etc.
+func (b CmdT[Struct]) WithInitFuncCtx(initFunc func(ctx *HookContext, params *Struct, cmd *cobra.Command) error) CmdT[Struct] {
+	b.InitFuncCtx = initFunc
+	return b
+}
+
+// WithPostCreateFuncCtx sets a context-aware function to run after cobra flags are created.
+// The HookContext provides access to parameter mirrors for raw fields.
+func (b CmdT[Struct]) WithPostCreateFuncCtx(postCreateFunc func(ctx *HookContext, params *Struct, cmd *cobra.Command) error) CmdT[Struct] {
+	b.PostCreateFuncCtx = postCreateFunc
+	return b
+}
+
+// WithPreValidateFuncCtx sets a context-aware function to run after flags are parsed but before validation.
+// The HookContext provides access to parameter mirrors for raw fields.
+func (b CmdT[Struct]) WithPreValidateFuncCtx(preValidateFunc func(ctx *HookContext, params *Struct, cmd *cobra.Command, args []string) error) CmdT[Struct] {
+	b.PreValidateFuncCtx = preValidateFunc
+	return b
+}
+
+// WithPreExecuteFuncCtx sets a context-aware function to run after validation but before execution.
+// The HookContext provides access to parameter mirrors for raw fields.
+func (b CmdT[Struct]) WithPreExecuteFuncCtx(preExecuteFunc func(ctx *HookContext, params *Struct, cmd *cobra.Command, args []string) error) CmdT[Struct] {
+	b.PreExecuteFuncCtx = preExecuteFunc
+	return b
+}
+
 // WithRawArgs sets the raw args to be used instead of os.Args. Mostly used for testing purposes.
 func (b CmdT[Struct]) WithRawArgs(rawArgs []string) CmdT[Struct] {
 	b.RawArgs = rawArgs
@@ -323,6 +361,35 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		}
 	}
 
+	// Context-aware hooks
+	var initFuncCtx func(ctx *HookContext, params any, cmd *cobra.Command) error = nil
+	if b.InitFuncCtx != nil {
+		initFuncCtx = func(ctx *HookContext, params any, cmd *cobra.Command) error {
+			return b.InitFuncCtx(ctx, params.(*Struct), cmd)
+		}
+	}
+
+	var postCreateFuncCtx func(ctx *HookContext, params any, cmd *cobra.Command) error = nil
+	if b.PostCreateFuncCtx != nil {
+		postCreateFuncCtx = func(ctx *HookContext, params any, cmd *cobra.Command) error {
+			return b.PostCreateFuncCtx(ctx, params.(*Struct), cmd)
+		}
+	}
+
+	var preValidateFuncCtx func(ctx *HookContext, params any, cmd *cobra.Command, args []string) error = nil
+	if b.PreValidateFuncCtx != nil {
+		preValidateFuncCtx = func(ctx *HookContext, params any, cmd *cobra.Command, args []string) error {
+			return b.PreValidateFuncCtx(ctx, params.(*Struct), cmd, args)
+		}
+	}
+
+	var preExecuteFuncCtx func(ctx *HookContext, params any, cmd *cobra.Command, args []string) error = nil
+	if b.PreExecuteFuncCtx != nil {
+		preExecuteFuncCtx = func(ctx *HookContext, params any, cmd *cobra.Command, args []string) error {
+			return b.PreExecuteFuncCtx(ctx, params.(*Struct), cmd, args)
+		}
+	}
+
 	// Due to golang nil upcast bullshit
 	var params any = nil
 	if b.Params != nil {
@@ -330,27 +397,31 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 	}
 
 	return Cmd{
-		Use:             b.Use,
-		Short:           b.Short,
-		Long:            b.Long,
-		Version:         b.Version,
-		Aliases:         b.Aliases,
-		GroupID:         b.GroupID,
-		Groups:          b.Groups,
-		Args:            b.Args,
-		SubCmds:         b.SubCmds,
-		Params:          params,
-		ParamEnrich:     b.ParamEnrich,
-		RunFunc:         runFcn,
-		UseCobraErrLog:  b.UseCobraErrLog,
-		SortFlags:       b.SortFlags,
-		ValidArgs:       b.ValidArgs,
-		ValidArgsFunc:   validArgsFunc,
-		InitFunc:        initFunc,
-		PostCreateFunc:  postCreateFunc,
-		PreValidateFunc: preValidateFunc,
-		PreExecuteFunc:  preExecuteFunc,
-		RawArgs:         b.RawArgs,
+		Use:                b.Use,
+		Short:              b.Short,
+		Long:               b.Long,
+		Version:            b.Version,
+		Aliases:            b.Aliases,
+		GroupID:            b.GroupID,
+		Groups:             b.Groups,
+		Args:               b.Args,
+		SubCmds:            b.SubCmds,
+		Params:             params,
+		ParamEnrich:        b.ParamEnrich,
+		RunFunc:            runFcn,
+		UseCobraErrLog:     b.UseCobraErrLog,
+		SortFlags:          b.SortFlags,
+		ValidArgs:          b.ValidArgs,
+		ValidArgsFunc:      validArgsFunc,
+		InitFunc:           initFunc,
+		PostCreateFunc:     postCreateFunc,
+		PreValidateFunc:    preValidateFunc,
+		PreExecuteFunc:     preExecuteFunc,
+		InitFuncCtx:        initFuncCtx,
+		PostCreateFuncCtx:  postCreateFuncCtx,
+		PreValidateFuncCtx: preValidateFuncCtx,
+		PreExecuteFuncCtx:  preExecuteFuncCtx,
+		RawArgs:            b.RawArgs,
 	}
 }
 
