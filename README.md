@@ -552,13 +552,12 @@ the next phase, and the error will be reported to the user.
 
 ### Context-Aware Hooks (HookContext)
 
-For advanced use cases, especially when working with raw parameter types (plain `string`, `int`, etc. instead of
-`Required[T]`/`Optional[T]`), boa provides context-aware hooks that give access to the underlying parameter mirrors.
+For advanced use cases, boa provides context-aware hooks that give access to the underlying parameter mirrors.
 
 The `HookContext` provides:
-- `GetParam(fieldPtr any) Param` - Get the Param interface for any field (raw or wrapped)
+- `GetParam(fieldPtr any) Param` - Get the Param interface for any field
 - `HasValue(fieldPtr any) bool` - Check if a parameter has a value from any source (CLI, env, default, or injection)
-- `AllMirrors() []Param` - Get all auto-generated mirrors for raw fields
+- `AllMirrors() []Param` - Get all auto-generated parameter mirrors
 
 #### Interface-based Context Hooks
 
@@ -570,9 +569,9 @@ import (
 )
 
 type ServerConfig struct {
-	Host     string // raw field
-	Port     int    // raw field
-	LogLevel string // raw field
+	Host     string
+	Port     int
+	LogLevel string
 }
 
 // InitCtx is called during initialization with HookContext access
@@ -628,7 +627,7 @@ type Config struct {
 func main() {
 	boa.NewCmdT[Config]("app").
 		WithInitFuncCtx(func(ctx *boa.HookContext, params *Config, cmd *cobra.Command) error {
-			// Configure raw parameters programmatically
+			// Configure parameters programmatically
 			nameParam := ctx.GetParam(&params.Name)
 			nameParam.SetDefault(boa.Default("default-name"))
 			nameParam.SetShort("n")
@@ -684,7 +683,7 @@ Note: You cannot use both `WithRunFunc` and `WithRunFuncCtx` on the same command
 
 ## Migration Guide
 
-If you're migrating from the deprecated `Required[T]`/`Optional[T]` wrapper types to raw Go types:
+If you're migrating from the deprecated `Required[T]`/`Optional[T]` wrapper types:
 
 ### Before (Deprecated)
 ```go
@@ -734,7 +733,7 @@ cmd := boa.NewCmdT[Params]("app").
 The `Required[T]` and `Optional[T]` wrapper types are deprecated but still functional for backward compatibility.
 
 ```go
-// DEPRECATED - prefer raw types instead
+// DEPRECATED - prefer plain Go types instead
 type Params struct {
 	Name boa.Required[string]   // Use: Name string
 	Port boa.Optional[int]      // Use: Port int `optional:"true"`
@@ -746,7 +745,7 @@ port := boa.Opt(8080)         // Use: struct tag `default:"8080" optional:"true"
 def := boa.Default(value)     // Use: struct tag `default:"value"`
 ```
 
-The wrapper types require calling `.Value()` to access values, which adds verbosity compared to direct field access with raw types.
+The wrapper types require calling `.Value()` to access values, which adds verbosity compared to direct field access.
 
 ## Missing features
 
@@ -756,5 +755,5 @@ The wrapper types require calling `.Value()` to access values, which adds verbos
 
 ## State
 
-- [x] Stable API with raw Go types as the primary interface
+- [x] Stable API with plain Go types as the primary interface
 - [x] Used in production projects
