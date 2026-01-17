@@ -89,7 +89,15 @@ see the [Context-Aware Hooks](#context-aware-hooks-hookcontext) section.
 
 ### Enrichers
 
-Boa automatically enriches parameters using `ParamEnricherDefault`, which includes:
+The `ParamEnrich` field controls parameter enrichment:
+
+| Value | Behavior |
+|-------|----------|
+| `nil` | Uses `ParamEnricherDefault` (enriches everything including env vars) |
+| `ParamEnricherDefault` | Explicit default: derives names, short flags, env vars, and bool defaults |
+| `ParamEnricherNone` | No enrichment - you must specify everything via struct tags |
+
+`ParamEnricherDefault` includes:
 
 | Enricher | Behavior |
 |----------|----------|

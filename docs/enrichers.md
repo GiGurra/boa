@@ -2,9 +2,19 @@
 
 BOA automatically derives flag names, environment variables, and other metadata from your struct fields. This is done through **enrichers** - functions that process parameters during initialization.
 
+## ParamEnrich Field
+
+The `ParamEnrich` field controls which enricher is used:
+
+| Value | Behavior |
+|-------|----------|
+| `nil` | Uses `ParamEnricherDefault` (enriches everything including env vars) |
+| `ParamEnricherDefault` | Explicit default: derives names, short flags, env vars, and bool defaults |
+| `ParamEnricherNone` | No enrichment - you must specify everything via struct tags |
+
 ## Default Behavior
 
-By default, BOA applies `ParamEnricherDefault`, which includes:
+By default (when `ParamEnrich` is `nil`), BOA applies `ParamEnricherDefault`, which includes:
 
 | Enricher | What it does |
 |----------|--------------|
