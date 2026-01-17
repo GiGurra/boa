@@ -443,6 +443,32 @@ func main() {
 
 ```
 
+### PostCreate Hook
+
+The PostCreate hook runs after cobra flags have been created but before any command-line arguments are parsed.
+This is useful when you need to inspect or modify the cobra command after flags are registered.
+
+```go
+package main
+
+import (
+	"github.com/GiGurra/boa/pkg/boa"
+	"github.com/spf13/cobra"
+)
+
+func main() {
+	boa.NewCmdT[MyConfigStruct]("command").
+		WithPostCreateFuncCtx(func(ctx *boa.HookContext, params *MyConfigStruct, cmd *cobra.Command) error {
+			// Cobra flags are now available
+			flag := cmd.Flags().Lookup("my-flag")
+			if flag != nil {
+				// Inspect or modify flag properties
+			}
+			return nil
+		})
+}
+```
+
 ### PreValidate Hook
 
 The PreValidate hook runs after parameters are parsed from the command line and environment variables but before
@@ -533,15 +559,17 @@ func main() {
 
 Hooks are executed in the following order:
 
-1. **Init** - During command initialization, before any flags are parsed
-2. **PreValidate** - After flags are parsed but before validation
-3. **Validation** - Built-in parameter validation
-4. **PreExecute** - After validation but before command execution
-5. **Run** - The actual command execution
+1. **Init** - During command initialization, before any flags are created
+2. **PostCreate** - After cobra flags are created, before arguments are parsed
+3. **PreValidate** - After flags are parsed but before validation
+4. **Validation** - Built-in parameter validation
+5. **PreExecute** - After validation but before command execution
+6. **Run** - The actual command execution
 
 ### Common Use Cases
 
 - **Init**: Set up default values, configure custom validators
+- **PostCreate**: Inspect or modify cobra flags after they're registered
 - **PreValidate**: Load configurations from files, set derived parameters
 - **PreExecute**: Establish connections, prepare resources needed for execution
 
