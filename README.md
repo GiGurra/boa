@@ -8,6 +8,8 @@ Boa adds a declarative layer on top of `github.com/spf13/cobra`.
 The goal is making the process of creating a command line interface as simple as possible, while still providing access
 to cobra primitives when needed.
 
+**[Full Documentation](https://gigurra.github.io/boa/)** - This README is a condensed summary. See the docs for detailed guides on enrichers, validation, lifecycle hooks, and advanced features.
+
 ## Installation
 
 `go get github.com/GiGurra/boa@latest`
