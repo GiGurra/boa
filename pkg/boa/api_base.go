@@ -5,6 +5,8 @@ package boa
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"reflect"
 	"time"
 
@@ -13,6 +15,8 @@ import (
 
 // SupportedTypes defines the Go types that can be used as parameter values.
 // These types are supported for both Required and Optional parameter wrappers.
+// Note: time.Duration is supported via the ~int64 constraint and handled specially for parsing.
+// net.IP and *url.URL are explicitly supported for network-related CLI tools.
 type SupportedTypes interface {
 	~string |
 		~int |
@@ -22,6 +26,8 @@ type SupportedTypes interface {
 		~float64 |
 		~float32 |
 		time.Time |
+		net.IP |
+		*url.URL |
 		~[]string |
 		~[]int |
 		~[]int32 |

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/url"
 	"os"
 	"reflect"
 	"slices"
@@ -100,7 +102,7 @@ func validate(ctx *processingContext, structPtr any) error {
 			return fmt.Errorf("missing required param '%s'%s", param.GetName(), envHint)
 		}
 
-		// special types validation, e.g. only time.Time so far
+		// special types validation for types stored as strings (time.Time, *url.URL)
 		if HasValue(param) {
 			if param.GetKind() == reflect.Struct {
 				if param.GetType() == timeType {
@@ -111,6 +113,17 @@ func validate(ctx *processingContext, structPtr any) error {
 					}
 					param.setValuePtr(res)
 				}
+			} else if param.GetKind() == reflect.Pointer && param.GetType() == urlPtrType {
+				// Check if the value is still a string (needs conversion) or already converted
+				if strPtr, ok := param.valuePtrF().(*string); ok {
+					strVal := *strPtr
+					res, err := parsePtr(param.GetName(), param.GetType(), param.GetKind(), strVal)
+					if err != nil {
+						return fmt.Errorf("invalid value for param '%s': %s", param.GetName(), err.Error())
+					}
+					param.setValuePtr(res)
+				}
+				// If it's already **url.URL, the conversion was already done
 			} else if alts := param.GetAlternatives(); alts != nil && param.GetStrictAlts() {
 
 				ptrVal := param.valuePtrF()
@@ -373,6 +386,16 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 		f.setValuePtr(cmd.Flags().Int32P(f.GetName(), f.GetShort(), def, descr))
 		return nil
 	case reflect.Int64:
+		// Check if this is a time.Duration (which has underlying type int64)
+		if f.GetType() == durationType {
+			def := time.Duration(0)
+			if f.hasDefaultValue() {
+				defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
+				def = time.Duration(defVal.Int())
+			}
+			f.setValuePtr(cmd.Flags().DurationP(f.GetName(), f.GetShort(), def, descr))
+			return nil
+		}
 		def := int64(0)
 		if f.hasDefaultValue() {
 			defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
@@ -417,6 +440,16 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 			return fmt.Errorf("general structs not yet supported: %s", f.GetKind().String())
 		}
 	case reflect.Slice:
+		// Check if this is net.IP (which is []byte)
+		if f.GetType() == ipType {
+			var def net.IP
+			if f.hasDefaultValue() {
+				defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
+				def = defVal.Interface().(net.IP)
+			}
+			f.setValuePtr(cmd.Flags().IPP(f.GetName(), f.GetShort(), def, descr))
+			return nil
+		}
 
 		elemType := f.GetType().Elem()
 
@@ -456,6 +489,18 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 	case reflect.Array:
 		return fmt.Errorf("unsupported param type (Array): %s: ", f.GetKind().String())
 	case reflect.Pointer:
+		// Check if this is *url.URL
+		if f.GetType() == urlPtrType {
+			def := ""
+			if f.hasDefaultValue() {
+				defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
+				if !defVal.IsNil() {
+					def = defVal.Interface().(*url.URL).String()
+				}
+			}
+			f.setValuePtr(cmd.Flags().StringP(f.GetName(), f.GetShort(), def, descr))
+			return nil
+		}
 		return fmt.Errorf("unsupported param type (Pointer): %s: ", f.GetKind().String())
 	default:
 		return fmt.Errorf("unsupported param type: %s", f.GetKind().String())
@@ -624,6 +669,14 @@ func parsePtr(
 		parsedInt32 := int32(parsedInt64)
 		return &parsedInt32, nil
 	case reflect.Int64:
+		// Check if this is time.Duration
+		if tpe == durationType {
+			parsedDuration, err := time.ParseDuration(strVal)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
+			}
+			return &parsedDuration, nil
+		}
 		parsedInt64, err := strconv.ParseInt(strVal, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
@@ -659,10 +712,29 @@ func parsePtr(
 			return nil, fmt.Errorf("general structs not yet supported: %s", tpe.String())
 		}
 	case reflect.Slice:
+		// Check if this is net.IP
+		if tpe == ipType {
+			parsedIP := net.ParseIP(strVal)
+			if parsedIP == nil {
+				return nil, fmt.Errorf("invalid IP address for param %s: %s", name, strVal)
+			}
+			return &parsedIP, nil
+		}
 		return parseSlice(name, strVal, tpe.Elem())
 	case reflect.Array:
 		return nil, fmt.Errorf("arrays not supported param type. Use a slice instead: %s", kind.String())
 	case reflect.Pointer:
+		// Check if this is *url.URL
+		if tpe == urlPtrType {
+			if strVal == "" {
+				return (*url.URL)(nil), nil
+			}
+			parsedURL, err := url.Parse(strVal)
+			if err != nil {
+				return nil, fmt.Errorf("invalid URL for param %s: %s", name, err.Error())
+			}
+			return &parsedURL, nil
+		}
 		return nil, fmt.Errorf("pointers not yet supported param type: %s", kind.String())
 	default:
 		return nil, fmt.Errorf("unsupported param type: %s", kind.String())
@@ -774,8 +846,8 @@ func traverse(
 				continue
 			}
 
-			// check if it is a pointer to a struct
-			if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct {
+			// check if it is a pointer to a struct (but not *url.URL which is a supported param type)
+			if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct && field.Type != urlPtrType {
 				if !fieldAddr.IsNil() && !fieldAddr.Elem().IsNil() {
 					if err := traverse(ctx, fieldAddr.Elem().Interface(), fParam, fStruct); err != nil {
 						return err
@@ -784,7 +856,7 @@ func traverse(
 				continue
 			}
 
-			if field.Type.Kind() == reflect.Pointer {
+			if field.Type.Kind() == reflect.Pointer && field.Type != urlPtrType {
 				slog.Warn(fmt.Sprintf("raw pointer types to parameters are not (yet?) supported. Field %s will be ignored", field.Name))
 				continue
 			}
@@ -793,7 +865,7 @@ func traverse(
 			if isSupportedType(field.Type) {
 
 				// check if we already have a mirror for this field
-				var addr uintptr = fieldAddr.Pointer()
+				addr := fieldAddr.Pointer()
 				var ok bool
 				if param, ok = ctx.RawAddrToMirror[addr]; !ok {
 					param = newParam(&field, field.Type)
@@ -1141,6 +1213,9 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 				return err
 			}
 
+			// Sync mirrors again after validation to copy converted values (e.g., *url.URL from string)
+			syncMirrors(ctx)
+
 			// if b.params or any inner struct implements CfgStructPreExecute, call it
 			err = traverse(ctx, b.Params, nil, func(innerParams any) error {
 				if preExecute, ok := innerParams.(CfgStructPreExecute); ok {
@@ -1197,6 +1272,7 @@ func syncMirrors(ctx *processingContext) {
 		// Convert unsafe.Pointer to a reflect.Value of the appropriate pointer type
 		// without needing to create an unused ptrType variable
 		//goland:noinspection ALL
+		//nolint:govet // intentional: rawAddr is a valid uintptr from fieldAddr.Pointer()
 		ptrToRawValue := reflect.NewAt(mirror.GetType(), unsafe.Pointer(rawAddr))
 
 		if !mirror.wasSetOnCli() && !mirror.wasSetByEnv() && !ptrToRawValue.Elem().IsZero() {
@@ -1208,6 +1284,12 @@ func syncMirrors(ctx *processingContext) {
 
 			// Get the element that the pointer points to
 			rawValue := ptrToRawValue.Elem()
+
+			// Skip if types don't match (e.g., string vs *url.URL before conversion)
+			// This allows syncing to work before and after validation/conversion
+			if !mirrorValue.Type().AssignableTo(rawValue.Type()) {
+				continue
+			}
 
 			// Make sure the destination is settable
 			if rawValue.CanSet() {
@@ -1254,6 +1336,9 @@ func isSupportedType(t reflect.Type) bool {
 	//		float64 |
 	//		float32 |
 	//		time.Time |
+	//		time.Duration |
+	//		net.IP |
+	//		*url.URL |
 	//		[]string |
 	//		[]int |
 	//		[]int32 |
@@ -1265,10 +1350,12 @@ func isSupportedType(t reflect.Type) bool {
 		reflect.String,
 		reflect.Int,
 		reflect.Int32,
-		reflect.Int64,
 		reflect.Bool,
 		reflect.Float32,
 		reflect.Float64:
+		return true
+	case reflect.Int64:
+		// int64 and time.Duration (which is int64 underneath)
 		return true
 	case reflect.Struct:
 		if t == timeType {
@@ -1277,6 +1364,10 @@ func isSupportedType(t reflect.Type) bool {
 			return false
 		}
 	case reflect.Slice:
+		// net.IP is []byte
+		if t == ipType {
+			return true
+		}
 		if t.Elem().Kind() == reflect.String ||
 			t.Elem().Kind() == reflect.Int ||
 			t.Elem().Kind() == reflect.Int32 ||
@@ -1287,6 +1378,12 @@ func isSupportedType(t reflect.Type) bool {
 		} else {
 			return false
 		}
+	case reflect.Pointer:
+		// *url.URL
+		if t == urlPtrType {
+			return true
+		}
+		return false
 	default:
 		return false
 	}
@@ -1356,6 +1453,14 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 			return &Optional[int32]{}
 		}
 	case reflect.Int64:
+		// Check if this is time.Duration
+		if t == durationType {
+			if required {
+				return &Required[time.Duration]{}
+			} else {
+				return &Optional[time.Duration]{}
+			}
+		}
 		if required {
 			return &Required[int64]{}
 		} else {
@@ -1390,6 +1495,14 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 			panic(fmt.Errorf("unsupported type %s", t.String()))
 		}
 	case reflect.Slice:
+		// Check if this is net.IP (which is []byte)
+		if t == ipType {
+			if required {
+				return &Required[net.IP]{}
+			} else {
+				return &Optional[net.IP]{}
+			}
+		}
 		switch t.Elem().Kind() {
 		case reflect.String:
 			if required {
@@ -1430,9 +1543,22 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 		default:
 			panic(fmt.Errorf("unsupported slice type %s", t.String()))
 		}
+	case reflect.Pointer:
+		// Check if this is *url.URL
+		if t == urlPtrType {
+			if required {
+				return &Required[*url.URL]{}
+			} else {
+				return &Optional[*url.URL]{}
+			}
+		}
+		panic(fmt.Errorf("unsupported pointer type %s", t.String()))
 	default:
 		panic(fmt.Errorf("unsupported type %s", t.String()))
 	}
 }
 
 var timeType = reflect.TypeOf(time.Time{})
+var durationType = reflect.TypeOf(time.Duration(0))
+var ipType = reflect.TypeOf(net.IP{})
+var urlPtrType = reflect.TypeOf((*url.URL)(nil))
