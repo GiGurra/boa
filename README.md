@@ -663,7 +663,7 @@ import (
 
 type Params struct {
 	Host string `default:"localhost"`
-	Port int    `default:"8080" optional:"true"`
+	Port int    `optional:"true"`
 }
 
 func main() {
@@ -702,7 +702,7 @@ fmt.Println(*params.Port.Value())      // int (via pointer)
 ```go
 type Params struct {
 	Name string `descr:"User name"`                           // required by default
-	Port int    `descr:"Port number" default:"8080" optional:"true"`
+	Port int    `descr:"Port number" optional:"true"`
 }
 
 // Accessing values - direct access
