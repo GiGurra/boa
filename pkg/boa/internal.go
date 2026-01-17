@@ -1066,8 +1066,8 @@ func traverse(
 			}
 		} else {
 
-			// check if it is a struct
-			if field.Type.Kind() == reflect.Struct {
+			// check if it is a struct (but not time.Time which is a supported param type)
+			if field.Type.Kind() == reflect.Struct && field.Type != timeType {
 				if err := traverse(ctx, fieldAddr.Interface(), fParam, fStruct); err != nil {
 					return err
 				}
