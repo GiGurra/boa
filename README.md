@@ -72,6 +72,51 @@ Flags:
   -h, --help          help for hello-world
 ```
 
+### Raw parameter types
+
+Boa also supports using raw Go types (`string`, `int`, `bool`, etc.) instead of the `Required[T]`/`Optional[T]` wrappers.
+This provides a simpler syntax while still supporting all features via struct tags:
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/GiGurra/boa/pkg/boa"
+	"github.com/spf13/cobra"
+)
+
+var params struct {
+	Foo  string `descr:"a foo"`
+	Bar  int    `descr:"a bar" env:"BAR_X" default:"4" optional:"true"`
+	Path string `pos:"true"`
+	Baz  string `pos:"true" default:"cba"`
+	FB   string `pos:"true" optional:"true"`
+}
+
+func main() {
+	boa.Cmd{
+		Use:    "hello-world",
+		Short:  "a generic cli tool",
+		Long:   `A generic cli tool that has a longer description`,
+		Params: &params,
+		RunFunc: func(cmd *cobra.Command, args []string) {
+			fmt.Printf(
+				"Hello world with params: %s, %d, %s, %s, %s\n",
+				params.Foo,
+				params.Bar,
+				params.Path,
+				params.Baz,
+				params.FB,
+			)
+		},
+	}.Run()
+}
+```
+
+For advanced customization of raw parameters (setting defaults, alternatives, env vars programmatically),
+see the [Context-Aware Hooks](#context-aware-hooks-hookcontext) section.
+
 ### Sub-commands and tags
 
 Most customization is available through field tags:
@@ -763,50 +808,6 @@ func (c *MixedConfig) InitCtx(ctx *boa.HookContext) error {
 	ctx.GetParam(&c.WrappedPort).SetDefault(boa.Default(8080))
 
 	return nil
-}
-```
-
-## Experimental/Work in progress
-
-### Raw types
-
-It is currently being evaluated if a sufficiently good API can be provided using raw types. Boa currently has an
-implementation of this, but it is not very well tested, and relies on golang's zero value semantics to work.
-
-```go
-package main
-
-import (
-	"fmt"
-	"github.com/GiGurra/boa/pkg/boa"
-	"github.com/spf13/cobra"
-)
-
-var params struct {
-	Foo  string `descr:"a foo"`
-	Bar  int    `descr:"a bar" env:"BAR_X" default:"4" required:"false"`
-	Path string `pos:"true"`
-	Baz  string `pos:"true" default:"cba"`
-	FB   string `pos:"true"`
-}
-
-func main() {
-	boa.Cmd{
-		Use:    "hello-world",
-		Short:  "a generic cli tool",
-		Long:   `A generic cli tool that has a longer description. See the README.MD for more information`,
-		Params: &params,
-		RunFunc: func(cmd *cobra.Command, args []string) {
-			fmt.Printf(
-				"Hello world with params: %s, %d, %s, %s, %v\n",
-				params.Foo,  // string
-				params.Bar,  // int
-				params.Path, // string
-				params.Baz,  // string
-				params.FB,   // *string
-			)
-		},
-	}.Run()
 }
 ```
 
