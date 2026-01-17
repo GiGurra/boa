@@ -40,13 +40,27 @@ params.Port.SetRequiredFn(func() bool { return params.Mode == "server" })
 
 ### After
 
-```go
-cmd := boa.NewCmdT[Params]("app").
-    WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-        ctx.GetParam(&p.Port).SetRequiredFn(func() bool { return p.Mode == "server" })
-        return nil
-    })
-```
+=== "Direct API"
+
+    ```go
+    cmd := boa.CmdT[Params]{
+        Use: "app",
+        InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+            ctx.GetParam(&p.Port).SetRequiredFn(func() bool { return p.Mode == "server" })
+            return nil
+        },
+    }
+    ```
+
+=== "Builder API"
+
+    ```go
+    cmd := boa.NewCmdT[Params]("app").
+        WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+            ctx.GetParam(&p.Port).SetRequiredFn(func() bool { return p.Mode == "server" })
+            return nil
+        })
+    ```
 
 ## Deprecated API Reference
 

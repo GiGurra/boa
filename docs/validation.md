@@ -48,60 +48,121 @@ type Params struct {
 
 Make parameters conditionally required based on other values using `HookContext`:
 
-```go
-type Params struct {
-    Mode     string
-    FilePath string `optional:"true"`
-    URL      string `optional:"true"`
-}
+=== "Direct API"
 
-func main() {
-    boa.NewCmdT[Params]("app").
-        WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-            // FilePath required when Mode is "file"
-            ctx.GetParam(&p.FilePath).SetRequiredFn(func() bool {
-                return p.Mode == "file"
-            })
+    ```go
+    type Params struct {
+        Mode     string
+        FilePath string `optional:"true"`
+        URL      string `optional:"true"`
+    }
 
-            // URL required when Mode is "http"
-            ctx.GetParam(&p.URL).SetRequiredFn(func() bool {
-                return p.Mode == "http"
-            })
+    func main() {
+        boa.CmdT[Params]{
+            Use: "app",
+            InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+                // FilePath required when Mode is "file"
+                ctx.GetParam(&p.FilePath).SetRequiredFn(func() bool {
+                    return p.Mode == "file"
+                })
 
-            return nil
-        }).
-        WithRunFunc(func(p *Params) {
-            // ...
-        }).
-        Run()
-}
-```
+                // URL required when Mode is "http"
+                ctx.GetParam(&p.URL).SetRequiredFn(func() bool {
+                    return p.Mode == "http"
+                })
+
+                return nil
+            },
+            RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+                // ...
+            },
+        }.Run()
+    }
+    ```
+
+=== "Builder API"
+
+    ```go
+    type Params struct {
+        Mode     string
+        FilePath string `optional:"true"`
+        URL      string `optional:"true"`
+    }
+
+    func main() {
+        boa.NewCmdT[Params]("app").
+            WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+                // FilePath required when Mode is "file"
+                ctx.GetParam(&p.FilePath).SetRequiredFn(func() bool {
+                    return p.Mode == "file"
+                })
+
+                // URL required when Mode is "http"
+                ctx.GetParam(&p.URL).SetRequiredFn(func() bool {
+                    return p.Mode == "http"
+                })
+
+                return nil
+            }).
+            WithRunFunc(func(p *Params) {
+                // ...
+            }).
+            Run()
+    }
+    ```
 
 ## Conditional Visibility
 
 Hide parameters entirely based on conditions:
 
-```go
-type Params struct {
-    Debug   bool   `optional:"true"`
-    Verbose bool   `optional:"true"`
-}
+=== "Direct API"
 
-func main() {
-    boa.NewCmdT[Params]("app").
-        WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-            // Verbose flag only visible when Debug is true
-            ctx.GetParam(&p.Verbose).SetIsEnabledFn(func() bool {
-                return p.Debug
-            })
-            return nil
-        }).
-        WithRunFunc(func(p *Params) {
-            // ...
-        }).
-        Run()
-}
-```
+    ```go
+    type Params struct {
+        Debug   bool   `optional:"true"`
+        Verbose bool   `optional:"true"`
+    }
+
+    func main() {
+        boa.CmdT[Params]{
+            Use: "app",
+            InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+                // Verbose flag only visible when Debug is true
+                ctx.GetParam(&p.Verbose).SetIsEnabledFn(func() bool {
+                    return p.Debug
+                })
+                return nil
+            },
+            RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+                // ...
+            },
+        }.Run()
+    }
+    ```
+
+=== "Builder API"
+
+    ```go
+    type Params struct {
+        Debug   bool   `optional:"true"`
+        Verbose bool   `optional:"true"`
+    }
+
+    func main() {
+        boa.NewCmdT[Params]("app").
+            WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+                // Verbose flag only visible when Debug is true
+                ctx.GetParam(&p.Verbose).SetIsEnabledFn(func() bool {
+                    return p.Debug
+                })
+                return nil
+            }).
+            WithRunFunc(func(p *Params) {
+                // ...
+            }).
+            Run()
+    }
+    ```
 
 ## Dynamic Alternatives
 

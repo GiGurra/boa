@@ -109,15 +109,31 @@ Struct tags cover the most common use cases, but for dynamic behavior you'll nee
 - **AlternativesFunc** - Generate completion suggestions dynamically (e.g., list files, query databases)
 - **Custom validation** - Complex validation logic
 
-```go
-boa.NewCmdT[Params]("app").
-    WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-        param := ctx.GetParam(&p.Region)
-        param.SetAlternatives(fetchRegionsFromAPI())
-        param.SetStrictAlts(true)
-        return nil
-    })
-```
+=== "Direct API"
+
+    ```go
+    boa.CmdT[Params]{
+        Use: "app",
+        InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+            param := ctx.GetParam(&p.Region)
+            param.SetAlternatives(fetchRegionsFromAPI())
+            param.SetStrictAlts(true)
+            return nil
+        },
+    }
+    ```
+
+=== "Builder API"
+
+    ```go
+    boa.NewCmdT[Params]("app").
+        WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+            param := ctx.GetParam(&p.Region)
+            param.SetAlternatives(fetchRegionsFromAPI())
+            param.SetStrictAlts(true)
+            return nil
+        })
+    ```
 
 See [Advanced](advanced.md) for the full `Param` interface and examples.
 

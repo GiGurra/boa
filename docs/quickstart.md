@@ -54,27 +54,55 @@ a command when files change, with flags for patterns to include/exclude.
 
 If you prefer to start from scratch:
 
-```go
-package main
+=== "Direct API"
 
-import (
-    "fmt"
-    "github.com/GiGurra/boa/pkg/boa"
-)
+    ```go
+    package main
 
-type Params struct {
-    Name string `descr:"Your name"`
-}
+    import (
+        "fmt"
+        "github.com/GiGurra/boa/pkg/boa"
+        "github.com/spf13/cobra"
+    )
 
-func main() {
-    boa.NewCmdT[Params]("hello").
-        WithShort("Say hello").
-        WithRunFunc(func(p *Params) {
-            fmt.Printf("Hello, %s!\n", p.Name)
-        }).
-        Run()
-}
-```
+    type Params struct {
+        Name string `descr:"Your name"`
+    }
+
+    func main() {
+        boa.CmdT[Params]{
+            Use:   "hello",
+            Short: "Say hello",
+            RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+                fmt.Printf("Hello, %s!\n", p.Name)
+            },
+        }.Run()
+    }
+    ```
+
+=== "Builder API"
+
+    ```go
+    package main
+
+    import (
+        "fmt"
+        "github.com/GiGurra/boa/pkg/boa"
+    )
+
+    type Params struct {
+        Name string `descr:"Your name"`
+    }
+
+    func main() {
+        boa.NewCmdT[Params]("hello").
+            WithShort("Say hello").
+            WithRunFunc(func(p *Params) {
+                fmt.Printf("Hello, %s!\n", p.Name)
+            }).
+            Run()
+    }
+    ```
 
 ```bash
 go get github.com/GiGurra/boa@latest

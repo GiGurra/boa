@@ -37,47 +37,103 @@ You can compose your own enricher to change the default behavior.
 
 ### Disable Auto Env Vars
 
-```go
-boa.NewCmdT[Params]("cmd").WithParamEnrich(
-    boa.ParamEnricherCombine(
-        boa.ParamEnricherName,
-        boa.ParamEnricherShort,
-        boa.ParamEnricherBool,
-    ),
-)
-```
+=== "Direct API"
+
+    ```go
+    boa.CmdT[Params]{
+        Use: "cmd",
+        ParamEnrich: boa.ParamEnricherCombine(
+            boa.ParamEnricherName,
+            boa.ParamEnricherShort,
+            boa.ParamEnricherBool,
+        ),
+    }
+    ```
+
+=== "Builder API"
+
+    ```go
+    boa.NewCmdT[Params]("cmd").WithParamEnrich(
+        boa.ParamEnricherCombine(
+            boa.ParamEnricherName,
+            boa.ParamEnricherShort,
+            boa.ParamEnricherBool,
+        ),
+    )
+    ```
 
 ### Prefix Env Vars
 
-```go
-boa.NewCmdT[Params]("cmd").WithParamEnrich(
-    boa.ParamEnricherCombine(
-        boa.ParamEnricherName,
-        boa.ParamEnricherEnv,
-        boa.ParamEnricherEnvPrefix("MYAPP"),
-    ),
-)
-```
+=== "Direct API"
+
+    ```go
+    boa.CmdT[Params]{
+        Use: "cmd",
+        ParamEnrich: boa.ParamEnricherCombine(
+            boa.ParamEnricherName,
+            boa.ParamEnricherEnv,
+            boa.ParamEnricherEnvPrefix("MYAPP"),
+        ),
+    }
+    ```
+
+=== "Builder API"
+
+    ```go
+    boa.NewCmdT[Params]("cmd").WithParamEnrich(
+        boa.ParamEnricherCombine(
+            boa.ParamEnricherName,
+            boa.ParamEnricherEnv,
+            boa.ParamEnricherEnvPrefix("MYAPP"),
+        ),
+    )
+    ```
 
 This turns `MY_PARAM` into `MYAPP_MY_PARAM`.
 
 ### Disable Auto Short Flags
 
-```go
-boa.NewCmdT[Params]("cmd").WithParamEnrich(
-    boa.ParamEnricherCombine(
-        boa.ParamEnricherName,
-        boa.ParamEnricherEnv,
-        boa.ParamEnricherBool,
-    ),
-)
-```
+=== "Direct API"
+
+    ```go
+    boa.CmdT[Params]{
+        Use: "cmd",
+        ParamEnrich: boa.ParamEnricherCombine(
+            boa.ParamEnricherName,
+            boa.ParamEnricherEnv,
+            boa.ParamEnricherBool,
+        ),
+    }
+    ```
+
+=== "Builder API"
+
+    ```go
+    boa.NewCmdT[Params]("cmd").WithParamEnrich(
+        boa.ParamEnricherCombine(
+            boa.ParamEnricherName,
+            boa.ParamEnricherEnv,
+            boa.ParamEnricherBool,
+        ),
+    )
+    ```
 
 ### Disable All Enrichment
 
-```go
-boa.NewCmdT[Params]("cmd").WithParamEnrich(nil)
-```
+=== "Direct API"
+
+    ```go
+    boa.CmdT[Params]{
+        Use:         "cmd",
+        ParamEnrich: nil,
+    }
+    ```
+
+=== "Builder API"
+
+    ```go
+    boa.NewCmdT[Params]("cmd").WithParamEnrich(nil)
+    ```
 
 With no enrichment, you must specify everything via struct tags:
 
