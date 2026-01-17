@@ -5,6 +5,7 @@ BOA is built on top of [Cobra](https://github.com/spf13/cobra) and provides full
 - Access the underlying `*cobra.Command` when you need low-level control
 - Mix BOA commands with existing Cobra commands in the same command tree
 - Migrate existing Cobra applications to BOA incrementally, one command at a time
+- Use existing Cobra plugins and ecosystem libraries
 
 ## Exposed Cobra Types
 
@@ -297,6 +298,53 @@ Organize subcommands with Cobra's grouping feature:
         Run()
     ```
 
+## Cobra Ecosystem Compatibility
+
+Since BOA commands convert to standard `*cobra.Command`, you can use the entire Cobra ecosystem:
+
+### Shell Completion
+
+Cobra's built-in completion generators work with BOA:
+
+```go
+cmd := boa.NewCmdT[Params]("myapp").
+    WithSubCmds(/* ... */).
+    ToCobra()
+
+// Add Cobra's completion command
+cmd.AddCommand(completionCmd) // Your standard Cobra completion command
+```
+
+### Documentation Generation
+
+Use Cobra's doc generation packages:
+
+```go
+import "github.com/spf13/cobra/doc"
+
+cmd := boa.NewCmdT[Params]("myapp").ToCobra()
+
+// Generate markdown docs
+doc.GenMarkdownTree(cmd, "./docs")
+
+// Generate man pages
+doc.GenManTree(cmd, &doc.GenManHeader{Title: "MYAPP"}, "./man")
+```
+
+### Interactive Help with Bubbletea
+
+Libraries like [elewis787/boa](https://github.com/elewis787/boa) add interactive TUI help to Cobra (yes, we accidentally picked the same name - theirs adds Bubbletea-powered help to Cobra, ours adds declarative parameter handling):
+
+```go
+import eboa "github.com/elewis787/boa"
+
+cmd := boa.NewCmdT[Params]("myapp").ToCobra()
+
+// Add interactive help powered by Bubbletea
+cmd.SetUsageFunc(eboa.UsageFunc)
+cmd.SetHelpFunc(eboa.HelpFunc)
+```
+
 ## Summary
 
 | Task | Method |
@@ -307,3 +355,4 @@ Organize subcommands with Cobra's grouping feature:
 | Access `*cobra.Command` in run | Use `WithRunFunc3` or `RunFunc` with full signature |
 | Use Cobra arg validation | Set `Args` field or use `WithArgs()` |
 | Use Cobra groups | Set `Groups` field or use `WithGroups()` |
+| Use Cobra ecosystem libs | Call `ToCobra()` then use standard Cobra APIs |
