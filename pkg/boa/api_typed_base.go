@@ -519,12 +519,18 @@ func (b CmdT[Struct]) RunArgs(rawArgs []string) {
 
 // RunH executes the command with the specified ResultHandler for
 // custom error and panic handling.
+//
+// Deprecated: Use RunE() instead for proper error handling.
+// RunH will be removed in a future version.
 func (b CmdT[Struct]) RunH(handler ResultHandler) {
 	RunH(b.ToCobra(), handler)
 }
 
 // RunHArgs executes the command with the provided arguments and custom error handling.
 // This is useful for testing and programmatic execution with custom error handling.
+//
+// Deprecated: Use RunArgsE() instead for proper error handling.
+// RunHArgs will be removed in a future version.
 func (b CmdT[Struct]) RunHArgs(handler ResultHandler, rawArgs []string) {
 	b.WithRawArgs(rawArgs).RunH(handler)
 }

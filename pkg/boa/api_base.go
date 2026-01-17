@@ -260,6 +260,9 @@ func (b Cmd) ToCobra() *cobra.Command {
 
 // ResultHandler defines handlers for different execution outcomes of a command.
 // This allows custom handling of success, failure, and panic conditions.
+//
+// Deprecated: Use RunE() or RunArgsE() instead for proper error handling.
+// ResultHandler will be removed in a future version.
 type ResultHandler struct {
 	// Panic is called when the command execution panics
 	Panic func(any)
@@ -271,6 +274,9 @@ type ResultHandler struct {
 
 // RunH executes a cobra.Command with the specified ResultHandler for
 // custom error and panic handling.
+//
+// Deprecated: Use cmd.Execute() directly or wrap with error handling.
+// RunH will be removed in a future version.
 func RunH(cmd *cobra.Command, handler ResultHandler) {
 	runImpl(cmd, handler)
 }
@@ -292,6 +298,9 @@ func (b Cmd) Run() {
 
 // RunH executes the command with the specified ResultHandler for
 // custom error and panic handling.
+//
+// Deprecated: Use RunE() instead for proper error handling.
+// RunH will be removed in a future version.
 func (b Cmd) RunH(handler ResultHandler) {
 	RunH(b.ToCobra(), handler)
 }
@@ -306,8 +315,11 @@ func (b Cmd) RunArgs(rawArgs []string) {
 }
 
 // RunHArgs executes the command with the specified ResultHandler for
-// custom error and panic handling.It also allows you to
-// // inject command line arguments directly instead of using os.Args.
+// custom error and panic handling. It also allows you to
+// inject command line arguments directly instead of using os.Args.
+//
+// Deprecated: Use RunArgsE() instead for proper error handling.
+// RunHArgs will be removed in a future version.
 func (b Cmd) RunHArgs(handler ResultHandler, rawArgs []string) {
 	b.RawArgs = rawArgs
 	RunH(b.ToCobra(), handler)
