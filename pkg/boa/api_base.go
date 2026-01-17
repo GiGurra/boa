@@ -33,7 +33,12 @@ type SupportedTypes interface {
 		~[]int32 |
 		~[]int64 |
 		~[]float32 |
-		~[]float64
+		~[]float64 |
+		~[]bool |
+		[]time.Duration |
+		[]net.IP |
+		[]time.Time |
+		[]*url.URL
 }
 
 // Cmd represents a CLI command with all its configuration options.

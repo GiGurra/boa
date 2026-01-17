@@ -124,7 +124,38 @@ func validate(ctx *processingContext, structPtr any) error {
 					param.setValuePtr(res)
 				}
 				// If it's already **url.URL, the conversion was already done
-			} else if alts := param.GetAlternatives(); alts != nil && param.GetStrictAlts() {
+			} else if param.GetKind() == reflect.Slice {
+				elem := param.GetType().Elem()
+				// []time.Time - stored as []string, needs conversion
+				if elem == timeType {
+					if strSlice, ok := param.valuePtrF().(*[]string); ok && strSlice != nil {
+						times := make([]time.Time, len(*strSlice))
+						for i, s := range *strSlice {
+							t, err := parseTimeString(s)
+							if err != nil {
+								return fmt.Errorf("invalid value for param '%s' at index %d: %s", param.GetName(), i, err.Error())
+							}
+							times[i] = t
+						}
+						param.setValuePtr(&times)
+					}
+				}
+				// []*url.URL - stored as []string, needs conversion
+				if elem == urlPtrType {
+					if strSlice, ok := param.valuePtrF().(*[]string); ok && strSlice != nil {
+						urls := make([]*url.URL, len(*strSlice))
+						for i, s := range *strSlice {
+							u, err := url.Parse(s)
+							if err != nil {
+								return fmt.Errorf("invalid value for param '%s' at index %d: %s", param.GetName(), i, err.Error())
+							}
+							urls[i] = u
+						}
+						param.setValuePtr(&urls)
+					}
+				}
+			}
+			if alts := param.GetAlternatives(); alts != nil && param.GetStrictAlts() {
 
 				ptrVal := param.valuePtrF()
 				// check if it is a slice param
@@ -453,6 +484,77 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 
 		elemType := f.GetType().Elem()
 
+		// Check for special slice types first
+		// []net.IP - slice of IP addresses
+		if elemType == ipType {
+			var def []net.IP
+			if f.hasDefaultValue() {
+				defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
+				def = defVal.Interface().([]net.IP)
+			}
+			f.setValuePtr(cmd.Flags().IPSliceP(f.GetName(), f.GetShort(), def, descr))
+			return nil
+		}
+
+		// []time.Duration - slice of durations
+		if elemType == durationType {
+			var def []time.Duration
+			if f.hasDefaultValue() {
+				defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
+				if defVal.Kind() == reflect.Slice {
+					def = defVal.Interface().([]time.Duration)
+				} else {
+					// Parse from string
+					parsed, err := parseSliceSpecial(f.GetName(), f.defaultValueStr(), elemType)
+					if err != nil {
+						return fmt.Errorf("default value for slice param '%s' is invalid: %s", f.GetName(), err.Error())
+					}
+					def = parsed.([]time.Duration)
+					f.SetDefault(&def)
+				}
+			}
+			f.setValuePtr(cmd.Flags().DurationSliceP(f.GetName(), f.GetShort(), def, descr))
+			return nil
+		}
+
+		// []time.Time - stored as string slice, converted later
+		if elemType == timeType {
+			var def []string
+			if f.hasDefaultValue() {
+				defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
+				if defVal.Kind() == reflect.Slice && defVal.Type().Elem() == timeType {
+					// Convert []time.Time to []string for storage
+					times := defVal.Interface().([]time.Time)
+					def = make([]string, len(times))
+					for i, t := range times {
+						def[i] = t.Format(time.RFC3339)
+					}
+				}
+			}
+			f.setValuePtr(cmd.Flags().StringSliceP(f.GetName(), f.GetShort(), def, descr))
+			return nil
+		}
+
+		// []*url.URL - stored as string slice, converted later
+		if elemType == urlPtrType {
+			var def []string
+			if f.hasDefaultValue() {
+				defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
+				if defVal.Kind() == reflect.Slice && defVal.Type().Elem() == urlPtrType {
+					// Convert []*url.URL to []string for storage
+					urls := defVal.Interface().([]*url.URL)
+					def = make([]string, len(urls))
+					for i, u := range urls {
+						if u != nil {
+							def[i] = u.String()
+						}
+					}
+				}
+			}
+			f.setValuePtr(cmd.Flags().StringSliceP(f.GetName(), f.GetShort(), def, descr))
+			return nil
+		}
+
 		var defaultValueSlice any = nil
 		var err error
 		if f.hasDefaultValue() {
@@ -640,8 +742,119 @@ func parseSlice(
 			out[i] = parsedFloat64
 		}
 		return &out, nil
+	case reflect.Bool:
+		out := make([]bool, len(parts))
+
+		if isEmptySlice {
+			return &out, nil
+		}
+
+		for i, part := range parts {
+			parsedBool, err := strconv.ParseBool(part)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
+			}
+			out[i] = parsedBool
+		}
+		return &out, nil
 	default:
 		return nil, fmt.Errorf("unsupported slice element type '%v'. Check parameter '%s'", elemType, name)
+	}
+}
+
+// parseTimeString parses a time string trying multiple common formats
+func parseTimeString(s string) (time.Time, error) {
+	formats := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02",
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+	}
+	for _, format := range formats {
+		if t, err := time.Parse(format, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unable to parse time: %s", s)
+}
+
+// parseSliceSpecial parses slices of special types (time.Duration, time.Time, net.IP, *url.URL)
+func parseSliceSpecial(
+	name string,
+	strVal string,
+	elemType reflect.Type,
+) (any, error) {
+	isEmptySlice := strVal == "[]"
+
+	// remove any brackets
+	strVal = strings.TrimSuffix(strings.TrimPrefix(strVal, "["), "]")
+
+	parts := strings.Split(strVal, ",")
+	for i, part := range parts {
+		parts[i] = strings.TrimSpace(part)
+	}
+
+	//nolint:staticcheck // can't use tagged switch with reflect.Type comparisons
+	switch {
+	case elemType == durationType:
+		out := make([]time.Duration, len(parts))
+		if isEmptySlice {
+			return out, nil
+		}
+		for i, part := range parts {
+			d, err := time.ParseDuration(part)
+			if err != nil {
+				return nil, fmt.Errorf("invalid duration value for param %s: %s", name, err.Error())
+			}
+			out[i] = d
+		}
+		return out, nil
+
+	case elemType == timeType:
+		out := make([]time.Time, len(parts))
+		if isEmptySlice {
+			return out, nil
+		}
+		for i, part := range parts {
+			t, err := parseTimeString(part)
+			if err != nil {
+				return nil, fmt.Errorf("invalid time value for param %s: %s", name, err.Error())
+			}
+			out[i] = t
+		}
+		return out, nil
+
+	case elemType == ipType:
+		out := make([]net.IP, len(parts))
+		if isEmptySlice {
+			return out, nil
+		}
+		for i, part := range parts {
+			ip := net.ParseIP(part)
+			if ip == nil {
+				return nil, fmt.Errorf("invalid IP address for param %s: %s", name, part)
+			}
+			out[i] = ip
+		}
+		return out, nil
+
+	case elemType == urlPtrType:
+		out := make([]*url.URL, len(parts))
+		if isEmptySlice {
+			return out, nil
+		}
+		for i, part := range parts {
+			u, err := url.Parse(part)
+			if err != nil {
+				return nil, fmt.Errorf("invalid URL for param %s: %s", name, err.Error())
+			}
+			out[i] = u
+		}
+		return out, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported special slice element type '%v'. Check parameter '%s'", elemType, name)
 	}
 }
 
@@ -712,13 +925,25 @@ func parsePtr(
 			return nil, fmt.Errorf("general structs not yet supported: %s", tpe.String())
 		}
 	case reflect.Slice:
-		// Check if this is net.IP
+		// Check if this is net.IP (single IP, which is []byte)
 		if tpe == ipType {
 			parsedIP := net.ParseIP(strVal)
 			if parsedIP == nil {
 				return nil, fmt.Errorf("invalid IP address for param %s: %s", name, strVal)
 			}
 			return &parsedIP, nil
+		}
+		// Check for special slice element types
+		elem := tpe.Elem()
+		if elem == durationType || elem == timeType || elem == ipType || elem == urlPtrType {
+			parsed, err := parseSliceSpecial(name, strVal, elem)
+			if err != nil {
+				return nil, err
+			}
+			// parseSliceSpecial returns value, not pointer - wrap it
+			result := reflect.New(tpe)
+			result.Elem().Set(reflect.ValueOf(parsed))
+			return result.Interface(), nil
 		}
 		return parseSlice(name, strVal, tpe.Elem())
 	case reflect.Array:
@@ -1368,16 +1593,30 @@ func isSupportedType(t reflect.Type) bool {
 		if t == ipType {
 			return true
 		}
-		if t.Elem().Kind() == reflect.String ||
-			t.Elem().Kind() == reflect.Int ||
-			t.Elem().Kind() == reflect.Int32 ||
-			t.Elem().Kind() == reflect.Int64 ||
-			t.Elem().Kind() == reflect.Float32 ||
-			t.Elem().Kind() == reflect.Float64 {
+		elem := t.Elem()
+		// Basic slice types
+		if elem.Kind() == reflect.String ||
+			elem.Kind() == reflect.Int ||
+			elem.Kind() == reflect.Int32 ||
+			elem.Kind() == reflect.Int64 ||
+			elem.Kind() == reflect.Float32 ||
+			elem.Kind() == reflect.Float64 ||
+			elem.Kind() == reflect.Bool {
 			return true
-		} else {
-			return false
 		}
+		// []time.Time
+		if elem == timeType {
+			return true
+		}
+		// []net.IP (slice of net.IP which is itself []byte)
+		if elem == ipType {
+			return true
+		}
+		// []*url.URL
+		if elem == urlPtrType {
+			return true
+		}
+		return false
 	case reflect.Pointer:
 		// *url.URL
 		if t == urlPtrType {
@@ -1503,7 +1742,41 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 				return &Optional[net.IP]{}
 			}
 		}
-		switch t.Elem().Kind() {
+		elem := t.Elem()
+		// Check for special slice types first
+		// []net.IP - pflag has IPSliceP
+		if elem == ipType {
+			if required {
+				return &Required[[]net.IP]{}
+			} else {
+				return &Optional[[]net.IP]{}
+			}
+		}
+		// []time.Duration - pflag has DurationSliceP
+		if elem == durationType {
+			if required {
+				return &Required[[]time.Duration]{}
+			} else {
+				return &Optional[[]time.Duration]{}
+			}
+		}
+		// []time.Time - stored as []string, converted during validation
+		if elem == timeType {
+			if required {
+				return &Required[[]time.Time]{}
+			} else {
+				return &Optional[[]time.Time]{}
+			}
+		}
+		// []*url.URL - stored as []string, converted during validation
+		if elem == urlPtrType {
+			if required {
+				return &Required[[]*url.URL]{}
+			} else {
+				return &Optional[[]*url.URL]{}
+			}
+		}
+		switch elem.Kind() {
 		case reflect.String:
 			if required {
 				return &Required[[]string]{}
@@ -1539,6 +1812,12 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 				return &Required[[]float64]{}
 			} else {
 				return &Optional[[]float64]{}
+			}
+		case reflect.Bool:
+			if required {
+				return &Required[[]bool]{}
+			} else {
+				return &Optional[[]bool]{}
 			}
 		default:
 			panic(fmt.Errorf("unsupported slice type %s", t.String()))
