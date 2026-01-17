@@ -127,6 +127,7 @@ func TestInitFuncCtx_SetDefault(t *testing.T) {
 				t.Fatalf("expected Count to be 42 but got %d", params.Count)
 			}
 		}).
+		WithParamEnrich(ParamEnricherCombine(ParamEnricherBool, ParamEnricherName)).
 		RunArgs([]string{})
 
 	if !ran {
@@ -210,9 +211,9 @@ func TestInitFuncCtx_SetEnv(t *testing.T) {
 
 func TestGetParam_WorksForBothRawAndWrapped(t *testing.T) {
 	type MixedParams struct {
-		RawName     string           // raw field
-		WrappedAge  Required[int]    // wrapped field
-		WrappedFlag Optional[bool]   // wrapped optional field
+		RawName     string         // raw field
+		WrappedAge  Required[int]  // wrapped field
+		WrappedFlag Optional[bool] // wrapped optional field
 	}
 
 	ran := false
@@ -310,6 +311,7 @@ func TestCfgStructInitCtx(t *testing.T) {
 				t.Fatalf("expected Name to be 'interface-default' but got '%s'", params.Name)
 			}
 		}).
+		WithParamEnrich(ParamEnricherName).
 		RunArgs([]string{})
 
 	if !ran {
@@ -344,6 +346,7 @@ func TestCfgStructPreValidateCtx(t *testing.T) {
 				t.Fatalf("expected Count to be 100 but got %d", params.Count)
 			}
 		}).
+		WithParamEnrich(ParamEnricherName).
 		RunArgs([]string{"--count", "100"})
 
 	if !ran {
@@ -461,6 +464,7 @@ func TestPreValidateFuncCtx(t *testing.T) {
 			}
 			return nil
 		}).
+		WithParamEnrich(ParamEnricherName).
 		WithRunFunc(func(params *RawParamsWithCtx) {
 			ran = true
 			if params.Name != "pre-validate-fallback" {
@@ -727,6 +731,7 @@ func TestRunFuncCtx_HasValue_NoValueSet(t *testing.T) {
 				t.Fatal("expected HasValue to return false for Name (no value set)")
 			}
 		}).
+		WithParamEnrich(ParamEnricherName).
 		RunArgs([]string{})
 
 	if !ran {
@@ -783,4 +788,3 @@ func TestRunFuncCtx_PanicsWhenBothRunFuncsSet(t *testing.T) {
 		WithRunFuncCtx(func(ctx *HookContext, params *Params) {}).
 		RunArgs([]string{})
 }
-

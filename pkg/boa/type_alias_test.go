@@ -159,6 +159,7 @@ func TestTypeAlias_WithDefaults(t *testing.T) {
 				t.Fatalf("expected Count to be 123 but got '%v'", params.Count.Value())
 			}
 		}).
+		WithParamEnrich(ParamEnricherName).
 		RunArgs([]string{})
 
 	if !ran {

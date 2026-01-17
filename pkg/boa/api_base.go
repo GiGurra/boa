@@ -333,8 +333,7 @@ func (b Cmd) Validate() error {
 // Default creates a pointer to a value of a supported type.
 // This is used to define default values for parameters in a type-safe way.
 //
-// Deprecated: Use the `default` struct tag instead for raw Go types.
-// Example: `Name string `default:"value"`` instead of using Default() with wrapper types.
+// Example: `Name string `default:"value"“ instead of using Default() with wrapper types.
 func Default[T SupportedTypes](val T) *T {
 	return &val
 }
@@ -494,7 +493,6 @@ func (c *HookContext) HasValue(fieldPtr any) bool {
 	}
 	return HasValue(param)
 }
-
 
 // CmdList converts a list of CmdIfc to a slice of cobra.Command.
 func CmdList(cmds ...CmdIfc) []*cobra.Command {

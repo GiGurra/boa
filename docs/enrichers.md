@@ -125,14 +125,14 @@ This turns `MY_PARAM` into `MYAPP_MY_PARAM`.
     ```go
     boa.CmdT[Params]{
         Use:         "cmd",
-        ParamEnrich: nil,
+        ParamEnrich: boa.ParamEnricherNone,
     }
     ```
 
 === "Builder API"
 
     ```go
-    boa.NewCmdT[Params]("cmd").WithParamEnrich(nil)
+    boa.NewCmdT[Params]("cmd").WithParamEnrich(boa.ParamEnricherNone)
     ```
 
 With no enrichment, you must specify everything via struct tags:
