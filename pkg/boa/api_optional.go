@@ -138,7 +138,25 @@ func (f *Optional[T]) isPositional() bool {
 }
 
 func (f *Optional[T]) SetDefault(val any) {
-	f.Default = val.(*T)
+	if typedVal, ok := val.(*T); ok {
+		f.Default = typedVal
+	} else {
+		// Handle type aliases by converting via reflection
+		var zero T
+		targetType := reflect.TypeOf(zero)
+		valPtr := reflect.ValueOf(val)
+		if valPtr.Kind() == reflect.Ptr && !valPtr.IsNil() {
+			valElem := valPtr.Elem()
+			if valElem.Type().ConvertibleTo(targetType) {
+				converted := valElem.Convert(targetType)
+				result := converted.Interface().(T)
+				f.Default = &result
+				return
+			}
+		}
+		// Fallback to original behavior (will panic with clear message)
+		f.Default = val.(*T)
+	}
 }
 
 func (f *Optional[T]) SetEnv(val string) {

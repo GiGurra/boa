@@ -180,9 +180,29 @@ func doParsePositional(f Param, strVal string) error {
 func toTypedSlice[T SupportedTypes](slice any) []T {
 	if slice == nil {
 		return nil
-	} else {
-		return slice.([]T)
 	}
+	// Try direct type assertion first
+	if typed, ok := slice.([]T); ok {
+		return typed
+	}
+	// Handle type aliases by converting via reflection
+	sliceVal := reflect.ValueOf(slice)
+	if sliceVal.Kind() == reflect.Slice {
+		result := make([]T, sliceVal.Len())
+		var zero T
+		targetElemType := reflect.TypeOf(zero)
+		for i := 0; i < sliceVal.Len(); i++ {
+			elem := sliceVal.Index(i)
+			if elem.Type().ConvertibleTo(targetElemType) {
+				result[i] = elem.Convert(targetElemType).Interface().(T)
+			} else {
+				result[i] = elem.Interface().(T)
+			}
+		}
+		return result
+	}
+	// Fallback to original behavior (will panic with clear message)
+	return slice.([]T)
 }
 
 func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
@@ -331,49 +351,56 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 	case reflect.String:
 		def := ""
 		if f.hasDefaultValue() {
-			def = *reflect.ValueOf(f.defaultValuePtr()).Interface().(*string)
+			defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
+			def = defVal.Convert(reflect.TypeOf(def)).Interface().(string)
 		}
 		f.setValuePtr(cmd.Flags().StringP(f.GetName(), f.GetShort(), def, descr))
 		return nil
 	case reflect.Int:
 		def := 0
 		if f.hasDefaultValue() {
-			def = *reflect.ValueOf(f.defaultValuePtr()).Interface().(*int)
+			defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
+			def = defVal.Convert(reflect.TypeOf(def)).Interface().(int)
 		}
 		f.setValuePtr(cmd.Flags().IntP(f.GetName(), f.GetShort(), def, descr))
 		return nil
 	case reflect.Int32:
 		def := int32(0)
 		if f.hasDefaultValue() {
-			def = *reflect.ValueOf(f.defaultValuePtr()).Interface().(*int32)
+			defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
+			def = defVal.Convert(reflect.TypeOf(def)).Interface().(int32)
 		}
 		f.setValuePtr(cmd.Flags().Int32P(f.GetName(), f.GetShort(), def, descr))
 		return nil
 	case reflect.Int64:
 		def := int64(0)
 		if f.hasDefaultValue() {
-			def = *reflect.ValueOf(f.defaultValuePtr()).Interface().(*int64)
+			defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
+			def = defVal.Convert(reflect.TypeOf(def)).Interface().(int64)
 		}
 		f.setValuePtr(cmd.Flags().Int64P(f.GetName(), f.GetShort(), def, descr))
 		return nil
 	case reflect.Float64:
 		def := 0.0
 		if f.hasDefaultValue() {
-			def = *reflect.ValueOf(f.defaultValuePtr()).Interface().(*float64)
+			defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
+			def = defVal.Convert(reflect.TypeOf(def)).Interface().(float64)
 		}
 		f.setValuePtr(cmd.Flags().Float64P(f.GetName(), f.GetShort(), def, descr))
 		return nil
 	case reflect.Float32:
 		def := float32(0.0)
 		if f.hasDefaultValue() {
-			def = *reflect.ValueOf(f.defaultValuePtr()).Interface().(*float32)
+			defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
+			def = defVal.Convert(reflect.TypeOf(def)).Interface().(float32)
 		}
 		f.setValuePtr(cmd.Flags().Float32P(f.GetName(), f.GetShort(), def, descr))
 		return nil
 	case reflect.Bool:
 		def := false
 		if f.hasDefaultValue() {
-			def = *reflect.ValueOf(f.defaultValuePtr()).Interface().(*bool)
+			defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
+			def = defVal.Convert(reflect.TypeOf(def)).Interface().(bool)
 		}
 		f.setValuePtr(cmd.Flags().BoolP(f.GetName(), f.GetShort(), def, descr))
 		return nil
