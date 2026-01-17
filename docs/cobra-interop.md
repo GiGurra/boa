@@ -335,15 +335,47 @@ doc.GenManTree(cmd, &doc.GenManHeader{Title: "MYAPP"}, "./man")
 
 Libraries like [elewis787/boa](https://github.com/elewis787/boa) add interactive TUI help to Cobra (yes, we accidentally picked the same name - theirs adds Bubbletea-powered help to Cobra, ours adds declarative parameter handling):
 
-```go
-import eboa "github.com/elewis787/boa"
+=== "Direct Interop"
 
-cmd := boa.NewCmdT[Params]("myapp").ToCobra()
+    ```go
+    import eboa "github.com/elewis787/boa"
 
-// Add interactive help powered by Bubbletea
-cmd.SetUsageFunc(eboa.UsageFunc)
-cmd.SetHelpFunc(eboa.HelpFunc)
-```
+    cmd := boa.NewCmdT[Params]("myapp").ToCobra()
+
+    cmd.SetUsageFunc(eboa.UsageFunc)
+    cmd.SetHelpFunc(eboa.HelpFunc)
+
+    cmd.Execute()
+    ```
+
+=== "Direct API"
+
+    ```go
+    import eboa "github.com/elewis787/boa"
+
+    boa.CmdT[Params]{
+        Use: "myapp",
+        PostCreateFunc: func(params *Params, cmd *cobra.Command) error {
+            cmd.SetUsageFunc(eboa.UsageFunc)
+            cmd.SetHelpFunc(eboa.HelpFunc)
+            return nil
+        },
+    }.Run()
+    ```
+
+=== "Builder API"
+
+    ```go
+    import eboa "github.com/elewis787/boa"
+
+    boa.NewCmdT[Params]("myapp").
+        WithPostCreateFunc(func(params *Params, cmd *cobra.Command) error {
+            cmd.SetUsageFunc(eboa.UsageFunc)
+            cmd.SetHelpFunc(eboa.HelpFunc)
+            return nil
+        }).
+        Run()
+    ```
 
 ## Summary
 
