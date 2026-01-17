@@ -39,6 +39,7 @@ Every parameter (whether using struct tags or programmatic configuration) implem
 | `SetEnv(string)` | Set environment variable |
 | `SetDefault(any)` | Set default value |
 | `SetAlternatives([]string)` | Set allowed values |
+| `SetAlternativesFunc(func(...) []string)` | Set dynamic completion function |
 | `SetStrictAlts(bool)` | Enable/disable strict validation |
 | `SetRequiredFn(func() bool)` | Dynamic required condition |
 | `SetIsEnabledFn(func() bool)` | Dynamic visibility |
@@ -46,6 +47,7 @@ Every parameter (whether using struct tags or programmatic configuration) implem
 | `GetShort() string` | Get current short flag |
 | `GetEnv() string` | Get current env var |
 | `GetAlternatives() []string` | Get allowed values |
+| `GetAlternativesFunc()` | Get dynamic completion function |
 | `HasValue() bool` | Check if value was set |
 | `IsRequired() bool` | Check if required |
 | `IsEnabled() bool` | Check if visible |
@@ -54,26 +56,27 @@ Every parameter (whether using struct tags or programmatic configuration) implem
 
 ### AlternativesFunc
 
-For completion suggestions that depend on runtime state (like fetching from an API):
+For completion suggestions that depend on runtime state (like fetching from an API), use `SetAlternativesFunc` via `HookContext`:
 
 === "Direct API"
 
     ```go
     type Params struct {
-        // Using the deprecated wrapper type for AlternativesFunc
-        Region boa.Required[string]
+        Region string `descr:"AWS region"`
     }
 
     func main() {
-        var p Params
-        p.Region.AlternativesFunc = func(cmd *cobra.Command, args []string, toComplete string) []string {
-            // Could fetch from API, read from file, etc.
-            return []string{"us-east-1", "us-west-2", "eu-west-1"}
-        }
-
         boa.CmdT[Params]{
-            Use:    "app",
-            Params: &p,
+            Use: "app",
+            InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+                ctx.GetParam(&p.Region).SetAlternativesFunc(
+                    func(cmd *cobra.Command, args []string, toComplete string) []string {
+                        // Could fetch from API, read from file, etc.
+                        return []string{"us-east-1", "us-west-2", "eu-west-1"}
+                    },
+                )
+                return nil
+            },
             RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
                 // ...
             },
@@ -85,18 +88,20 @@ For completion suggestions that depend on runtime state (like fetching from an A
 
     ```go
     type Params struct {
-        // Using the deprecated wrapper type for AlternativesFunc
-        Region boa.Required[string]
+        Region string `descr:"AWS region"`
     }
 
     func main() {
-        var p Params
-        p.Region.AlternativesFunc = func(cmd *cobra.Command, args []string, toComplete string) []string {
-            // Could fetch from API, read from file, etc.
-            return []string{"us-east-1", "us-west-2", "eu-west-1"}
-        }
-
-        boa.NewCmdT2("app", &p).
+        boa.NewCmdT[Params]("app").
+            WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+                ctx.GetParam(&p.Region).SetAlternativesFunc(
+                    func(cmd *cobra.Command, args []string, toComplete string) []string {
+                        // Could fetch from API, read from file, etc.
+                        return []string{"us-east-1", "us-west-2", "eu-west-1"}
+                    },
+                )
+                return nil
+            }).
             WithRunFunc(func(params *Params) {
                 // ...
             }).

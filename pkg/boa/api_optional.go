@@ -89,6 +89,12 @@ func (f *Optional[T]) GetAlternativesFunc() func(cmd *cobra.Command, args []stri
 	return f.AlternativesFunc
 }
 
+// SetAlternativesFunc sets the function that provides dynamic value
+// suggestions for bash completion.
+func (f *Optional[T]) SetAlternativesFunc(fn func(cmd *cobra.Command, args []string, toComplete string) []string) {
+	f.AlternativesFunc = fn
+}
+
 // SetAlternatives sets the list of allowed values for this parameter.
 func (f *Optional[T]) SetAlternatives(strings []string) {
 	f.Alternatives = strings

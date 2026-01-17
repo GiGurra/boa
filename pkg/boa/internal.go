@@ -53,6 +53,7 @@ type Param interface {
 	IsEnabled() bool
 	GetAlternatives() []string
 	GetAlternativesFunc() func(cmd *cobra.Command, args []string, toComplete string) []string
+	SetAlternativesFunc(func(cmd *cobra.Command, args []string, toComplete string) []string)
 	GetIsEnabledFn() func() bool
 	SetIsEnabledFn(func() bool)
 	SetRequiredFn(func() bool)

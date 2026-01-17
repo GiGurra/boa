@@ -298,6 +298,12 @@ func (f *Required[T]) GetAlternativesFunc() func(cmd *cobra.Command, args []stri
 	return f.AlternativesFunc
 }
 
+// SetAlternativesFunc sets the function that provides dynamic value
+// suggestions for bash completion.
+func (f *Required[T]) SetAlternativesFunc(fn func(cmd *cobra.Command, args []string, toComplete string) []string) {
+	f.AlternativesFunc = fn
+}
+
 func (p Required[T]) MarshalJSON() ([]byte, error) {
 	return json.Marshal(p.Value())
 }
