@@ -72,6 +72,14 @@ go get github.com/GiGurra/boa@latest
     }
     ```
 
+!!! tip "Builder API RunFunc variants"
+    The Builder API provides multiple `WithRunFunc` signatures for flexibility:
+
+    - `WithRunFunc(func(params *Struct))` — simplified, params only
+    - `WithRunFunc3(func(params *Struct, cmd *cobra.Command, args []string))` — full signature
+    - `WithRunFuncCtx(func(ctx *HookContext, params *Struct))` — with [HookContext](hooks.md#hookcontext)
+    - `WithRunFuncCtx4(func(ctx *HookContext, params *Struct, cmd *cobra.Command, args []string))` — full signature with HookContext
+
 Help output:
 
 ```
