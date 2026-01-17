@@ -1,0 +1,42 @@
+site_name: BOA
+site_url: https://gigurra.github.io/boa/
+site_description: Declarative Go CLI Framework built on Cobra
+repo_url: https://github.com/GiGurra/boa
+repo_name: GiGurra/boa
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - content.code.copy
+    - search.highlight
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - admonition
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Getting Started: getting-started.md
+  - Struct Tags: struct-tags.md
+  - Lifecycle Hooks: hooks.md
+  - Migration Guide: migration.md
