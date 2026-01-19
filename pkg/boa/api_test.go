@@ -718,3 +718,108 @@ func TestRunEDoesNotPrintRuntimeErrors(t *testing.T) {
 		t.Errorf("Expected no output to stderr when using RunE(), but got: %s", string(captured[:n]))
 	}
 }
+
+// TestRunPrintsErrorsForUserInputErrors verifies that Run() prints error messages for user input errors
+func TestRunPrintsErrorsForUserInputErrors(t *testing.T) {
+	type Params struct {
+		Name string `short:"n" required:"true"`
+	}
+
+	// Track if osExit was called and with what code
+	var exitCalled bool
+	var exitCode int
+	oldOsExit := osExit
+	osExit = func(code int) {
+		exitCalled = true
+		exitCode = code
+	}
+	defer func() { osExit = oldOsExit }()
+
+	// Capture stderr
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+
+	// Run command that will produce a user input error (missing required param)
+	NewCmdT[Params]("test").
+		WithRunFunc(func(p *Params) {
+			// Won't be called due to validation error
+		}).
+		RunArgs([]string{})
+
+	// Restore stderr and read captured output
+	w.Close()
+	os.Stderr = oldStderr
+	captured := make([]byte, 4096)
+	n, _ := r.Read(captured)
+	r.Close()
+
+	// Verify osExit was called with code 1
+	if !exitCalled {
+		t.Error("Expected osExit to be called")
+	}
+	if exitCode != 1 {
+		t.Errorf("Expected exit code 1, got %d", exitCode)
+	}
+
+	// Verify error message was printed to stderr
+	output := string(captured[:n])
+	if !strings.Contains(output, "Error:") {
+		t.Errorf("Expected 'Error:' prefix in stderr output, got: %s", output)
+	}
+	if !strings.Contains(output, "missing required param") {
+		t.Errorf("Expected 'missing required param' in stderr output, got: %s", output)
+	}
+}
+
+// TestRunPrintsUsageForUserInputErrors verifies that Run() prints usage for user input errors
+func TestRunPrintsUsageForUserInputErrors(t *testing.T) {
+	type Params struct {
+		Port int `short:"p" required:"true" descr:"The port number"`
+	}
+
+	// Track if osExit was called
+	var exitCalled bool
+	oldOsExit := osExit
+	osExit = func(code int) {
+		exitCalled = true
+	}
+	defer func() { osExit = oldOsExit }()
+
+	// Capture stderr
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+
+	// Run command with invalid flag value
+	NewCmdT[Params]("test").
+		WithRunFunc(func(p *Params) {}).
+		RunArgs([]string{"-p", "not-a-number"})
+
+	// Restore stderr and read captured output
+	w.Close()
+	os.Stderr = oldStderr
+	captured := make([]byte, 4096)
+	n, _ := r.Read(captured)
+	r.Close()
+
+	// Verify osExit was called
+	if !exitCalled {
+		t.Error("Expected osExit to be called")
+	}
+
+	// Verify usage was printed (contains flag description)
+	output := string(captured[:n])
+	if !strings.Contains(output, "Usage:") {
+		t.Errorf("Expected 'Usage:' in stderr output, got: %s", output)
+	}
+	if !strings.Contains(output, "port") {
+		t.Errorf("Expected 'port' flag info in stderr output, got: %s", output)
+	}
+}

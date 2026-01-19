@@ -20,6 +20,10 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// osExit is the exit function used by Run(). It defaults to os.Exit but can be
+// replaced in tests to verify exit behavior without terminating the test process.
+var osExit = os.Exit
+
 // UserInputError wraps errors caused by invalid user input (missing required
 // params, invalid flag values, etc.). These errors should result in a clean
 // exit with error message rather than a panic with stack trace.
@@ -1743,7 +1747,8 @@ func runImpl(cmd *cobra.Command, handler ResultHandler) {
 			// Only panic for unexpected errors (programming errors, runtime failures).
 			if IsUserInputError(err) {
 				fmt.Fprintln(os.Stderr, "Error:", err.Error())
-				os.Exit(1)
+				osExit(1)
+				return // osExit may be mocked in tests, so we need to return explicitly
 			}
 			panic(err)
 		}
