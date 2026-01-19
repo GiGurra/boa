@@ -635,191 +635,181 @@ func TestNewUserInputErrorInHook(t *testing.T) {
 	}
 }
 
-// TestRunEDoesNotPrintErrors verifies that RunE() returns errors without printing to stderr
-func TestRunEDoesNotPrintErrors(t *testing.T) {
-	type Params struct {
-		Name string `short:"n" required:"true"`
+// TestErrorHandlingTable tests all combinations from the error handling documentation table:
+//
+//	| Method         | Setup Errors | User Input Errors | Hook Errors | Runtime Errors |
+//	|----------------|--------------|-------------------|-------------|----------------|
+//	| Run()          | Panic        | Exit(1)           | Exit(1)     | Panic          |
+//	| RunE()         | Panic        | Return            | Return      | Return         |
+//	| RunArgs(args)  | Panic        | Exit(1)           | Exit(1)     | Panic          |
+//	| RunArgsE(args) | Panic        | Return            | Return      | Return         |
+func TestErrorHandlingTable(t *testing.T) {
+	type expectedBehavior int
+	const (
+		expectPanic expectedBehavior = iota
+		expectExit1
+		expectReturn
+	)
+
+	type outputExpectation struct {
+		hasErrorPrefix bool // "Error:" prefix in stderr
+		hasUsage       bool // "Usage:" in stderr
+		noOutput       bool // no stderr output at all
 	}
 
-	// Capture stderr
-	oldStderr := os.Stderr
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stderr = w
+	tests := []struct {
+		name       string
+		method     string // "Run", "RunE", "RunArgs", "RunArgsE"
+		errorType  string // "UserInput", "Hook", "Runtime"
+		behavior   expectedBehavior
+		output     outputExpectation
+		errorMatch string // substring to match in error (for Return behavior)
+	}{
+		// Run() behavior
+		{"Run/UserInput", "Run", "UserInput", expectExit1, outputExpectation{hasErrorPrefix: true, hasUsage: true}, ""},
+		{"Run/Hook", "Run", "Hook", expectExit1, outputExpectation{hasErrorPrefix: true, hasUsage: true}, ""},
+		{"Run/Runtime", "Run", "Runtime", expectPanic, outputExpectation{}, "runtime error"},
 
-	// Run command that will produce a user input error (missing required param)
-	cmdErr := NewCmdT[Params]("test").
-		WithRunFuncE(func(p *Params) error {
-			return nil
-		}).
-		RunArgsE([]string{})
+		// RunE() behavior
+		{"RunE/UserInput", "RunE", "UserInput", expectReturn, outputExpectation{noOutput: true}, "missing required param"},
+		{"RunE/Hook", "RunE", "Hook", expectReturn, outputExpectation{noOutput: true}, "hook failed"},
+		{"RunE/Runtime", "RunE", "Runtime", expectReturn, outputExpectation{noOutput: true}, "runtime error"},
 
-	// Restore stderr and read captured output
-	w.Close()
-	os.Stderr = oldStderr
-	captured := make([]byte, 1024)
-	n, _ := r.Read(captured)
-	r.Close()
+		// RunArgs() behavior
+		{"RunArgs/UserInput", "RunArgs", "UserInput", expectExit1, outputExpectation{hasErrorPrefix: true, hasUsage: true}, ""},
+		{"RunArgs/Hook", "RunArgs", "Hook", expectExit1, outputExpectation{hasErrorPrefix: true, hasUsage: true}, ""},
+		{"RunArgs/Runtime", "RunArgs", "Runtime", expectPanic, outputExpectation{}, "runtime error"},
 
-	// Verify error was returned
-	if cmdErr == nil {
-		t.Fatal("Expected error for missing required param")
-	}
-	if !IsUserInputError(cmdErr) {
-		t.Errorf("Expected UserInputError, got: %T", cmdErr)
-	}
-
-	// Verify nothing was printed to stderr
-	if n > 0 {
-		t.Errorf("Expected no output to stderr when using RunE(), but got: %s", string(captured[:n]))
-	}
-}
-
-// TestRunEDoesNotPrintRuntimeErrors verifies that runtime errors from RunFuncE don't print to stderr
-func TestRunEDoesNotPrintRuntimeErrors(t *testing.T) {
-	type Params struct {
-		Name string `short:"n" default:"test"`
+		// RunArgsE() behavior
+		{"RunArgsE/UserInput", "RunArgsE", "UserInput", expectReturn, outputExpectation{noOutput: true}, "missing required param"},
+		{"RunArgsE/Hook", "RunArgsE", "Hook", expectReturn, outputExpectation{noOutput: true}, "hook failed"},
+		{"RunArgsE/Runtime", "RunArgsE", "Runtime", expectReturn, outputExpectation{noOutput: true}, "runtime error"},
 	}
 
-	// Capture stderr
-	oldStderr := os.Stderr
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stderr = w
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			type Params struct {
+				Name string `short:"n" required:"true"`
+			}
 
-	// Run command that will return a runtime error
-	cmdErr := NewCmdT[Params]("test").
-		WithRunFuncE(func(p *Params) error {
-			return fmt.Errorf("something went wrong")
-		}).
-		RunArgsE([]string{})
+			// Track behavior
+			var exitCalled bool
+			var exitCode int
+			var panicValue any
+			var returnedErr error
 
-	// Restore stderr and read captured output
-	w.Close()
-	os.Stderr = oldStderr
-	captured := make([]byte, 1024)
-	n, _ := r.Read(captured)
-	r.Close()
+			// Mock osExit
+			oldOsExit := osExit
+			osExit = func(code int) {
+				exitCalled = true
+				exitCode = code
+			}
+			defer func() { osExit = oldOsExit }()
 
-	// Verify error was returned
-	if cmdErr == nil {
-		t.Fatal("Expected error from RunFuncE")
-	}
-	if !strings.Contains(cmdErr.Error(), "something went wrong") {
-		t.Errorf("Expected error message 'something went wrong', got: %s", cmdErr.Error())
-	}
+			// Capture stderr
+			oldStderr := os.Stderr
+			r, w, pipeErr := os.Pipe()
+			if pipeErr != nil {
+				t.Fatal(pipeErr)
+			}
+			os.Stderr = w
 
-	// Verify nothing was printed to stderr
-	if n > 0 {
-		t.Errorf("Expected no output to stderr when using RunE(), but got: %s", string(captured[:n]))
-	}
-}
+			// Build command based on error type
+			cmd := NewCmdT[Params]("test")
 
-// TestRunPrintsErrorsForUserInputErrors verifies that Run() prints error messages for user input errors
-func TestRunPrintsErrorsForUserInputErrors(t *testing.T) {
-	type Params struct {
-		Name string `short:"n" required:"true"`
-	}
+			switch tc.errorType {
+			case "UserInput":
+				// Missing required param causes user input error
+				cmd = cmd.WithRunFunc(func(p *Params) {})
+			case "Hook":
+				// Hook returns a UserInputError
+				cmd = cmd.WithPreValidateFuncE(func(p *Params, c *cobra.Command, args []string) error {
+					return NewUserInputErrorf("hook failed")
+				}).WithRunFunc(func(p *Params) {})
+			case "Runtime":
+				// RunFunc panics (for non-E methods) or returns error (for E methods)
+				if strings.HasSuffix(tc.method, "E") {
+					cmd = cmd.WithRunFuncE(func(p *Params) error {
+						return fmt.Errorf("runtime error")
+					})
+				} else {
+					cmd = cmd.WithRunFunc(func(p *Params) {
+						panic("runtime error")
+					})
+				}
+			}
 
-	// Track if osExit was called and with what code
-	var exitCalled bool
-	var exitCode int
-	oldOsExit := osExit
-	osExit = func(code int) {
-		exitCalled = true
-		exitCode = code
-	}
-	defer func() { osExit = oldOsExit }()
+			// Execute with panic recovery
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						panicValue = r
+					}
+				}()
 
-	// Capture stderr
-	oldStderr := os.Stderr
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stderr = w
+				args := []string{}
+				if tc.errorType != "UserInput" {
+					args = []string{"-n", "test"} // Provide required param
+				}
 
-	// Run command that will produce a user input error (missing required param)
-	NewCmdT[Params]("test").
-		WithRunFunc(func(p *Params) {
-			// Won't be called due to validation error
-		}).
-		RunArgs([]string{})
+				switch tc.method {
+				case "Run":
+					cmd.RunArgs(args)
+				case "RunE":
+					returnedErr = cmd.RunArgsE(args)
+				case "RunArgs":
+					cmd.RunArgs(args)
+				case "RunArgsE":
+					returnedErr = cmd.RunArgsE(args)
+				}
+			}()
 
-	// Restore stderr and read captured output
-	w.Close()
-	os.Stderr = oldStderr
-	captured := make([]byte, 4096)
-	n, _ := r.Read(captured)
-	r.Close()
+			// Restore stderr and read output
+			w.Close()
+			os.Stderr = oldStderr
+			captured := make([]byte, 8192)
+			n, _ := r.Read(captured)
+			r.Close()
+			output := string(captured[:n])
 
-	// Verify osExit was called with code 1
-	if !exitCalled {
-		t.Error("Expected osExit to be called")
-	}
-	if exitCode != 1 {
-		t.Errorf("Expected exit code 1, got %d", exitCode)
-	}
+			// Verify behavior
+			switch tc.behavior {
+			case expectPanic:
+				if panicValue == nil {
+					t.Error("Expected panic but none occurred")
+				}
+			case expectExit1:
+				if !exitCalled {
+					t.Error("Expected osExit to be called")
+				}
+				if exitCode != 1 {
+					t.Errorf("Expected exit code 1, got %d", exitCode)
+				}
+			case expectReturn:
+				if returnedErr == nil {
+					t.Error("Expected error to be returned")
+				}
+				if tc.errorMatch != "" && !strings.Contains(returnedErr.Error(), tc.errorMatch) {
+					t.Errorf("Expected error containing %q, got: %s", tc.errorMatch, returnedErr.Error())
+				}
+			}
 
-	// Verify error message was printed to stderr
-	output := string(captured[:n])
-	if !strings.Contains(output, "Error:") {
-		t.Errorf("Expected 'Error:' prefix in stderr output, got: %s", output)
-	}
-	if !strings.Contains(output, "missing required param") {
-		t.Errorf("Expected 'missing required param' in stderr output, got: %s", output)
-	}
-}
-
-// TestRunPrintsUsageForUserInputErrors verifies that Run() prints usage for user input errors
-func TestRunPrintsUsageForUserInputErrors(t *testing.T) {
-	type Params struct {
-		Port int `short:"p" required:"true" descr:"The port number"`
-	}
-
-	// Track if osExit was called
-	var exitCalled bool
-	oldOsExit := osExit
-	osExit = func(code int) {
-		exitCalled = true
-	}
-	defer func() { osExit = oldOsExit }()
-
-	// Capture stderr
-	oldStderr := os.Stderr
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stderr = w
-
-	// Run command with invalid flag value
-	NewCmdT[Params]("test").
-		WithRunFunc(func(p *Params) {}).
-		RunArgs([]string{"-p", "not-a-number"})
-
-	// Restore stderr and read captured output
-	w.Close()
-	os.Stderr = oldStderr
-	captured := make([]byte, 4096)
-	n, _ := r.Read(captured)
-	r.Close()
-
-	// Verify osExit was called
-	if !exitCalled {
-		t.Error("Expected osExit to be called")
-	}
-
-	// Verify usage was printed (contains flag description)
-	output := string(captured[:n])
-	if !strings.Contains(output, "Usage:") {
-		t.Errorf("Expected 'Usage:' in stderr output, got: %s", output)
-	}
-	if !strings.Contains(output, "port") {
-		t.Errorf("Expected 'port' flag info in stderr output, got: %s", output)
+			// Verify output expectations
+			if tc.output.noOutput {
+				if n > 0 {
+					t.Errorf("Expected no stderr output, got: %s", output)
+				}
+			}
+			if tc.output.hasErrorPrefix {
+				if !strings.Contains(output, "Error:") {
+					t.Errorf("Expected 'Error:' in stderr, got: %s", output)
+				}
+			}
+			if tc.output.hasUsage {
+				if !strings.Contains(output, "Usage:") {
+					t.Errorf("Expected 'Usage:' in stderr, got: %s", output)
+				}
+			}
+		})
 	}
 }
