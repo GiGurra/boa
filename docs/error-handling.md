@@ -15,35 +15,71 @@ BOA provides two execution modes: `Run()` for simple CLI apps, and `RunE()` for 
 
 `Run()` is the simplest way to execute a command. User input errors print a message and exit cleanly. See the table above for full behavior.
 
-```go
-func main() {
-    boa.NewCmdT[Params]("app").
-        WithRunFunc(func(p *Params) {
-            // Your command logic
-        }).
-        Run()
-}
-```
+=== "Direct API"
+
+    ```go
+    func main() {
+        boa.CmdT[Params]{
+            Use: "app",
+            RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+                // Your command logic
+            },
+        }.Run()
+    }
+    ```
+
+=== "Builder API"
+
+    ```go
+    func main() {
+        boa.NewCmdT[Params]("app").
+            WithRunFunc(func(p *Params) {
+                // Your command logic
+            }).
+            Run()
+    }
+    ```
 
 ### Using RunE()
 
 `RunE()` returns all non-setup errors for programmatic handling. Ideal for testing, embedding, or custom error handling.
 
-```go
-err := boa.NewCmdT[Params]("app").
-    WithRunFuncE(func(p *Params) error {
-        if p.Port < 1024 {
-            return fmt.Errorf("port must be >= 1024")
-        }
-        return nil
-    }).
-    RunE()
+=== "Direct API"
 
-if err != nil {
-    log.Printf("Command failed: %v", err)
-    os.Exit(1)
-}
-```
+    ```go
+    err := boa.CmdT[Params]{
+        Use: "app",
+        RunFuncE: func(p *Params, cmd *cobra.Command, args []string) error {
+            if p.Port < 1024 {
+                return fmt.Errorf("port must be >= 1024")
+            }
+            return nil
+        },
+    }.RunE()
+
+    if err != nil {
+        log.Printf("Command failed: %v", err)
+        os.Exit(1)
+    }
+    ```
+
+=== "Builder API"
+
+    ```go
+    err := boa.NewCmdT[Params]("app").
+        WithRunFuncE(func(p *Params) error {
+            if p.Port < 1024 {
+                return fmt.Errorf("port must be >= 1024")
+            }
+            return nil
+        }).
+        RunE()
+
+    if err != nil {
+        log.Printf("Command failed: %v", err)
+        os.Exit(1)
+    }
+    ```
 
 ## Error Types
 
@@ -92,15 +128,31 @@ type Params struct {
 
 Use `NewUserInputError` or `NewUserInputErrorf` to return user input errors from hooks:
 
-```go
-boa.NewCmdT[Params]("app").
-    WithPreValidateFuncE(func(p *Params, cmd *cobra.Command, args []string) error {
-        if p.StartPort > p.EndPort {
-            return boa.NewUserInputErrorf("start port must be less than end port")
-        }
-        return nil
-    })
-```
+=== "Direct API"
+
+    ```go
+    boa.CmdT[Params]{
+        Use: "app",
+        PreValidateFunc: func(p *Params, cmd *cobra.Command, args []string) error {
+            if p.StartPort > p.EndPort {
+                return boa.NewUserInputErrorf("start port must be less than end port")
+            }
+            return nil
+        },
+    }
+    ```
+
+=== "Builder API"
+
+    ```go
+    boa.NewCmdT[Params]("app").
+        WithPreValidateFuncE(func(p *Params, cmd *cobra.Command, args []string) error {
+            if p.StartPort > p.EndPort {
+                return boa.NewUserInputErrorf("start port must be less than end port")
+            }
+            return nil
+        })
+    ```
 
 #### Checking for User Input Errors
 
@@ -115,27 +167,55 @@ if boa.IsUserInputError(err) {
 
 Errors from lifecycle hooks (Init, PostCreate, PreValidate, PreExecute). Behavior depends on `Run()` vs `RunE()` - see table.
 
-```go
-err := boa.NewCmdT[Params]("app").
-    WithInitFuncE(func(p *Params) error {
-        return fmt.Errorf("initialization failed")
-    }).
-    RunE()
-// err: "error in InitFunc: initialization failed"
-```
+=== "Direct API"
+
+    ```go
+    err := boa.CmdT[Params]{
+        Use: "app",
+        InitFunc: func(p *Params, cmd *cobra.Command) error {
+            return fmt.Errorf("initialization failed")
+        },
+    }.RunE()
+    // err: "error in InitFunc: initialization failed"
+    ```
+
+=== "Builder API"
+
+    ```go
+    err := boa.NewCmdT[Params]("app").
+        WithInitFuncE(func(p *Params) error {
+            return fmt.Errorf("initialization failed")
+        }).
+        RunE()
+    // err: "error in InitFunc: initialization failed"
+    ```
 
 ### 4. Runtime Errors
 
 Errors from your `RunFuncE`. Behavior depends on `Run()` vs `RunE()` - see table.
 
-```go
-err := boa.NewCmdT[Params]("app").
-    WithRunFuncE(func(p *Params) error {
-        return fmt.Errorf("something went wrong")
-    }).
-    RunArgsE([]string{"--name", "test"})
-// err: "something went wrong"
-```
+=== "Direct API"
+
+    ```go
+    err := boa.CmdT[Params]{
+        Use: "app",
+        RunFuncE: func(p *Params, cmd *cobra.Command, args []string) error {
+            return fmt.Errorf("something went wrong")
+        },
+    }.RunArgsE([]string{"--name", "test"})
+    // err: "something went wrong"
+    ```
+
+=== "Builder API"
+
+    ```go
+    err := boa.NewCmdT[Params]("app").
+        WithRunFuncE(func(p *Params) error {
+            return fmt.Errorf("something went wrong")
+        }).
+        RunArgsE([]string{"--name", "test"})
+    // err: "something went wrong"
+    ```
 
 ## Error-Returning Run Functions
 
@@ -155,31 +235,65 @@ err := boa.NewCmdT[Params]("app").
 
 Use `RunE()` and `RunArgsE()` for testing:
 
-```go
-func TestMyCommand_InvalidPort(t *testing.T) {
-    err := boa.NewCmdT[Params]("app").
-        WithRunFuncE(func(p *Params) error {
-            if p.Port < 1024 {
-                return fmt.Errorf("port must be >= 1024")
-            }
-            return nil
-        }).
-        RunArgsE([]string{"--port", "80"})
+=== "Direct API"
 
-    if err == nil {
-        t.Fatal("expected error for port < 1024")
+    ```go
+    func TestMyCommand_InvalidPort(t *testing.T) {
+        err := boa.CmdT[Params]{
+            Use: "app",
+            RunFuncE: func(p *Params, cmd *cobra.Command, args []string) error {
+                if p.Port < 1024 {
+                    return fmt.Errorf("port must be >= 1024")
+                }
+                return nil
+            },
+        }.RunArgsE([]string{"--port", "80"})
+
+        if err == nil {
+            t.Fatal("expected error for port < 1024")
+        }
     }
-}
-```
+    ```
+
+=== "Builder API"
+
+    ```go
+    func TestMyCommand_InvalidPort(t *testing.T) {
+        err := boa.NewCmdT[Params]("app").
+            WithRunFuncE(func(p *Params) error {
+                if p.Port < 1024 {
+                    return fmt.Errorf("port must be >= 1024")
+                }
+                return nil
+            }).
+            RunArgsE([]string{"--port", "80"})
+
+        if err == nil {
+            t.Fatal("expected error for port < 1024")
+        }
+    }
+    ```
 
 ## Only One Run Function
 
 You can only set one run function per command. Setting multiple causes a setup error (panic):
 
-```go
-// This will panic - can't use both RunFunc and RunFuncE
-boa.CmdT[Params]{
-    RunFunc:  func(p *Params, cmd *cobra.Command, args []string) {},
-    RunFuncE: func(p *Params, cmd *cobra.Command, args []string) error { return nil },
-}
-```
+=== "Direct API"
+
+    ```go
+    // This will panic - can't use both RunFunc and RunFuncE
+    boa.CmdT[Params]{
+        Use:      "app",
+        RunFunc:  func(p *Params, cmd *cobra.Command, args []string) {},
+        RunFuncE: func(p *Params, cmd *cobra.Command, args []string) error { return nil },
+    }
+    ```
+
+=== "Builder API"
+
+    ```go
+    // This will panic - can't use both WithRunFunc and WithRunFuncE
+    boa.NewCmdT[Params]("app").
+        WithRunFunc(func(p *Params) {}).
+        WithRunFuncE(func(p *Params) error { return nil })
+    ```
