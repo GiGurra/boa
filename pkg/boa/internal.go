@@ -1739,9 +1739,10 @@ func runImpl(cmd *cobra.Command, handler ResultHandler) {
 			handler.Failure(err)
 		} else {
 			// For expected user input errors (missing required params, invalid values, etc.),
-			// exit cleanly since Cobra has already printed the error message.
+			// print the error and exit cleanly (no stack trace).
 			// Only panic for unexpected errors (programming errors, runtime failures).
 			if IsUserInputError(err) {
+				fmt.Fprintln(os.Stderr, "Error:", err.Error())
 				os.Exit(1)
 			}
 			panic(err)
