@@ -357,13 +357,15 @@ func (b Cmd) ToCobraE() (*cobra.Command, error) {
 // This is useful when you want proper error propagation instead of os.Exit behavior.
 // All errors (from hooks like InitFunc, PreValidate, PreExecute, and RunFuncE) are
 // returned as errors rather than causing panics.
-// Note: Cobra will still print errors and usage by default. Use SilenceErrors/SilenceUsage
-// on the cobra command if you want to suppress that output.
+// Output is silenced by default since the caller is expected to handle errors programmatically.
+// To show usage/errors, set cmd.SilenceUsage = false in a PreValidate or PreExecute hook.
 func (b Cmd) RunE() error {
 	cmd, err := b.ToCobraE()
 	if err != nil {
 		return err
 	}
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
 	return cmd.Execute()
 }
 

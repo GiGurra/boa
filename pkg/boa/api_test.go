@@ -634,3 +634,87 @@ func TestNewUserInputErrorInHook(t *testing.T) {
 		t.Errorf("Expected error message about start port, got: %s", err.Error())
 	}
 }
+
+// TestRunEDoesNotPrintErrors verifies that RunE() returns errors without printing to stderr
+func TestRunEDoesNotPrintErrors(t *testing.T) {
+	type Params struct {
+		Name string `short:"n" required:"true"`
+	}
+
+	// Capture stderr
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+
+	// Run command that will produce a user input error (missing required param)
+	cmdErr := NewCmdT[Params]("test").
+		WithRunFuncE(func(p *Params) error {
+			return nil
+		}).
+		RunArgsE([]string{})
+
+	// Restore stderr and read captured output
+	w.Close()
+	os.Stderr = oldStderr
+	captured := make([]byte, 1024)
+	n, _ := r.Read(captured)
+	r.Close()
+
+	// Verify error was returned
+	if cmdErr == nil {
+		t.Fatal("Expected error for missing required param")
+	}
+	if !IsUserInputError(cmdErr) {
+		t.Errorf("Expected UserInputError, got: %T", cmdErr)
+	}
+
+	// Verify nothing was printed to stderr
+	if n > 0 {
+		t.Errorf("Expected no output to stderr when using RunE(), but got: %s", string(captured[:n]))
+	}
+}
+
+// TestRunEDoesNotPrintRuntimeErrors verifies that runtime errors from RunFuncE don't print to stderr
+func TestRunEDoesNotPrintRuntimeErrors(t *testing.T) {
+	type Params struct {
+		Name string `short:"n" default:"test"`
+	}
+
+	// Capture stderr
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+
+	// Run command that will return a runtime error
+	cmdErr := NewCmdT[Params]("test").
+		WithRunFuncE(func(p *Params) error {
+			return fmt.Errorf("something went wrong")
+		}).
+		RunArgsE([]string{})
+
+	// Restore stderr and read captured output
+	w.Close()
+	os.Stderr = oldStderr
+	captured := make([]byte, 1024)
+	n, _ := r.Read(captured)
+	r.Close()
+
+	// Verify error was returned
+	if cmdErr == nil {
+		t.Fatal("Expected error from RunFuncE")
+	}
+	if !strings.Contains(cmdErr.Error(), "something went wrong") {
+		t.Errorf("Expected error message 'something went wrong', got: %s", cmdErr.Error())
+	}
+
+	// Verify nothing was printed to stderr
+	if n > 0 {
+		t.Errorf("Expected no output to stderr when using RunE(), but got: %s", string(captured[:n]))
+	}
+}
