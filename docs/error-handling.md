@@ -4,12 +4,12 @@ BOA provides two execution modes with different error handling behaviors: `Run()
 
 ## Run() vs RunE()
 
-| Method | Setup Errors | Hook Errors | Runtime Errors |
-|--------|--------------|-------------|----------------|
-| `Run()` | Panic | Panic | Panic |
-| `RunE()` | Panic | Return | Return |
-| `RunArgs(args)` | Panic | Panic | Panic |
-| `RunArgsE(args)` | Panic | Return | Return |
+| Method | Setup Errors | User Input Errors | Hook Errors | Runtime Errors |
+|--------|--------------|-------------------|-------------|----------------|
+| `Run()` | Panic | Exit(1) | Exit(1) | Panic |
+| `RunE()` | Panic | Return | Return | Return |
+| `RunArgs(args)` | Panic | Exit(1) | Exit(1) | Panic |
+| `RunArgsE(args)` | Panic | Return | Return | Return |
 
 **Setup Errors** are programming mistakes that should be caught during development - they always panic regardless of whether you use `Run()` or `RunE()`. This includes:
 
@@ -102,7 +102,7 @@ BOA provides error-returning variants of all run function types:
 
 ## Error Types
 
-BOA handles three categories of errors:
+BOA handles four categories of errors:
 
 ### 1. Setup Errors (Always Panic)
 
@@ -128,7 +128,44 @@ boa.CmdT[Params]{
 
 These should be caught during development and fixed in the source code.
 
-### 2. Hook Errors
+### 2. User Input Errors (Exit(1) with Run(), Return with RunE())
+
+These are errors caused by invalid user input at the CLI. When using `Run()`, these print an error message and exit cleanly (no stack trace). When using `RunE()`, they are returned for programmatic handling:
+
+- Missing required parameters
+- Invalid flag values (e.g., `--port abc` for an integer flag)
+- Unknown flags (e.g., `--unknown-flag`)
+- Invalid alternatives (enum validation failures)
+- Custom validator failures
+- Invalid environment variable values
+- Missing positional arguments
+
+```go
+type Params struct {
+    Name string `short:"n" required:"true"`
+    Mode string `default:"fast" alts:"fast,slow"`
+}
+
+// User runs: myapp --mode=invalid
+// Output: Error: invalid value for param 'mode': 'invalid' is not in the list of allowed values: [fast slow]
+// (exits with code 1, no panic/stack trace)
+```
+
+You can check if an error is a user input error using `boa.IsUserInputError(err)`:
+
+```go
+err := boa.NewCmdT[Params]("app").
+    WithRunFuncE(func(p *Params) error { return nil }).
+    RunArgsE([]string{"--invalid-flag"})
+
+if boa.IsUserInputError(err) {
+    // Handle user input error (e.g., show help)
+    fmt.Fprintf(os.Stderr, "Invalid input: %v\n", err)
+    os.Exit(1)
+}
+```
+
+### 3. Hook Errors
 
 These occur during the command lifecycle:
 
@@ -146,7 +183,7 @@ err := boa.NewCmdT[Params]("app").
 // err: "error in InitFunc: initialization failed"
 ```
 
-### 3. Runtime Errors
+### 4. Runtime Errors
 
 These occur during command execution from your `RunFuncE`:
 

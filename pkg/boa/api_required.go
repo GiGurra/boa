@@ -189,6 +189,19 @@ func (f *Required[T]) customValidatorOfPtr() func(any) error {
 	}
 }
 
+// SetCustomValidator sets a custom validation function for this parameter.
+// The function receives the value as `any` and should type-assert it to T.
+// Example: param.SetCustomValidator(func(v any) error { port := v.(int); ... })
+func (f *Required[T]) SetCustomValidator(validator func(any) error) {
+	if validator == nil {
+		f.CustomValidator = nil
+		return
+	}
+	f.CustomValidator = func(val T) error {
+		return validator(val)
+	}
+}
+
 func (f *Required[T]) wasSetOnCli() bool {
 	if f.Positional {
 		return f.wasSetPositionally()

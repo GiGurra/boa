@@ -425,3 +425,212 @@ func TestProgrammaticStrictAlts(t *testing.T) {
 		t.Errorf("Expected no error for programmatic non-strict alts, got: %v", err)
 	}
 }
+
+// TestUserInputErrorType verifies that user input validation errors are wrapped as UserInputError
+func TestUserInputErrorType(t *testing.T) {
+	type Params struct {
+		Name string `short:"n" required:"true"`
+	}
+
+	// Test missing required param returns UserInputError
+	err := NewCmdT[Params]("test").WithRawArgs([]string{}).Validate()
+	if err == nil {
+		t.Fatal("Expected error for missing required param")
+	}
+	if !IsUserInputError(err) {
+		t.Errorf("Expected UserInputError for missing required param, got: %T", err)
+	}
+	if !strings.Contains(err.Error(), "missing required param") {
+		t.Errorf("Expected error message to contain 'missing required param', got: %s", err.Error())
+	}
+}
+
+func TestUserInputErrorInvalidAlternatives(t *testing.T) {
+	type Params struct {
+		Mode string `short:"m" default:"a" alts:"a,b,c"`
+	}
+
+	// Test invalid alternative returns UserInputError
+	err := NewCmdT[Params]("test").WithRawArgs([]string{"-m", "invalid"}).Validate()
+	if err == nil {
+		t.Fatal("Expected error for invalid alternative")
+	}
+	if !IsUserInputError(err) {
+		t.Errorf("Expected UserInputError for invalid alternative, got: %T", err)
+	}
+	if !strings.Contains(err.Error(), "not in the list of allowed values") {
+		t.Errorf("Expected error message to contain 'not in the list of allowed values', got: %s", err.Error())
+	}
+}
+
+func TestUserInputErrorCustomValidator(t *testing.T) {
+	type Params struct {
+		Port int `short:"p" required:"true"`
+	}
+
+	// Test custom validator error returns UserInputError
+	err := NewCmdT[Params]("test").
+		WithRawArgs([]string{"-p", "-1"}).
+		WithInitFuncCtx(func(ctx *HookContext, p *Params, cmd *cobra.Command) error {
+			ctx.GetParam(&p.Port).SetCustomValidator(func(v any) error {
+				if v.(int) < 0 {
+					return fmt.Errorf("port must be non-negative")
+				}
+				return nil
+			})
+			return nil
+		}).
+		Validate()
+	if err == nil {
+		t.Fatal("Expected error for invalid port")
+	}
+	if !IsUserInputError(err) {
+		t.Errorf("Expected UserInputError for custom validator failure, got: %T", err)
+	}
+	if !strings.Contains(err.Error(), "port must be non-negative") {
+		t.Errorf("Expected error message to contain 'port must be non-negative', got: %s", err.Error())
+	}
+}
+
+func TestUserInputErrorInvalidEnvValue(t *testing.T) {
+	type Params struct {
+		Port int `short:"p" env:"TEST_PORT_INVALID" required:"true"`
+	}
+
+	// Set an invalid env value
+	os.Setenv("TEST_PORT_INVALID", "not-a-number")
+	defer os.Unsetenv("TEST_PORT_INVALID")
+
+	err := NewCmdT[Params]("test").WithRawArgs([]string{}).Validate()
+	if err == nil {
+		t.Fatal("Expected error for invalid env value")
+	}
+	if !IsUserInputError(err) {
+		t.Errorf("Expected UserInputError for invalid env value, got: %T", err)
+	}
+}
+
+func TestUserInputErrorMissingPositionalArg(t *testing.T) {
+	type Params struct {
+		File string `positional:"true" required:"true"`
+	}
+
+	err := NewCmdT[Params]("test").WithRawArgs([]string{}).Validate()
+	if err == nil {
+		t.Fatal("Expected error for missing positional arg")
+	}
+	if !IsUserInputError(err) {
+		t.Errorf("Expected UserInputError for missing positional arg, got: %T", err)
+	}
+	// Cobra returns its own error message for missing positional args
+	if !strings.Contains(err.Error(), "accepts between") && !strings.Contains(err.Error(), "missing positional arg") {
+		t.Errorf("Expected error message about missing positional args, got: %s", err.Error())
+	}
+}
+
+func TestUserInputErrorUnwrap(t *testing.T) {
+	// Verify that UserInputError properly implements error unwrapping
+	innerErr := fmt.Errorf("inner error")
+	uie := &UserInputError{Err: innerErr}
+
+	if uie.Error() != "inner error" {
+		t.Errorf("Expected error message 'inner error', got: %s", uie.Error())
+	}
+	if uie.Unwrap() != innerErr {
+		t.Errorf("Expected Unwrap to return inner error")
+	}
+}
+
+func TestIsUserInputError(t *testing.T) {
+	// Test with direct UserInputError
+	uie := &UserInputError{Err: fmt.Errorf("test error")}
+	if !IsUserInputError(uie) {
+		t.Error("Expected IsUserInputError to return true for UserInputError")
+	}
+
+	// Test with wrapped UserInputError
+	wrapped := fmt.Errorf("wrapped: %w", uie)
+	if !IsUserInputError(wrapped) {
+		t.Error("Expected IsUserInputError to return true for wrapped UserInputError")
+	}
+
+	// Test with regular error
+	regularErr := fmt.Errorf("regular error")
+	if IsUserInputError(regularErr) {
+		t.Error("Expected IsUserInputError to return false for regular error")
+	}
+
+	// Test with nil
+	if IsUserInputError(nil) {
+		t.Error("Expected IsUserInputError to return false for nil")
+	}
+}
+
+// TestInvalidFlagValueFromCobra tests that invalid flag values
+// from Cobra/pflag are detected as UserInputError
+func TestInvalidFlagValueFromCobra(t *testing.T) {
+	type Params struct {
+		Port int `short:"p" required:"true"`
+	}
+
+	// Invalid integer value - this error comes from pflag
+	err := NewCmdT[Params]("test").WithRawArgs([]string{"-p", "not-a-number"}).Validate()
+	if err == nil {
+		t.Fatal("Expected error for invalid integer flag value")
+	}
+	// pflag returns InvalidValueError which IsUserInputError should detect
+	if !IsUserInputError(err) {
+		t.Errorf("Expected IsUserInputError to return true for pflag InvalidValueError, got: %T - %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "invalid") {
+		t.Errorf("Expected error message to mention invalid value, got: %s", err.Error())
+	}
+}
+
+// TestUnknownFlagFromCobra tests that unknown flags from Cobra/pflag are detected as UserInputError
+func TestUnknownFlagFromCobra(t *testing.T) {
+	type Params struct {
+		Name string `short:"n" default:"test"`
+	}
+
+	err := NewCmdT[Params]("test").WithRawArgs([]string{"--unknown-flag"}).Validate()
+	if err == nil {
+		t.Fatal("Expected error for unknown flag")
+	}
+	// pflag returns NotExistError which IsUserInputError should detect
+	if !IsUserInputError(err) {
+		t.Errorf("Expected IsUserInputError to return true for pflag NotExistError, got: %T - %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "unknown flag") {
+		t.Errorf("Expected error message to mention unknown flag, got: %s", err.Error())
+	}
+}
+
+// TestNewUserInputErrorInHook tests that users can return UserInputError from hooks
+func TestNewUserInputErrorInHook(t *testing.T) {
+	type Params struct {
+		StartPort int `short:"s" required:"true"`
+		EndPort   int `short:"e" required:"true"`
+	}
+
+	// Use PreValidateFunc to do cross-field validation
+	err := NewCmdT[Params]("test").
+		WithRawArgs([]string{"-s", "8080", "-e", "80"}).
+		WithPreValidateFuncE(func(p *Params, cmd *cobra.Command, args []string) error {
+			if p.StartPort > p.EndPort {
+				return NewUserInputErrorf("start port (%d) must be less than end port (%d)", p.StartPort, p.EndPort)
+			}
+			return nil
+		}).
+		Validate()
+
+	if err == nil {
+		t.Fatal("Expected error for invalid port range")
+	}
+	if !IsUserInputError(err) {
+		t.Errorf("Expected UserInputError from PreValidateFunc, got: %T", err)
+	}
+	if !strings.Contains(err.Error(), "start port") {
+		t.Errorf("Expected error message about start port, got: %s", err.Error())
+	}
+}

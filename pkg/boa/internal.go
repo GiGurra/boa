@@ -2,6 +2,7 @@ package boa
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -16,7 +17,83 @@ import (
 	"unsafe"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
+
+// UserInputError wraps errors caused by invalid user input (missing required
+// params, invalid flag values, etc.). These errors should result in a clean
+// exit with error message rather than a panic with stack trace.
+type UserInputError struct {
+	Err error
+}
+
+func (e *UserInputError) Error() string {
+	return e.Err.Error()
+}
+
+func (e *UserInputError) Unwrap() error {
+	return e.Err
+}
+
+// NewUserInputError wraps an error as a UserInputError.
+// Use this in hooks like PreValidateFunc when returning user input validation errors
+// to ensure they result in a clean exit (no stack trace) when using Run().
+func NewUserInputError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &UserInputError{Err: err}
+}
+
+// NewUserInputErrorf creates a new UserInputError with a formatted message.
+// Use this in hooks like PreValidateFunc when returning user input validation errors
+// to ensure they result in a clean exit (no stack trace) when using Run().
+func NewUserInputErrorf(format string, args ...any) error {
+	return &UserInputError{Err: fmt.Errorf(format, args...)}
+}
+
+// internal aliases for backwards compatibility within the package
+var newUserInputError = NewUserInputError
+var newUserInputErrorf = NewUserInputErrorf
+
+// IsUserInputError checks if an error is (or wraps) a UserInputError
+// or is one of pflag's known validation error types
+func IsUserInputError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for our custom UserInputError
+	var uie *UserInputError
+	if errors.As(err, &uie) {
+		return true
+	}
+
+	// Check for pflag validation error types
+	var invalidSyntax *pflag.InvalidSyntaxError
+	var invalidValue *pflag.InvalidValueError
+	var notExist *pflag.NotExistError
+	var valueRequired *pflag.ValueRequiredError
+
+	if errors.As(err, &invalidSyntax) ||
+		errors.As(err, &invalidValue) ||
+		errors.As(err, &notExist) ||
+		errors.As(err, &valueRequired) {
+		return true
+	}
+
+	return false
+}
+
+// wrapArgsValidator wraps a cobra.PositionalArgs validator to return UserInputError
+func wrapArgsValidator(validator cobra.PositionalArgs) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if err := validator(cmd, args); err != nil {
+			return newUserInputError(err)
+		}
+		return nil
+	}
+}
 
 type Param interface {
 	HasValue() bool
@@ -39,6 +116,7 @@ type Param interface {
 	wasSetByEnv() bool
 	wasSetByInject() bool
 	customValidatorOfPtr() func(any) error
+	SetCustomValidator(func(any) error)
 	hasDefaultValue() bool
 	defaultValueStr() string
 	setParentCmd(cmd *cobra.Command)
@@ -75,7 +153,7 @@ type processingContext struct {
 
 func parseEnv(ctx *processingContext, structPtr any) error {
 
-	return traverse(ctx, structPtr, func(param Param, _ string, _ reflect.StructTag) error {
+	err := traverse(ctx, structPtr, func(param Param, _ string, _ reflect.StructTag) error {
 
 		if !param.IsEnabled() {
 			return nil
@@ -87,11 +165,12 @@ func parseEnv(ctx *processingContext, structPtr any) error {
 
 		return nil
 	}, nil)
+	return newUserInputError(err)
 }
 
 func validate(ctx *processingContext, structPtr any) error {
 
-	return traverse(ctx, structPtr, func(param Param, _ string, _ reflect.StructTag) error {
+	err := traverse(ctx, structPtr, func(param Param, _ string, _ reflect.StructTag) error {
 
 		if !param.IsEnabled() {
 			return nil
@@ -191,6 +270,7 @@ func validate(ctx *processingContext, structPtr any) error {
 
 		return nil
 	}, nil)
+	return newUserInputError(err)
 }
 
 func ptrToAnyToString(ptr any) string {
@@ -212,12 +292,12 @@ func doParsePositional(f Param, strVal string) error {
 		if f.hasDefaultValue() || f.wasSetByEnv() {
 			return nil
 		} else {
-			return fmt.Errorf("empty positional arg: %s", f.GetName())
+			return newUserInputErrorf("empty positional arg: %s", f.GetName())
 		}
 	}
 
 	if err := readFrom(f, strVal); err != nil {
-		return err
+		return newUserInputError(err)
 	}
 
 	f.markSetPositionally()
@@ -357,7 +437,7 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 						f.setValuePtr(f.defaultValuePtr())
 						return nil
 					} else {
-						return fmt.Errorf("missing positional arg '%s'", f.GetName())
+						return newUserInputErrorf("missing positional arg '%s'", f.GetName())
 					}
 				} else {
 					return nil
@@ -1160,7 +1240,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			if toInit, ok := b.Params.(CfgStructInit); ok {
 				err := toInit.Init()
 				if err != nil {
-					return fmt.Errorf("error in CfgStructInit.Init(): %s", err.Error())
+					return fmt.Errorf("error in CfgStructInit.Init(): %w", err)
 				}
 			}
 			// context-aware interface
@@ -1168,7 +1248,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 				hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
 				err := toInitCtx.InitCtx(hookCtx)
 				if err != nil {
-					return fmt.Errorf("error in CfgStructInitCtx.InitCtx(): %s", err.Error())
+					return fmt.Errorf("error in CfgStructInitCtx.InitCtx(): %w", err)
 				}
 			}
 			return nil
@@ -1182,7 +1262,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 	if b.InitFunc != nil {
 		err := b.InitFunc(b.Params, cmd)
 		if err != nil {
-			return nil, nil, fmt.Errorf("error in InitFunc: %s", err.Error())
+			return nil, nil, fmt.Errorf("error in InitFunc: %w", err)
 		}
 	}
 
@@ -1191,7 +1271,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 		hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
 		err := b.InitFuncCtx(hookCtx, b.Params, cmd)
 		if err != nil {
-			return nil, nil, fmt.Errorf("error in InitFuncCtx: %s", err.Error())
+			return nil, nil, fmt.Errorf("error in InitFuncCtx: %w", err)
 		}
 	}
 
@@ -1354,9 +1434,9 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 
 		if cmd.Args == nil {
 			if allowArbitraryNumPositional {
-				cmd.Args = cobra.MinimumNArgs(numReqPositional)
+				cmd.Args = wrapArgsValidator(cobra.MinimumNArgs(numReqPositional))
 			} else {
-				cmd.Args = cobra.RangeArgs(numReqPositional, len(positional))
+				cmd.Args = wrapArgsValidator(cobra.RangeArgs(numReqPositional, len(positional)))
 			}
 		}
 
@@ -1374,26 +1454,26 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 		// if b.Params implements CfgStructPostCreate, call it
 		if postCreate, ok := b.Params.(CfgStructPostCreate); ok {
 			if err := postCreate.PostCreate(); err != nil {
-				return nil, nil, fmt.Errorf("error in CfgStructPostCreate.PostCreate(): %s", err.Error())
+				return nil, nil, fmt.Errorf("error in CfgStructPostCreate.PostCreate(): %w", err)
 			}
 		}
 		if postCreateCtx, ok := b.Params.(CfgStructPostCreateCtx); ok {
 			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
 			if err := postCreateCtx.PostCreateCtx(hookCtx); err != nil {
-				return nil, nil, fmt.Errorf("error in CfgStructPostCreateCtx.PostCreateCtx(): %s", err.Error())
+				return nil, nil, fmt.Errorf("error in CfgStructPostCreateCtx.PostCreateCtx(): %w", err)
 			}
 		}
 		if b.PostCreateFunc != nil {
 			err := b.PostCreateFunc(b.Params, cmd)
 			if err != nil {
-				return nil, nil, fmt.Errorf("error in PostCreateFunc: %s", err.Error())
+				return nil, nil, fmt.Errorf("error in PostCreateFunc: %w", err)
 			}
 		}
 		if b.PostCreateFuncCtx != nil {
 			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
 			err := b.PostCreateFuncCtx(hookCtx, b.Params, cmd)
 			if err != nil {
-				return nil, nil, fmt.Errorf("error in PostCreateFuncCtx: %s", err.Error())
+				return nil, nil, fmt.Errorf("error in PostCreateFuncCtx: %w", err)
 			}
 		}
 		if err != nil {
@@ -1417,7 +1497,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 				if s, ok := innerParams.(CfgStructPreValidate); ok {
 					err := s.PreValidate()
 					if err != nil {
-						return fmt.Errorf("error in PreValidate: %s", err.Error())
+						return fmt.Errorf("error in PreValidate: %w", err)
 					}
 				}
 				// context-aware interface
@@ -1425,7 +1505,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 					hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
 					err := s.PreValidateCtx(hookCtx)
 					if err != nil {
-						return fmt.Errorf("error in PreValidateCtx: %s", err.Error())
+						return fmt.Errorf("error in PreValidateCtx: %w", err)
 					}
 				}
 				return nil
@@ -1438,7 +1518,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			if b.PreValidateFunc != nil {
 				err := b.PreValidateFunc(b.Params, cmd, args)
 				if err != nil {
-					return fmt.Errorf("error in PreValidate: %s", err.Error())
+					return fmt.Errorf("error in PreValidateFunc: %w", err)
 				}
 			}
 
@@ -1447,7 +1527,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 				hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
 				err := b.PreValidateFuncCtx(hookCtx, b.Params, cmd, args)
 				if err != nil {
-					return fmt.Errorf("error in PreValidateFuncCtx: %s", err.Error())
+					return fmt.Errorf("error in PreValidateFuncCtx: %w", err)
 				}
 			}
 
@@ -1465,7 +1545,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 				if preExecute, ok := innerParams.(CfgStructPreExecute); ok {
 					err := preExecute.PreExecute()
 					if err != nil {
-						return fmt.Errorf("error in PreExecute: %s", err.Error())
+						return fmt.Errorf("error in PreExecute: %w", err)
 					}
 				}
 				// context-aware interface
@@ -1473,7 +1553,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 					hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
 					err := preExecuteCtx.PreExecuteCtx(hookCtx)
 					if err != nil {
-						return fmt.Errorf("error in PreExecuteCtx: %s", err.Error())
+						return fmt.Errorf("error in PreExecuteCtx: %w", err)
 					}
 				}
 				return nil
@@ -1486,7 +1566,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			if b.PreExecuteFunc != nil {
 				err := b.PreExecuteFunc(b.Params, cmd, args)
 				if err != nil {
-					return fmt.Errorf("error in PreExecuteFunc: %s", err.Error())
+					return fmt.Errorf("error in PreExecuteFunc: %w", err)
 				}
 			}
 
@@ -1495,7 +1575,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 				hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
 				err := b.PreExecuteFuncCtx(hookCtx, b.Params, cmd, args)
 				if err != nil {
-					return fmt.Errorf("error in PreExecuteFuncCtx: %s", err.Error())
+					return fmt.Errorf("error in PreExecuteFuncCtx: %w", err)
 				}
 			}
 
@@ -1527,7 +1607,8 @@ func (b Cmd) validateRunFuncs() error {
 	return nil
 }
 
-// toCobraImpl converts a Cmd to a cobra.Command using cmd.Run (panics on error).
+// toCobraImpl converts a Cmd to a cobra.Command.
+// Always uses cmd.RunE internally so errors flow back through Execute() to runImpl().
 func (b Cmd) toCobraImpl() *cobra.Command {
 	if err := b.validateRunFuncs(); err != nil {
 		panic(err)
@@ -1537,26 +1618,27 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		panic(err)
 	}
 
-	// Set the Run function based on which variant is configured
+	// Always use RunE so errors flow back through Execute() to runImpl()
+	// This ensures consistent error handling (UserInputError -> exit(1), others -> panic)
 	if b.RunFunc != nil {
-		cmd.Run = b.RunFunc
+		cmd.RunE = func(cmd *cobra.Command, args []string) error {
+			b.RunFunc(cmd, args)
+			return nil
+		}
 	} else if b.RunFuncCtx != nil {
-		cmd.Run = func(cmd *cobra.Command, args []string) {
+		cmd.RunE = func(cmd *cobra.Command, args []string) error {
 			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
 			b.RunFuncCtx(hookCtx, cmd, args)
+			return nil
 		}
 	} else if b.RunFuncE != nil {
-		cmd.Run = func(cmd *cobra.Command, args []string) {
-			if err := b.RunFuncE(cmd, args); err != nil {
-				panic(err)
-			}
+		cmd.RunE = func(cmd *cobra.Command, args []string) error {
+			return b.RunFuncE(cmd, args)
 		}
 	} else if b.RunFuncCtxE != nil {
-		cmd.Run = func(cmd *cobra.Command, args []string) {
+		cmd.RunE = func(cmd *cobra.Command, args []string) error {
 			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
-			if err := b.RunFuncCtxE(hookCtx, cmd, args); err != nil {
-				panic(err)
-			}
+			return b.RunFuncCtxE(hookCtx, cmd, args)
 		}
 	}
 
@@ -1656,6 +1738,12 @@ func runImpl(cmd *cobra.Command, handler ResultHandler) {
 		if handler.Failure != nil {
 			handler.Failure(err)
 		} else {
+			// For expected user input errors (missing required params, invalid values, etc.),
+			// exit cleanly since Cobra has already printed the error message.
+			// Only panic for unexpected errors (programming errors, runtime failures).
+			if IsUserInputError(err) {
+				os.Exit(1)
+			}
 			panic(err)
 		}
 	} else {
