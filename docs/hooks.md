@@ -199,6 +199,44 @@ The `HookContext` provides access to parameter mirrors for advanced configuratio
 - `HasValue(fieldPtr any) bool` - Check if a parameter has a value
 - `AllMirrors() []Param` - Get all auto-generated parameter mirrors
 
+### Typed Parameter Access
+
+For type-safe parameter configuration, use `boa.GetParamT[T]()` to get a typed view:
+
+```go
+func (c *ServerConfig) InitCtx(ctx *boa.HookContext) error {
+    // Type-safe: SetDefaultT takes int, SetCustomValidatorT takes func(int) error
+    portParam := boa.GetParamT(ctx, &c.Port)
+    portParam.SetDefaultT(8080)
+    portParam.SetCustomValidatorT(func(port int) error {
+        if port < 1 || port > 65535 {
+            return fmt.Errorf("port must be between 1 and 65535")
+        }
+        return nil
+    })
+    return nil
+}
+```
+
+The `ParamT[T]` interface provides both typed and pass-through methods:
+
+| Typed Methods | Description |
+|---------------|-------------|
+| `SetDefaultT(T)` | Set default value with type safety |
+| `SetCustomValidatorT(func(T) error)` | Set typed validation function |
+
+| Pass-through Methods | Description |
+|---------------------|-------------|
+| `SetAlternatives([]string)` | Set allowed values |
+| `SetStrictAlts(bool)` | Enable/disable strict validation |
+| `SetAlternativesFunc(...)` | Set dynamic completion function |
+| `SetEnv(string)` | Set environment variable |
+| `SetShort(string)` | Set short flag |
+| `SetName(string)` | Set flag name |
+| `SetIsEnabledFn(func() bool)` | Dynamic visibility |
+| `SetRequiredFn(func() bool)` | Dynamic required condition |
+| `Param()` | Access underlying untyped Param |
+
 ### Example: Programmatic Configuration
 
 ```go

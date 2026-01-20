@@ -433,7 +433,8 @@ func TestUserInputErrorType(t *testing.T) {
 	}
 
 	// Test missing required param returns UserInputError
-	err := NewCmdT[Params]("test").WithRawArgs([]string{}).Validate()
+	// Use ParamEnricherName to avoid env var interference (e.g., NAME env var)
+	err := NewCmdT[Params]("test").WithParamEnrich(ParamEnricherName).WithRawArgs([]string{}).Validate()
 	if err == nil {
 		t.Fatal("Expected error for missing required param")
 	}
@@ -715,7 +716,8 @@ func TestErrorHandlingTable(t *testing.T) {
 			os.Stderr = w
 
 			// Build command based on error type
-			cmd := NewCmdT[Params]("test")
+			// Use ParamEnricherName to avoid env var interference (e.g., NAME env var)
+			cmd := NewCmdT[Params]("test").WithParamEnrich(ParamEnricherName)
 
 			switch tc.errorType {
 			case "UserInput":

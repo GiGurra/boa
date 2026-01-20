@@ -52,6 +52,108 @@ Every parameter (whether using struct tags or programmatic configuration) implem
 | `IsRequired() bool` | Check if required |
 | `IsEnabled() bool` | Check if visible |
 
+## Typed Parameter API (ParamT)
+
+For type-safe parameter configuration, use `boa.GetParamT[T]()` instead of `GetParam()`. This returns a `ParamT[T]` interface with typed methods:
+
+=== "Direct API"
+
+    ```go
+    type Params struct {
+        Port int    `descr:"Server port"`
+        Host string `descr:"Server host"`
+    }
+
+    boa.CmdT[Params]{
+        Use: "server",
+        InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+            // Type-safe: compiler ensures correct types
+            portParam := boa.GetParamT(ctx, &p.Port)
+            portParam.SetDefaultT(8080)  // Takes int, not any
+            portParam.SetCustomValidatorT(func(port int) error {
+                if port < 1 || port > 65535 {
+                    return fmt.Errorf("port must be between 1 and 65535")
+                }
+                return nil
+            })
+
+            hostParam := boa.GetParamT(ctx, &p.Host)
+            hostParam.SetDefaultT("localhost")  // Takes string
+            hostParam.SetAlternatives([]string{"localhost", "0.0.0.0"})
+
+            return nil
+        },
+    }
+    ```
+
+=== "Builder API"
+
+    ```go
+    type Params struct {
+        Port int    `descr:"Server port"`
+        Host string `descr:"Server host"`
+    }
+
+    boa.NewCmdT[Params]("server").
+        WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+            // Type-safe: compiler ensures correct types
+            portParam := boa.GetParamT(ctx, &p.Port)
+            portParam.SetDefaultT(8080)  // Takes int, not any
+            portParam.SetCustomValidatorT(func(port int) error {
+                if port < 1 || port > 65535 {
+                    return fmt.Errorf("port must be between 1 and 65535")
+                }
+                return nil
+            })
+
+            hostParam := boa.GetParamT(ctx, &p.Host)
+            hostParam.SetDefaultT("localhost")  // Takes string
+            hostParam.SetAlternatives([]string{"localhost", "0.0.0.0"})
+
+            return nil
+        })
+    ```
+
+### ParamT Methods
+
+The `ParamT[T]` interface provides typed methods plus all pass-through methods from `Param`:
+
+| Typed Methods | Description |
+|---------------|-------------|
+| `SetDefaultT(T)` | Set default value with compile-time type checking |
+| `SetCustomValidatorT(func(T) error)` | Set validation function that receives the typed value |
+
+| Pass-through Methods | Description |
+|---------------------|-------------|
+| `Param()` | Access the underlying untyped `Param` interface |
+| `SetAlternatives([]string)` | Set allowed values |
+| `SetStrictAlts(bool)` | Enable/disable strict validation |
+| `SetAlternativesFunc(...)` | Set dynamic completion function |
+| `SetEnv(string)` | Set environment variable |
+| `SetShort(string)` | Set short flag |
+| `SetName(string)` | Set flag name |
+| `SetIsEnabledFn(func() bool)` | Dynamic visibility |
+| `SetRequiredFn(func() bool)` | Dynamic required condition |
+
+### Conditional Requirements with ParamT
+
+```go
+type DeployParams struct {
+    Environment string `descr:"Target environment" default:"dev"`
+    ProdKey     string `descr:"Production API key" optional:"true"`
+}
+
+boa.NewCmdT[DeployParams]("deploy").
+    WithInitFuncCtx(func(ctx *boa.HookContext, p *DeployParams, cmd *cobra.Command) error {
+        // ProdKey is only required when deploying to production
+        prodKeyParam := boa.GetParamT(ctx, &p.ProdKey)
+        prodKeyParam.SetRequiredFn(func() bool {
+            return p.Environment == "prod"
+        })
+        return nil
+    })
+```
+
 ## Dynamic Shell Completion
 
 ### AlternativesFunc
