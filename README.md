@@ -110,22 +110,26 @@ Consider composing your own enricher if you don't want auto-generated env vars f
 
 ```go
 // Custom enricher without auto env vars
-boa.NewCmdT[Params]("cmd").WithParamEnrich(
-    boa.ParamEnricherCombine(
+boa.CmdT[Params]{
+    Use: "cmd",
+    ParamEnrich: boa.ParamEnricherCombine(
         boa.ParamEnricherName,
         boa.ParamEnricherShort,
         boa.ParamEnricherBool,
     ),
-)
+    // ...
+}
 
 // Or with prefixed env vars
-boa.NewCmdT[Params]("cmd").WithParamEnrich(
-    boa.ParamEnricherCombine(
+boa.CmdT[Params]{
+    Use: "cmd",
+    ParamEnrich: boa.ParamEnricherCombine(
         boa.ParamEnricherName,
         boa.ParamEnricherEnv,
         boa.ParamEnricherEnvPrefix("MYAPP"), // MY_PARAM → MYAPP_MY_PARAM
     ),
-)
+    // ...
+}
 ```
 
 ### Sub-commands
@@ -154,23 +158,28 @@ type OtherParams struct {
 }
 
 func main() {
-	boa.NewCmdT[boa.NoParams]("hello-world").
-		WithShort("a generic cli tool").
-		WithLong("A generic cli tool that has a longer description").
-		WithSubCmds(
-			boa.NewCmdT[SubParams]("subcommand1").
-				WithShort("a subcommand").
-				WithRunFunc(func(params *SubParams) {
+	boa.CmdT[boa.NoParams]{
+		Use:   "hello-world",
+		Short: "a generic cli tool",
+		Long:  "A generic cli tool that has a longer description",
+		SubCmds: boa.SubCmds(
+			boa.CmdT[SubParams]{
+				Use:   "subcommand1",
+				Short: "a subcommand",
+				RunFunc: func(params *SubParams, cmd *cobra.Command, args []string) {
 					fmt.Printf("Hello world from subcommand1 with params: %s, %d, %s, %s\n",
 						params.Foo, params.Bar, params.Path, params.Baz)
-				}),
-			boa.NewCmdT[OtherParams]("subcommand2").
-				WithShort("a subcommand").
-				WithRunFunc(func(params *OtherParams) {
+				},
+			},
+			boa.CmdT[OtherParams]{
+				Use:   "subcommand2",
+				Short: "another subcommand",
+				RunFunc: func(params *OtherParams, cmd *cobra.Command, args []string) {
 					fmt.Println("Hello world from subcommand2")
-				}),
-		).
-		Run()
+				},
+			},
+		),
+	}.Run()
 }
 ```
 
@@ -198,6 +207,7 @@ package main
 import (
 	"fmt"
 	"github.com/GiGurra/boa/pkg/boa"
+	"github.com/spf13/cobra"
 	"time"
 )
 
@@ -222,10 +232,11 @@ type Combined struct {
 }
 
 func main() {
-	boa.NewCmdT[Combined]("hello-world").
-		WithShort("a generic cli tool").
-		WithLong("A generic cli tool that has a longer description").
-		WithRunFunc(func(params *Combined) {
+	boa.CmdT[Combined]{
+		Use:   "hello-world",
+		Short: "a generic cli tool",
+		Long:  "A generic cli tool that has a longer description",
+		RunFunc: func(params *Combined, cmd *cobra.Command, args []string) {
 			fmt.Printf(
 				"Hello world with params: %s, %d, %s, %s, %s, %v\n",
 				params.Base.Foo,  // string
@@ -235,8 +246,8 @@ func main() {
 				params.FB,        // string
 				params.Time,      // time.Time
 			)
-		}).
-		Run()
+		},
+	}.Run()
 }
 ```
 
@@ -262,20 +273,21 @@ type Params struct {
 }
 
 func main() {
-	boa.NewCmdT[Params]("hello-world").
-		WithShort("a generic cli tool").
-		WithLong("A generic cli tool that has a longer description").
-		WithInitFunc2E(func(params *Params, cmd *cobra.Command) error {
+	boa.CmdT[Params]{
+		Use:   "hello-world",
+		Short: "a generic cli tool",
+		Long:  "A generic cli tool that has a longer description",
+		InitFunc: func(params *Params, cmd *cobra.Command) error {
 			cmd.Deprecated = "this command is deprecated"
 			return nil
-		}).
-		WithRunFunc(func(params *Params) {
+		},
+		RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
 			fmt.Printf("Hello world with params: %s, %s\n",
 				params.Baz,
 				params.FB,
 			)
-		}).
-		Run()
+		},
+	}.Run()
 }
 ```
 
@@ -300,9 +312,10 @@ type Params struct {
 }
 
 func main() {
-	boa.NewCmdT[Params]("hello-world").
-		WithShort("a generic cli tool").
-		WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+	boa.CmdT[Params]{
+		Use:   "hello-world",
+		Short: "a generic cli tool",
+		InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
 			// FilePath is required when Mode is "file"
 			ctx.GetParam(&p.FilePath).SetRequiredFn(func() bool {
 				return p.Mode == "file"
@@ -314,11 +327,11 @@ func main() {
 			})
 
 			return nil
-		}).
-		WithRunFunc(func(params *Params) {
+		},
+		RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
 			fmt.Printf("Hello World! Mode=%s\n", params.Mode)
-		}).
-		Run()
+		},
+	}.Run()
 }
 ```
 
@@ -345,42 +358,6 @@ type Params struct {
 }
 ```
 
-### Fluent builder API
-
-A structured builder API is available for more complex command creation:
-
-```go
-package main
-
-import (
-	"fmt"
-	"github.com/GiGurra/boa/pkg/boa"
-)
-
-type Params struct {
-	Flag1 string
-	Flag2 int
-}
-
-func main() {
-	cmd := boa.NewCmdT[Params]("my-command").
-		WithShort("A command description").
-		WithLong("A longer command description").
-		WithRunFunc(func(params *Params) {
-			fmt.Printf("Running with: %s, %d\n",
-				params.Flag1,
-				params.Flag2,
-			)
-		}).
-		WithSubCmds(
-			boa.NewCmdT[Params]("subcommand1"),
-			//...etc
-		)
-
-	cmd.Run()
-}
-```
-
 ### Config file serialization and configuration
 
 ```go
@@ -398,27 +375,28 @@ type AppConfig struct {
 }
 
 type ConfigFromFile struct {
-	File string `descr:"config file path"`
+	File string `descr:"config file path" optional:"true"`
 	AppConfig
 }
 
 func main() {
-	boa.NewCmdT[ConfigFromFile]("my-app").
-		WithPreValidateFuncCtx(func(ctx *boa.HookContext, params *ConfigFromFile, cmd *cobra.Command, args []string) error {
+	boa.CmdT[ConfigFromFile]{
+		Use: "my-app",
+		PreValidateFuncCtx: func(ctx *boa.HookContext, params *ConfigFromFile, cmd *cobra.Command, args []string) error {
 			// Load configuration from file if provided
 			// boa.UnMarshalFromFileParam is a helper to unmarshal from a file
 			// CLI and env var values take precedence over file values
 			fileParam := ctx.GetParam(&params.File)
 			return boa.UnMarshalFromFileParam(fileParam, &params.AppConfig, nil)
-		}).
-		WithRunFunc(func(params *ConfigFromFile) {
+		},
+		RunFunc: func(params *ConfigFromFile, cmd *cobra.Command, args []string) {
 			// Use parameters loaded from the file
 			fmt.Printf("Host: %s, Port: %d\n",
 				params.Host,
 				params.Port,
 			)
-		}).
-		Run()
+		},
+	}.Run()
 }
 ```
 
@@ -468,22 +446,15 @@ func (i *MyConfigStruct) Init() error {
 	return nil
 }
 
-// Alternatively, use the InitFunc in Cmd
+// Alternatively, use the InitFunc field in CmdT
 func main() {
-	boa.Cmd{
-		Params: &params,
-		InitFunc: func(params any) error {
+	boa.CmdT[MyConfigStruct]{
+		Use: "command",
+		InitFunc: func(params *MyConfigStruct, cmd *cobra.Command) error {
 			// Custom initialization logic
 			return nil
 		},
 	}.Run()
-
-	// Or with the builder API
-	boa.NewCmdT[MyConfigStruct]("command").
-		WithInitFuncE(func(params *MyConfigStruct) error {
-			// Custom initialization logic
-			return nil
-		})
 }
 
 ```
@@ -502,15 +473,17 @@ import (
 )
 
 func main() {
-	boa.NewCmdT[MyConfigStruct]("command").
-		WithPostCreateFuncCtx(func(ctx *boa.HookContext, params *MyConfigStruct, cmd *cobra.Command) error {
+	boa.CmdT[MyConfigStruct]{
+		Use: "command",
+		PostCreateFuncCtx: func(ctx *boa.HookContext, params *MyConfigStruct, cmd *cobra.Command) error {
 			// Cobra flags are now available
 			flag := cmd.Flags().Lookup("my-flag")
 			if flag != nil {
 				// Inspect or modify flag properties
 			}
 			return nil
-		})
+		},
+	}.Run()
 }
 ```
 
@@ -538,22 +511,15 @@ func (i *MyConfigStruct) PreValidate() error {
 	return nil
 }
 
-// Alternatively, use the PreValidateFunc in Cmd
+// Alternatively, use the PreValidateFunc field in CmdT
 func main() {
-	boa.Cmd{
-		Params: &params,
-		PreValidateFunc: func(params any, cmd *cobra.Command, args []string) error {
-			// Custom pre-validation logic
+	boa.CmdT[MyConfigStruct]{
+		Use: "command",
+		PreValidateFunc: func(params *MyConfigStruct, cmd *cobra.Command, args []string) error {
+			// Custom pre-validation logic, such as loading from config files
 			return nil
 		},
 	}.Run()
-
-	// Or with the builder API
-	boa.NewCmdT[MyConfigStruct]("command").
-		WithPreValidateFuncE(func(params *MyConfigStruct, cmd *cobra.Command, args []string) error {
-			// Custom pre-validation logic, such as loading from config files
-			return nil
-		})
 }
 ```
 
@@ -580,22 +546,15 @@ func (i *MyConfigStruct) PreExecute() error {
 	return nil
 }
 
-// Alternatively, use the PreExecuteFunc in Cmd
+// Alternatively, use the PreExecuteFunc field in CmdT
 func main() {
-	boa.Cmd{
-		Params: &params,
-		PreExecuteFunc: func(params any, cmd *cobra.Command, args []string) error {
+	boa.CmdT[MyConfigStruct]{
+		Use: "command",
+		PreExecuteFunc: func(params *MyConfigStruct, cmd *cobra.Command, args []string) error {
 			// Custom pre-execution logic
 			return nil
 		},
 	}.Run()
-
-	// Or with the builder API
-	boa.NewCmdT[MyConfigStruct]("command").
-		WithPreExecuteFuncE(func(params *MyConfigStruct, cmd *cobra.Command, args []string) error {
-			// Custom pre-execution logic
-			return nil
-		})
 }
 
 ```
@@ -669,11 +628,12 @@ func (c *ServerConfig) InitCtx(ctx *boa.HookContext) error {
 }
 
 func main() {
-	boa.NewCmdT[ServerConfig]("server").
-		WithRunFunc(func(params *ServerConfig) {
+	boa.CmdT[ServerConfig]{
+		Use: "server",
+		RunFunc: func(params *ServerConfig, cmd *cobra.Command, args []string) {
 			// Use params.Host, params.Port, params.LogLevel
-		}).
-		Run()
+		},
+	}.Run()
 }
 ```
 
@@ -698,32 +658,33 @@ type Config struct {
 }
 
 func main() {
-	boa.NewCmdT[Config]("app").
-		WithInitFuncCtx(func(ctx *boa.HookContext, params *Config, cmd *cobra.Command) error {
+	boa.CmdT[Config]{
+		Use: "app",
+		InitFuncCtx: func(ctx *boa.HookContext, params *Config, cmd *cobra.Command) error {
 			// Configure parameters programmatically
 			nameParam := ctx.GetParam(&params.Name)
 			nameParam.SetDefault(boa.Default("default-name"))
 			nameParam.SetShort("n")
 			nameParam.SetAlternatives([]string{"alice", "bob", "carol"})
 			return nil
-		}).
-		WithRunFunc(func(params *Config) {
+		},
+		RunFunc: func(params *Config, cmd *cobra.Command, args []string) {
 			// Use params
-		}).
-		Run()
+		},
+	}.Run()
 }
 ```
 
-Available function-based context hooks:
-- `WithInitFuncCtx` - During initialization
-- `WithPostCreateFuncCtx` - After cobra flags are created
-- `WithPreValidateFuncCtx` - After parsing, before validation
-- `WithPreExecuteFuncCtx` - After validation, before execution
-- `WithRunFuncCtx` / `WithRunFuncCtx4` - Command execution with HookContext access
+Available context hook fields in `CmdT`:
+- `InitFuncCtx` - During initialization
+- `PostCreateFuncCtx` - After cobra flags are created
+- `PreValidateFuncCtx` - After parsing, before validation
+- `PreExecuteFuncCtx` - After validation, before execution
+- `RunFuncCtx` - Command execution with HookContext access
 
 #### RunFuncCtx - Checking Parameter Sources at Runtime
 
-Use `WithRunFuncCtx` when you need to check whether optional parameters actually have a value, even if that explicitly is the go default zero value:
+Use `RunFuncCtx` when you need to check whether optional parameters actually have a value, even if that explicitly is the go default zero value:
 
 ```go
 package main
@@ -731,6 +692,7 @@ package main
 import (
 	"fmt"
 	"github.com/GiGurra/boa/pkg/boa"
+	"github.com/spf13/cobra"
 )
 
 type Params struct {
@@ -739,20 +701,21 @@ type Params struct {
 }
 
 func main() {
-	boa.NewCmdT[Params]("server").
-		WithRunFuncCtx(func(ctx *boa.HookContext, params *Params) {
+	boa.CmdT[Params]{
+		Use: "server",
+		RunFuncCtx: func(ctx *boa.HookContext, params *Params, cmd *cobra.Command, args []string) {
 			// Check if parameters have values (from CLI, env, default, or injection)
 			if ctx.HasValue(&params.Port) {
 				fmt.Printf("Starting server on %s:%d\n", params.Host, params.Port)
 			} else {
 				fmt.Printf("Starting server on %s (no port specified)\n", params.Host)
 			}
-		}).
-		Run()
+		},
+	}.Run()
 }
 ```
 
-Note: You cannot use both `WithRunFunc` and `WithRunFuncCtx` on the same command - choose one or the other.
+Note: You cannot use both `RunFunc` and `RunFuncCtx` on the same command - choose one or the other.
 
 ### Error-Returning Run Functions (RunFuncE)
 
@@ -764,6 +727,7 @@ package main
 import (
 	"fmt"
 	"github.com/GiGurra/boa/pkg/boa"
+	"github.com/spf13/cobra"
 )
 
 type Params struct {
@@ -771,15 +735,16 @@ type Params struct {
 }
 
 func main() {
-	err := boa.NewCmdT[Params]("process").
-		WithRunFuncE(func(params *Params) error {
+	err := boa.CmdT[Params]{
+		Use: "process",
+		RunFuncE: func(params *Params, cmd *cobra.Command, args []string) error {
 			if params.File == "" {
 				return fmt.Errorf("file cannot be empty")
 			}
 			// Process file...
 			return nil
-		}).
-		RunE() // Returns error instead of calling os.Exit
+		},
+	}.RunE() // Returns error instead of calling os.Exit
 
 	if err != nil {
 		fmt.Printf("Command failed: %v\n", err)
@@ -787,14 +752,12 @@ func main() {
 }
 ```
 
-#### Available Error-Returning Variants
+#### Available Error-Returning Fields
 
-| Builder Method | Signature |
-|----------------|-----------|
-| `WithRunFuncE` | `func(params *T) error` |
-| `WithRunFuncE3` | `func(params *T, cmd *cobra.Command, args []string) error` |
-| `WithRunFuncCtxE` | `func(ctx *HookContext, params *T) error` |
-| `WithRunFuncCtxE4` | `func(ctx *HookContext, params *T, cmd *cobra.Command, args []string) error` |
+| Field | Signature |
+|-------|-----------|
+| `RunFuncE` | `func(params *T, cmd *cobra.Command, args []string) error` |
+| `RunFuncCtxE` | `func(ctx *HookContext, params *T, cmd *cobra.Command, args []string) error` |
 
 #### Execution Methods
 
@@ -816,18 +779,20 @@ The two execution methods handle errors differently:
 
 ```go
 // With Run() - errors panic
-boa.NewCmdT[Params]("cmd").
-	WithRunFuncE(func(p *Params) error {
+boa.CmdT[Params]{
+	Use: "cmd",
+	RunFuncE: func(p *Params, cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("something went wrong")
-	}).
-	Run() // Panics with the error
+	},
+}.Run() // Panics with the error
 
 // With RunE() - errors are returned
-err := boa.NewCmdT[Params]("cmd").
-	WithRunFuncE(func(p *Params) error {
+err := boa.CmdT[Params]{
+	Use: "cmd",
+	RunFuncE: func(p *Params, cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("something went wrong")
-	}).
-	RunE() // err contains "something went wrong"
+	},
+}.RunE() // err contains "something went wrong"
 
 if err != nil {
 	// Handle error programmatically
@@ -847,6 +812,41 @@ This includes all error types:
   - Write testable command logic
   - Integrate with frameworks that expect error returns
   - Build commands that are called from other Go code
+
+## Builder API (Alternative)
+
+BOA also provides a fluent builder API as an alternative to the direct struct style. The builder API may be deprecated in a future release, so the direct API (shown throughout this README) is recommended for new projects.
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/GiGurra/boa/pkg/boa"
+)
+
+type Params struct {
+	Name string
+	Port int `optional:"true"`
+}
+
+func main() {
+	boa.NewCmdT[Params]("my-app").
+		WithShort("A CLI tool").
+		WithRunFunc(func(params *Params) {
+			fmt.Printf("Hello, %s!\n", params.Name)
+		}).
+		WithSubCmds(
+			boa.NewCmdT[Params]("sub").
+				WithRunFunc(func(params *Params) {
+					fmt.Println("Subcommand")
+				}),
+		).
+		Run()
+}
+```
+
+The builder API provides `With*` methods for all configuration options. Both APIs are functionally equivalent and produce identical CLI behavior.
 
 ## Migration Guide
 
@@ -888,11 +888,13 @@ params.Port.SetRequiredFn(func() bool { return params.Mode == "server" })
 **After:**
 ```go
 // Use HookContext in InitFuncCtx
-cmd := boa.NewCmdT[Params]("app").
-	WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+boa.CmdT[Params]{
+	Use: "app",
+	InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
 		ctx.GetParam(&p.Port).SetRequiredFn(func() bool { return p.Mode == "server" })
 		return nil
-	})
+	},
+}
 ```
 
 ## Legacy API (Deprecated)
