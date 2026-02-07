@@ -93,8 +93,8 @@ The `ParamEnrich` field controls parameter enrichment:
 
 | Value | Behavior |
 |-------|----------|
-| `nil` | Uses `ParamEnricherDefault` (enriches everything including env vars) |
-| `ParamEnricherDefault` | Explicit default: derives names, short flags, env vars, and bool defaults |
+| `nil` | Uses `ParamEnricherDefault` (derives names, short flags, and bool defaults) |
+| `ParamEnricherDefault` | Explicit default: derives names, short flags, and bool defaults |
 | `ParamEnricherNone` | No enrichment - you must specify everything via struct tags |
 
 `ParamEnricherDefault` includes:
@@ -103,24 +103,24 @@ The `ParamEnrich` field controls parameter enrichment:
 |----------|----------|
 | `ParamEnricherName` | Converts field name to kebab-case flag (e.g., `MyParam` → `--my-param`) |
 | `ParamEnricherShort` | Auto-assigns short flag from first character (skips `h` for help, avoids conflicts) |
-| `ParamEnricherEnv` | Generates env var from flag name (e.g., `--my-param` → `MY_PARAM`) |
 | `ParamEnricherBool` | Sets default `false` for boolean params without explicit defaults |
 
-Consider composing your own enricher if you don't want auto-generated env vars for every parameter:
+Environment variable binding is **not** included by default. Add `ParamEnricherEnv` explicitly:
 
 ```go
-// Custom enricher without auto env vars
+// Enable auto env vars
 boa.CmdT[Params]{
     Use: "cmd",
     ParamEnrich: boa.ParamEnricherCombine(
         boa.ParamEnricherName,
         boa.ParamEnricherShort,
+        boa.ParamEnricherEnv,
         boa.ParamEnricherBool,
     ),
     // ...
 }
 
-// Or with prefixed env vars
+// With prefixed env vars
 boa.CmdT[Params]{
     Use: "cmd",
     ParamEnrich: boa.ParamEnricherCombine(

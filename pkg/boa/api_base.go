@@ -188,12 +188,11 @@ var (
 	}
 
 	// ParamEnricherDefault is the default combination of enrichers applied to parameters.
-	// It includes name generation, short flag assignment, environment variable naming,
-	// and boolean default value assignment.
+	// It includes name generation, short flag assignment, and boolean default value assignment.
+	// Environment variable binding is NOT included by default - add ParamEnricherEnv explicitly if needed.
 	ParamEnricherDefault = ParamEnricherCombine(
 		ParamEnricherName,
 		ParamEnricherShort,
-		ParamEnricherEnv,
 		ParamEnricherBool,
 	)
 

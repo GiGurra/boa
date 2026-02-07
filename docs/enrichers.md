@@ -8,8 +8,8 @@ The `ParamEnrich` field controls which enricher is used:
 
 | Value | Behavior |
 |-------|----------|
-| `nil` | Uses `ParamEnricherDefault` (enriches everything including env vars) |
-| `ParamEnricherDefault` | Explicit default: derives names, short flags, env vars, and bool defaults |
+| `nil` | Uses `ParamEnricherDefault` (derives names, short flags, and bool defaults) |
+| `ParamEnricherDefault` | Explicit default: derives names, short flags, and bool defaults |
 | `ParamEnricherNone` | No enrichment - you must specify everything via struct tags |
 
 ## Default Behavior
@@ -20,8 +20,9 @@ By default (when `ParamEnrich` is `nil`), BOA applies `ParamEnricherDefault`, wh
 |----------|--------------|
 | `ParamEnricherName` | Converts `MyParam` → `--my-param` (kebab-case) |
 | `ParamEnricherShort` | Auto-assigns `-m` from first char (skips conflicts, reserves `-h`) |
-| `ParamEnricherEnv` | Generates `MY_PARAM` from flag name (UPPER_SNAKE_CASE) |
 | `ParamEnricherBool` | Sets `default: false` for boolean params |
+
+Note: Environment variable binding is **not** included by default. Add `ParamEnricherEnv` explicitly if you want auto-generated env vars.
 
 Example - this struct:
 
@@ -36,16 +37,16 @@ type Params struct {
 Automatically gets:
 
 ```
---server-host  (env: SERVER_HOST, required)
---max-retries  (env: MAX_RETRIES, required)
---verbose      (env: VERBOSE, default: false)
+--server-host  (required)
+--max-retries  (required)
+--verbose      (default: false)
 ```
 
 ## Custom Enrichers
 
 You can compose your own enricher to change the default behavior.
 
-### Disable Auto Env Vars
+### Enable Auto Env Vars
 
 === "Direct API"
 
@@ -55,6 +56,7 @@ You can compose your own enricher to change the default behavior.
         ParamEnrich: boa.ParamEnricherCombine(
             boa.ParamEnricherName,
             boa.ParamEnricherShort,
+            boa.ParamEnricherEnv,
             boa.ParamEnricherBool,
         ),
     }
@@ -67,6 +69,7 @@ You can compose your own enricher to change the default behavior.
         boa.ParamEnricherCombine(
             boa.ParamEnricherName,
             boa.ParamEnricherShort,
+            boa.ParamEnricherEnv,
             boa.ParamEnricherBool,
         ),
     )
@@ -157,7 +160,7 @@ type Params struct {
 
 | Enricher | Description |
 |----------|-------------|
-| `ParamEnricherDefault` | Combines Name + Short + Env + Bool |
+| `ParamEnricherDefault` | Combines Name + Short + Bool |
 | `ParamEnricherName` | Derives flag name from field name |
 | `ParamEnricherShort` | Auto-assigns short flags |
 | `ParamEnricherEnv` | Derives env var from flag name |
