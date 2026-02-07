@@ -1838,7 +1838,7 @@ func isSupportedType(t reflect.Type) bool {
 
 func newParam(field *reflect.StructField, t reflect.Type) Param {
 
-	required := true
+	required := !cfg.defaultOptional
 	if requiredTag, ok := field.Tag.Lookup("required"); ok {
 		switch requiredTag {
 		case "true":

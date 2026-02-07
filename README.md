@@ -87,6 +87,28 @@ Flags:
 For advanced programmatic configuration (setting defaults, alternatives, conditional requirements),
 see the [Context-Aware Hooks](#context-aware-hooks-hookcontext) section.
 
+### Global Configuration
+
+Use `boa.Init()` to configure global behavior before creating commands:
+
+```go
+func main() {
+    boa.Init(
+        boa.WithDefaultOptional(), // raw Go type fields default to optional instead of required
+    )
+
+    // Now string, int, etc. fields are optional unless explicitly tagged required:"true"
+    boa.CmdT[MyParams]{
+        Use: "my-app",
+        // ...
+    }.Run()
+}
+```
+
+Without `Init`, the default behavior is unchanged (raw fields are required). Explicit struct tags (`required`, `req`, `optional`, `opt`) and `Required[T]`/`Optional[T]` wrappers always take precedence.
+
+See [Global Configuration](https://gigurra.github.io/boa/global-config/) for details.
+
 ### Enrichers
 
 The `ParamEnrich` field controls parameter enrichment:
