@@ -20,7 +20,7 @@ func TestInitWithDefaultOptional(t *testing.T) {
 
 	Init(WithDefaultOptional())
 
-	// With defaultOptional, raw fields should not be required
+	// With defaultOptional, plain fields should not be required
 	err := CmdT[Params]{
 		Use:   "test",
 		Short: "test command",
@@ -39,7 +39,7 @@ func TestDefaultBehaviorWithoutInit(t *testing.T) {
 		Name string `descr:"a name"`
 	}
 
-	// Without Init, raw fields should be required (default behavior)
+	// Without Init, plain fields should be required (default behavior)
 	err := CmdT[Params]{
 		Use:   "test",
 		Short: "test command",

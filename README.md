@@ -94,7 +94,7 @@ Use `boa.Init()` to configure global behavior before creating commands:
 ```go
 func main() {
     boa.Init(
-        boa.WithDefaultOptional(), // raw Go type fields default to optional instead of required
+        boa.WithDefaultOptional(), // plain fields default to optional instead of required
     )
 
     // Now string, int, etc. fields are optional unless explicitly tagged required:"true"
@@ -105,7 +105,7 @@ func main() {
 }
 ```
 
-Without `Init`, the default behavior is unchanged (raw fields are required). Explicit struct tags (`required`, `req`, `optional`, `opt`) and `Required[T]`/`Optional[T]` wrappers always take precedence.
+Without `Init`, the default behavior is unchanged (fields are required). Explicit struct tags (`required`, `req`, `optional`, `opt`) and `Required[T]`/`Optional[T]` wrappers always take precedence.
 
 See [Global Configuration](https://gigurra.github.io/boa/global-config/) for details.
 

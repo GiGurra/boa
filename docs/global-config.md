@@ -22,9 +22,9 @@ func main() {
 
 ### `WithDefaultOptional()`
 
-By default, raw Go type fields (`string`, `int`, `bool`, etc.) in parameter structs are **required**. This means users must provide a value or the command will fail with a validation error.
+By default, plain Go type fields (`string`, `int`, `bool`, etc.) in parameter structs are **required**. This means users must provide a value or the command will fail with a validation error.
 
-`WithDefaultOptional()` changes this default so that raw Go type fields are **optional** instead. This is useful when most of your fields have sensible zero values and you only want to require a few specific ones.
+`WithDefaultOptional()` changes this default so that plain Go type fields are **optional** instead. This is useful when most of your fields have sensible zero values and you only want to require a few specific ones.
 
 ```go
 boa.Init(
@@ -42,7 +42,7 @@ Explicit annotations always take precedence over the global default:
 | `Optional[T]` wrapper | Always optional |
 | `required:"true"` / `req:"true"` tag | Always required |
 | `optional:"true"` / `opt:"true"` tag | Always optional |
-| Raw Go type (no tag) | Follows global default |
+| Plain Go type (no tag) | Follows global default |
 
 #### Example
 
@@ -59,4 +59,4 @@ type Params struct {
 
 ## Without Init
 
-If you don't call `boa.Init()`, all behavior remains unchanged from previous versions. Raw Go type fields default to required, maintaining full backwards compatibility.
+If you don't call `boa.Init()`, all behavior remains unchanged from previous versions. Plain Go type fields default to required, maintaining full backwards compatibility.
