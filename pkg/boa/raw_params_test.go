@@ -1,9 +1,11 @@
 package boa
 
 import (
+	"bytes"
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -787,4 +789,80 @@ func TestRunFuncCtx_PanicsWhenBothRunFuncsSet(t *testing.T) {
 		WithRunFunc(func(params *Params) {}).
 		WithRunFuncCtx(func(ctx *HookContext, params *Params) {}).
 		RunArgs([]string{})
+}
+
+// TestValidArgsFunc_SeesRawFields verifies that a ValidArgsFunc (positional
+// argument completion) also sees up-to-date raw field values when flags have
+// been typed on the command line before the positional argument.
+func TestValidArgsFunc_SeesRawFields(t *testing.T) {
+	type Params struct {
+		Namespace string   `optional:"true"`
+		Args      []string `pos:"true" optional:"true"`
+	}
+
+	config := Params{}
+
+	cobraCmd := NewCmdT2("test", &config).
+		WithValidArgsFunc(func(params *Params, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			// Return namespace so the test can verify it was populated.
+			return []string{params.Namespace}, cobra.ShellCompDirectiveDefault
+		}).
+		WithRunFunc(func(params *Params) {}).
+		ToCobra()
+
+	buf := new(bytes.Buffer)
+	cobraCmd.SetOut(buf)
+	cobraCmd.SetErr(new(bytes.Buffer))
+
+	// Simulate: binary __complete --namespace kube-system ""
+	cobraCmd.SetArgs([]string{"__complete", "--namespace", "kube-system", ""})
+	_ = cobraCmd.Execute()
+
+	output := buf.String()
+	if !strings.Contains(output, "kube-system") {
+		t.Fatalf("ValidArgsFunc did not see --namespace value: got completions %q", output)
+	}
+}
+
+// TestInitFuncCtx_AlternativesFunc_SeesOtherRawFields verifies that when a
+// dynamic completion function (AlternativesFunc) for a raw field reads the
+// value of another raw field that was supplied on the command line, it sees
+// the actual typed value rather than the zero value.
+//
+// This is a regression test for a bug where raw field values were only synced
+// from cobra's internal flag storage to the params struct in PreRunE, which is
+// never executed during shell completion — so the completion function always
+// saw zero values for sibling raw fields.
+func TestInitFuncCtx_AlternativesFunc_SeesOtherRawFields(t *testing.T) {
+	type Params struct {
+		Namespace  string `optional:"true"`
+		FromDeploy string `optional:"true"`
+	}
+
+	config := Params{}
+
+	cobraCmd := NewCmdT2("test", &config).
+		WithInitFuncCtx(func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
+			ctx.GetParam(&params.FromDeploy).SetAlternativesFunc(func(cmd *cobra.Command, args []string, toComplete string) []string {
+				// The completion function should see the already-typed --namespace value.
+				// Return it as a completion so the test can verify it.
+				return []string{params.Namespace}
+			})
+			return nil
+		}).
+		WithRunFunc(func(params *Params) {}).
+		ToCobra()
+
+	buf := new(bytes.Buffer)
+	cobraCmd.SetOut(buf)
+	cobraCmd.SetErr(new(bytes.Buffer)) // suppress cobra completion directive noise on stderr
+
+	// Simulate: binary __complete --namespace kube-system --from-deploy ""
+	cobraCmd.SetArgs([]string{"__complete", "--namespace", "kube-system", "--from-deploy", ""})
+	_ = cobraCmd.Execute()
+
+	output := buf.String()
+	if !strings.Contains(output, "kube-system") {
+		t.Fatalf("completion function did not see --namespace value: got completions %q", output)
+	}
 }

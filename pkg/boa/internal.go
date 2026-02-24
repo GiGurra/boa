@@ -337,7 +337,7 @@ func toTypedSlice[T SupportedTypes](slice any) []T {
 	return slice.([]T)
 }
 
-func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
+func connect(f Param, cmd *cobra.Command, posArgs []Param, ctx *processingContext) error {
 
 	if f.GetName() == "" {
 		return fmt.Errorf("invalid conf for param '%s': long param name cannot be empty", f.GetName())
@@ -471,6 +471,11 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param) error {
 		}
 		if f.GetAlternativesFunc() != nil {
 			err := cmd.RegisterFlagCompletionFunc(f.GetName(), func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+				// Sync cobra's parsed flag values into raw struct fields before calling
+				// the user's completion function. Without this, raw fields (plain string,
+				// int, etc.) are zero during completion because PreRunE (which normally
+				// calls syncMirrors) is never executed for shell completion.
+				syncMirrors(ctx)
 				return f.GetAlternativesFunc()(cmd, args, toComplete), cobra.ShellCompDirectiveDefault
 			})
 			if err != nil {
@@ -1210,13 +1215,12 @@ func traverse(
 // Returns an error if any setup/initialization fails.
 func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 	cmd := &cobra.Command{
-		Use:               b.Use,
-		Short:             b.Short,
-		Long:              b.Long,
-		Args:              b.Args,
-		SilenceErrors:     !b.UseCobraErrLog,
-		ValidArgs:         b.ValidArgs,
-		ValidArgsFunction: b.ValidArgsFunc,
+		Use:           b.Use,
+		Short:         b.Short,
+		Long:          b.Long,
+		Args:          b.Args,
+		SilenceErrors: !b.UseCobraErrLog,
+		ValidArgs:     b.ValidArgs,
 	}
 
 	if b.RawArgs != nil {
@@ -1447,7 +1451,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 		syncMirrors(ctx)
 
 		err = traverse(ctx, b.Params, func(param Param, _ string, tags reflect.StructTag) error {
-			err := connect(param, cmd, positional)
+			err := connect(param, cmd, positional, ctx)
 			if err != nil {
 				return err
 			}
@@ -1482,6 +1486,15 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 		}
 		if err != nil {
 			return nil, nil, fmt.Errorf("error connecting params: %s", err.Error())
+		}
+	}
+
+	// Set ValidArgsFunction with syncMirrors so that positional-argument completion
+	// functions also see up-to-date raw field values (same reason as flag completion).
+	if b.ValidArgsFunc != nil {
+		cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			syncMirrors(ctx)
+			return b.ValidArgsFunc(cmd, args, toComplete)
 		}
 	}
 
