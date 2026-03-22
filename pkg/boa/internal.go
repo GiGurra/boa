@@ -1309,6 +1309,8 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 		}
 	}
 
+	var positional []Param
+
 	if b.Params != nil {
 
 		// look in tags for info about positional args
@@ -1408,7 +1410,6 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			return nil, nil, fmt.Errorf("error enriching params: %s", err.Error())
 		}
 
-		positional := make([]Param, 0)
 		for _, param := range processed {
 			if param.isPositional() {
 				// if the last positional is a slice, error out
@@ -1489,12 +1490,36 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 		}
 	}
 
-	// Set ValidArgsFunction with syncMirrors so that positional-argument completion
-	// functions also see up-to-date raw field values (same reason as flag completion).
-	if b.ValidArgsFunc != nil {
-		cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			syncMirrors(ctx)
-			return b.ValidArgsFunc(cmd, args, toComplete)
+	// Build ValidArgsFunction from per-positional-param Alternatives/AlternativesFunc
+	// and/or the user-provided ValidArgsFunc. Per-param completions are checked first
+	// for the current position; the user's ValidArgsFunc is used as fallback.
+	{
+		hasPositionalCompletion := false
+		for _, p := range positional {
+			if p.GetAlternatives() != nil || p.GetAlternativesFunc() != nil {
+				hasPositionalCompletion = true
+				break
+			}
+		}
+		if hasPositionalCompletion || b.ValidArgsFunc != nil {
+			userValidArgsFunc := b.ValidArgsFunc
+			cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+				syncMirrors(ctx)
+				posIdx := len(args)
+				if posIdx < len(positional) {
+					p := positional[posIdx]
+					if p.GetAlternativesFunc() != nil {
+						return p.GetAlternativesFunc()(cmd, args, toComplete), cobra.ShellCompDirectiveDefault
+					}
+					if p.GetAlternatives() != nil {
+						return p.GetAlternatives(), cobra.ShellCompDirectiveDefault
+					}
+				}
+				if userValidArgsFunc != nil {
+					return userValidArgsFunc(cmd, args, toComplete)
+				}
+				return nil, cobra.ShellCompDirectiveDefault
+			}
 		}
 	}
 

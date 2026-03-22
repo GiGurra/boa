@@ -866,3 +866,182 @@ func TestInitFuncCtx_AlternativesFunc_SeesOtherRawFields(t *testing.T) {
 		t.Fatalf("completion function did not see --namespace value: got completions %q", output)
 	}
 }
+
+// TestPositionalArg_Alternatives verifies that static Alternatives set on a
+// positional argument are returned by shell completion.
+func TestPositionalArg_Alternatives(t *testing.T) {
+	type Params struct {
+		Action Required[string] `pos:"true" alts:"start,stop,restart"`
+	}
+
+	config := Params{}
+	cobraCmd := NewCmdT2("test", &config).
+		WithRunFunc(func(params *Params) {}).
+		ToCobra()
+
+	buf := new(bytes.Buffer)
+	cobraCmd.SetOut(buf)
+	cobraCmd.SetErr(new(bytes.Buffer))
+
+	// Simulate: binary __complete ""
+	cobraCmd.SetArgs([]string{"__complete", ""})
+	_ = cobraCmd.Execute()
+
+	output := buf.String()
+	for _, expected := range []string{"start", "stop", "restart"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("expected completion %q in output %q", expected, output)
+		}
+	}
+}
+
+// TestPositionalArg_AlternativesFunc verifies that a dynamic AlternativesFunc
+// set on a positional argument is called during shell completion.
+func TestPositionalArg_AlternativesFunc(t *testing.T) {
+	type Params struct {
+		Env Required[string] `pos:"true"`
+	}
+
+	config := Params{}
+	cobraCmd := NewCmdT2("test", &config).
+		WithInitFuncCtx(func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
+			ctx.GetParam(&params.Env).SetAlternativesFunc(func(cmd *cobra.Command, args []string, toComplete string) []string {
+				return []string{"dev", "staging", "prod"}
+			})
+			return nil
+		}).
+		WithRunFunc(func(params *Params) {}).
+		ToCobra()
+
+	buf := new(bytes.Buffer)
+	cobraCmd.SetOut(buf)
+	cobraCmd.SetErr(new(bytes.Buffer))
+
+	cobraCmd.SetArgs([]string{"__complete", ""})
+	_ = cobraCmd.Execute()
+
+	output := buf.String()
+	for _, expected := range []string{"dev", "staging", "prod"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("expected completion %q in output %q", expected, output)
+		}
+	}
+}
+
+// TestPositionalArg_AlternativesFunc_MultiplePositionals verifies that
+// completion dispatches to the correct positional arg based on position.
+func TestPositionalArg_AlternativesFunc_MultiplePositionals(t *testing.T) {
+	type Params struct {
+		Env    Required[string] `pos:"true" alts:"dev,staging,prod"`
+		Action Required[string] `pos:"true" alts:"deploy,rollback"`
+	}
+
+	config := Params{}
+	cobraCmd := NewCmdT2("test", &config).
+		WithRunFunc(func(params *Params) {}).
+		ToCobra()
+
+	// Complete first positional (env)
+	buf := new(bytes.Buffer)
+	cobraCmd.SetOut(buf)
+	cobraCmd.SetErr(new(bytes.Buffer))
+	cobraCmd.SetArgs([]string{"__complete", ""})
+	_ = cobraCmd.Execute()
+
+	output := buf.String()
+	if !strings.Contains(output, "dev") {
+		t.Fatalf("first positional should suggest env values, got %q", output)
+	}
+	if strings.Contains(output, "deploy") {
+		t.Fatalf("first positional should NOT suggest action values, got %q", output)
+	}
+
+	// Complete second positional (action) — first arg already provided
+	buf2 := new(bytes.Buffer)
+	cobraCmd.SetOut(buf2)
+	cobraCmd.SetErr(new(bytes.Buffer))
+	cobraCmd.SetArgs([]string{"__complete", "dev", ""})
+	_ = cobraCmd.Execute()
+
+	output2 := buf2.String()
+	if !strings.Contains(output2, "deploy") {
+		t.Fatalf("second positional should suggest action values, got %q", output2)
+	}
+	if strings.Contains(output2, "staging") {
+		t.Fatalf("second positional should NOT suggest env values, got %q", output2)
+	}
+}
+
+// TestPositionalArg_AlternativesFunc_SeesRawFields verifies that a dynamic
+// AlternativesFunc on a positional arg can see raw field values from flags.
+func TestPositionalArg_AlternativesFunc_SeesRawFields(t *testing.T) {
+	type Params struct {
+		Namespace string          `optional:"true"`
+		Action    Required[string] `pos:"true"`
+	}
+
+	config := Params{}
+	cobraCmd := NewCmdT2("test", &config).
+		WithInitFuncCtx(func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
+			ctx.GetParam(&params.Action).SetAlternativesFunc(func(cmd *cobra.Command, args []string, toComplete string) []string {
+				return []string{"ns:" + params.Namespace}
+			})
+			return nil
+		}).
+		WithRunFunc(func(params *Params) {}).
+		ToCobra()
+
+	buf := new(bytes.Buffer)
+	cobraCmd.SetOut(buf)
+	cobraCmd.SetErr(new(bytes.Buffer))
+
+	// Simulate: binary __complete --namespace my-ns ""
+	cobraCmd.SetArgs([]string{"__complete", "--namespace", "my-ns", ""})
+	_ = cobraCmd.Execute()
+
+	output := buf.String()
+	if !strings.Contains(output, "ns:my-ns") {
+		t.Fatalf("positional AlternativesFunc did not see --namespace value: got %q", output)
+	}
+}
+
+// TestPositionalArg_AlternativesFunc_FallbackToValidArgsFunc verifies that
+// when a positional arg has no completion, the user-provided ValidArgsFunc is used.
+func TestPositionalArg_AlternativesFunc_FallbackToValidArgsFunc(t *testing.T) {
+	type Params struct {
+		First  Required[string] `pos:"true" alts:"aaa,bbb"`
+		Second Required[string] `pos:"true"`
+	}
+
+	config := Params{}
+	cobraCmd := NewCmdT2("test", &config).
+		WithValidArgsFunc(func(params *Params, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			return []string{"fallback-value"}, cobra.ShellCompDirectiveDefault
+		}).
+		WithRunFunc(func(params *Params) {}).
+		ToCobra()
+
+	// First positional: should use per-param alts
+	buf := new(bytes.Buffer)
+	cobraCmd.SetOut(buf)
+	cobraCmd.SetErr(new(bytes.Buffer))
+	cobraCmd.SetArgs([]string{"__complete", ""})
+	_ = cobraCmd.Execute()
+
+	output := buf.String()
+	if !strings.Contains(output, "aaa") {
+		t.Fatalf("first positional should use per-param alts, got %q", output)
+	}
+
+	// Second positional: no per-param alts, should fall back to ValidArgsFunc
+	buf2 := new(bytes.Buffer)
+	cobraCmd.SetOut(buf2)
+	cobraCmd.SetErr(new(bytes.Buffer))
+	cobraCmd.SetArgs([]string{"__complete", "aaa", ""})
+	_ = cobraCmd.Execute()
+
+	output2 := buf2.String()
+	if !strings.Contains(output2, "fallback-value") {
+		t.Fatalf("second positional should fall back to ValidArgsFunc, got %q", output2)
+	}
+}
