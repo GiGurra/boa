@@ -1447,6 +1447,8 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			} else {
 				cmd.Args = wrapArgsValidator(cobra.RangeArgs(numReqPositional, len(positional)))
 			}
+		} else {
+			cmd.Args = wrapArgsValidator(cmd.Args)
 		}
 
 		syncMirrors(ctx)

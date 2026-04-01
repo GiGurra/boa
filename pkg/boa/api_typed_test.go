@@ -1105,3 +1105,41 @@ func TestHooksSucceed_RunFuncECalled(t *testing.T) {
 		t.Fatal("expected RunFuncE to be called")
 	}
 }
+
+// TestCustomArgsValidatorReturnsUserInputError verifies that when a user provides
+// a custom Args validator (e.g. cobra.ExactArgs), validation errors are wrapped
+// as UserInputError and result in a clean error rather than a panic.
+func TestCustomArgsValidatorReturnsUserInputError(t *testing.T) {
+	type Params struct {
+		Key string `positional:"true" required:"true"`
+	}
+
+	tests := []struct {
+		name string
+		args cobra.PositionalArgs
+		raw  []string
+	}{
+		{"ExactArgs too many", cobra.ExactArgs(1), []string{"a", "b"}},
+		{"ExactArgs too few", cobra.ExactArgs(2), []string{"a"}},
+		{"MinimumNArgs", cobra.MinimumNArgs(3), []string{"a"}},
+		{"MaximumNArgs", cobra.MaximumNArgs(0), []string{"a"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := CmdT[Params]{
+				Use:  "test",
+				Args: tc.args,
+				RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
+					t.Fatal("RunFunc should not be called on args validation failure")
+				},
+			}.RunArgsE(tc.raw)
+			if err == nil {
+				t.Fatal("Expected error from args validator")
+			}
+			if !IsUserInputError(err) {
+				t.Errorf("Expected UserInputError for custom Args validator failure, got: %T - %v", err, err)
+			}
+		})
+	}
+}
