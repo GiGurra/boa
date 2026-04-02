@@ -433,3 +433,84 @@ func TestValidationTag_MinMax_IntSlice(t *testing.T) {
 		t.Fatal("expected error for int slice above max")
 	}
 }
+
+func TestValidationTag_MinMax_RequiredSliceFlag(t *testing.T) {
+	type Params struct {
+		Tags []string `descr:"tags" min:"2" required:"true"`
+	}
+
+	// 0 items: required error fires first
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{})
+	if err == nil {
+		t.Fatal("expected error for 0 items on required slice with min:2")
+	}
+	if !strings.Contains(err.Error(), "required") {
+		t.Errorf("expected 'required' error for 0 items, got: %v", err)
+	}
+
+	// 1 item: min validation fires
+	err = (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--tags", "a"})
+	if err == nil {
+		t.Fatal("expected error for 1 item with min:2")
+	}
+	if !strings.Contains(err.Error(), "min") {
+		t.Errorf("expected 'min' error for 1 item, got: %v", err)
+	}
+
+	// 2 items: passes
+	err = (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--tags", "a", "--tags", "b"})
+	if err != nil {
+		t.Fatalf("expected no error for 2 items, got: %v", err)
+	}
+}
+
+func TestValidationTag_MinMax_RequiredSlicePositional(t *testing.T) {
+	type Params struct {
+		Files []string `positional:"true" min:"2" required:"true"`
+	}
+
+	// 0 items: cobra args validator fires first
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{})
+	if err == nil {
+		t.Fatal("expected error for 0 positional args with min:2")
+	}
+
+	// 1 item: min validation fires
+	err = (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"a"})
+	if err == nil {
+		t.Fatal("expected error for 1 positional arg with min:2")
+	}
+	if !strings.Contains(err.Error(), "min") {
+		t.Errorf("expected 'min' error, got: %v", err)
+	}
+
+	// 2 items: passes
+	err = (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"a", "b"})
+	if err != nil {
+		t.Fatalf("expected no error for 2 items, got: %v", err)
+	}
+}
