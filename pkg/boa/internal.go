@@ -460,6 +460,19 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param, ctx *processingContex
 		return nil
 	}
 
+	// Map types
+	if f.GetKind() == reflect.Map {
+		if mapHandler := lookupMapHandler(f.GetType()); mapHandler != nil {
+			var defVal any
+			if f.hasDefaultValue() {
+				defVal = f.defaultValuePtr()
+			}
+			f.setValuePtr(mapHandler.bindFlag(cmd, f.GetName(), f.GetShort(), descr, defVal))
+			return nil
+		}
+		return fmt.Errorf("unsupported map type '%v'. Check parameter '%s'", f.GetType(), f.GetName())
+	}
+
 	// Slice types — look up by element type
 	if f.GetKind() == reflect.Slice {
 		elemType := f.GetType().Elem()
@@ -553,6 +566,14 @@ func parsePtr(
 	// Scalar types — look up by exact type first, then by kind
 	if handler, _ := lookupHandler(tpe); handler != nil {
 		return handler.parse(name, strVal)
+	}
+
+	// Map types
+	if kind == reflect.Map {
+		if mapHandler := lookupMapHandler(tpe); mapHandler != nil {
+			return mapHandler.parse(name, strVal)
+		}
+		return nil, fmt.Errorf("unsupported map type '%v' for param %s", tpe, name)
 	}
 
 	// Slice types
@@ -1370,6 +1391,10 @@ func isSupportedType(t reflect.Type) bool {
 	if _, ok := kindHandlers[t.Kind()]; ok {
 		return true
 	}
+	// Map types (map[string]string, map[string]int, etc.)
+	if t.Kind() == reflect.Map {
+		return lookupMapHandler(t) != nil
+	}
 	// Slice types
 	if t.Kind() == reflect.Slice {
 		// net.IP is []byte but handled as a scalar via exactTypeHandlers
@@ -1433,9 +1458,9 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 	// required[int]{}, etc. regardless of whether the field was a type alias.
 	valueType = normalizeType(valueType)
 
-	// Pointer fields default to optional (nil = not set)
+	// Pointer and map fields default to optional (nil = not set)
 	isRequired := !cfg.defaultOptional
-	if isPtr {
+	if isPtr || valueType.Kind() == reflect.Map {
 		isRequired = false
 	}
 

@@ -43,6 +43,9 @@ var (
 	// Used for []time.Duration, []time.Time, []net.IP, []*url.URL.
 	sliceExactTypeHandlers = map[reflect.Type]*typeHandler{}
 	sliceKindHandlers      = map[reflect.Kind]*typeHandler{}
+
+	// mapTypeHandlers maps the exact map type (e.g., map[string]string) to a handler.
+	mapTypeHandlers = map[reflect.Type]*typeHandler{}
 )
 
 func init() {
@@ -504,6 +507,109 @@ func lookupSliceHandler(elemType reflect.Type) *typeHandler {
 		return h
 	}
 	return nil
+}
+
+// lookupMapHandler dynamically builds a handler for map[string]V types by composing
+// the value type's scalar handler for parsing. For cobra flag binding, it uses pflag's
+// native StringToString/StringToInt/StringToInt64 methods where available, falling back
+// to a StringP flag with key=value parsing.
+func lookupMapHandler(t reflect.Type) *typeHandler {
+	if t.Kind() != reflect.Map || t.Key().Kind() != reflect.String {
+		return nil // only map[string]V is supported
+	}
+
+	// Check cache first
+	if h, ok := mapTypeHandlers[t]; ok {
+		return h
+	}
+
+	valType := normalizeType(t.Elem())
+
+	// Find the scalar handler for the value type
+	valHandler, _ := lookupHandler(valType)
+	if valHandler == nil {
+		return nil
+	}
+
+	// Build a composed handler
+	h := &typeHandler{
+		baseType: t,
+		bindFlag: buildMapBindFlag(t, valType),
+		parse:    buildMapParse(t, valType, valHandler),
+	}
+
+	// Cache it
+	mapTypeHandlers[t] = h
+	return h
+}
+
+// buildMapBindFlag returns a bindFlag function for map[string]V.
+// Uses pflag's native methods for string/int/int64, falls back to StringP for others.
+func buildMapBindFlag(mapType, valType reflect.Type) func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+	// Check for pflag's native map support
+	switch valType {
+	case reflect.TypeOf(""):
+		return func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+			var def map[string]string
+			if defaultVal != nil {
+				def = reflect.ValueOf(defaultVal).Elem().Interface().(map[string]string)
+			}
+			return cmd.Flags().StringToStringP(name, short, def, descr)
+		}
+	case reflect.TypeOf(0):
+		return func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+			var def map[string]int
+			if defaultVal != nil {
+				def = reflect.ValueOf(defaultVal).Elem().Interface().(map[string]int)
+			}
+			return cmd.Flags().StringToIntP(name, short, def, descr)
+		}
+	case reflect.TypeOf(int64(0)):
+		return func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+			var def map[string]int64
+			if defaultVal != nil {
+				def = reflect.ValueOf(defaultVal).Elem().Interface().(map[string]int64)
+			}
+			return cmd.Flags().StringToInt64P(name, short, def, descr)
+		}
+	default:
+		// Fall back to string flag with custom parsing
+		return func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+			def := ""
+			return cmd.Flags().StringP(name, short, def, descr)
+		}
+	}
+}
+
+// buildMapParse returns a parse function for map[string]V that delegates
+// value parsing to the scalar handler.
+func buildMapParse(mapType, valType reflect.Type, valHandler *typeHandler) func(name, strVal string) (any, error) {
+	return func(name, strVal string) (any, error) {
+		result := reflect.MakeMap(mapType)
+		if strVal == "" {
+			ptr := reflect.New(mapType)
+			ptr.Elem().Set(result)
+			return ptr.Interface(), nil
+		}
+		pairs := strings.Split(strVal, ",")
+		for _, pair := range pairs {
+			kv := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+			if len(kv) != 2 {
+				return nil, fmt.Errorf("invalid map entry for param %s: %q (expected key=value)", name, pair)
+			}
+			key := strings.TrimSpace(kv[0])
+			valStr := strings.TrimSpace(kv[1])
+			parsedPtr, err := valHandler.parse(name, valStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s key %q: %w", name, key, err)
+			}
+			// parsedPtr is *V, dereference to get V
+			result.SetMapIndex(reflect.ValueOf(key), reflect.ValueOf(parsedPtr).Elem())
+		}
+		ptr := reflect.New(mapType)
+		ptr.Elem().Set(result)
+		return ptr.Interface(), nil
+	}
 }
 
 // derefSliceDefault dereferences a defaultVal pointer (e.g., *[]string → []string) for slice handlers.
