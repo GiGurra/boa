@@ -1456,6 +1456,20 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 			}
 			return err
 		}
+	} else if len(b.SubCmds) > 0 {
+		// No RunFunc but has subcommands. Make the command runnable so cobra
+		// rejects unknown subcommands with an error instead of silently showing help.
+		cmd.RunE = func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		}
+		if b.Args == nil {
+			cmd.Args = wrapArgsValidator(func(cmd *cobra.Command, args []string) error {
+				if len(args) > 0 {
+					return fmt.Errorf("unknown command %q for %q", args[0], cmd.CommandPath())
+				}
+				return nil
+			})
+		}
 	}
 
 	return cmd
@@ -1494,6 +1508,20 @@ func (b Cmd) toCobraImplE() (*cobra.Command, error) {
 			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
 			b.RunFuncCtx(hookCtx, cmd, args)
 			return nil
+		}
+	} else if len(b.SubCmds) > 0 {
+		// No RunFunc but has subcommands. Make the command runnable so cobra
+		// rejects unknown subcommands with an error instead of silently showing help.
+		cmd.RunE = func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		}
+		if b.Args == nil {
+			cmd.Args = wrapArgsValidator(func(cmd *cobra.Command, args []string) error {
+				if len(args) > 0 {
+					return fmt.Errorf("unknown command %q for %q", args[0], cmd.CommandPath())
+				}
+				return nil
+			})
 		}
 	}
 

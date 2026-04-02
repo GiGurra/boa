@@ -1090,6 +1090,102 @@ func TestSubcommandPositionalArgsError(t *testing.T) {
 	})
 }
 
+// TestSubcommandOnlyUnknownCommand verifies that commands with subcommands but
+// no RunFunc reject unknown subcommands with an error (not silently show help).
+func TestSubcommandOnlyUnknownCommand(t *testing.T) {
+	type SubParams struct{}
+
+	makeRoot := func() Cmd {
+		return Cmd{
+			Use:   "app",
+			Short: "My app",
+			SubCmds: SubCmds(
+				CmdT[SubParams]{
+					Use:         "valid",
+					Short:       "A valid command",
+					RunFunc:     func(p *SubParams, c *cobra.Command, args []string) {},
+					ParamEnrich: ParamEnricherName,
+				},
+			),
+			// No RunFunc — subcommand-only command
+		}
+	}
+
+	t.Run("Run/unknown command errors with exit 1", func(t *testing.T) {
+		var exitCalled bool
+		oldOsExit := osExit
+		osExit = func(code int) { exitCalled = true }
+		defer func() { osExit = oldOsExit }()
+
+		oldStderr := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
+
+		makeRoot().RunArgs([]string{"bogus"})
+
+		w.Close()
+		os.Stderr = oldStderr
+		captured := make([]byte, 8192)
+		n, _ := r.Read(captured)
+		r.Close()
+		output := string(captured[:n])
+
+		if !exitCalled {
+			t.Error("Expected osExit to be called for unknown subcommand")
+		}
+		if !strings.Contains(output, "Error:") {
+			t.Errorf("Expected 'Error:' in output, got:\n%s", output)
+		}
+		if !strings.Contains(output, "unknown command") {
+			t.Errorf("Expected 'unknown command' in output, got:\n%s", output)
+		}
+	})
+
+	t.Run("RunE/unknown command returns error", func(t *testing.T) {
+		err := makeRoot().RunArgsE([]string{"bogus"})
+		if err == nil {
+			t.Fatal("Expected error for unknown subcommand")
+		}
+		if !strings.Contains(err.Error(), "unknown command") {
+			t.Errorf("Expected 'unknown command' in error, got: %s", err.Error())
+		}
+		if !IsUserInputError(err) {
+			t.Errorf("Expected UserInputError, got: %T", err)
+		}
+	})
+
+	t.Run("Run/no args shows help with exit 0", func(t *testing.T) {
+		var exitCalled bool
+		oldOsExit := osExit
+		osExit = func(code int) { exitCalled = true }
+		defer func() { osExit = oldOsExit }()
+
+		makeRoot().RunArgs([]string{})
+
+		if exitCalled {
+			t.Error("Did not expect osExit for no-arg subcommand-only command")
+		}
+	})
+
+	t.Run("Run/valid subcommand still works", func(t *testing.T) {
+		ran := false
+		root := Cmd{
+			Use: "app",
+			SubCmds: SubCmds(
+				CmdT[SubParams]{
+					Use:         "valid",
+					RunFunc:     func(p *SubParams, c *cobra.Command, args []string) { ran = true },
+					ParamEnrich: ParamEnricherName,
+				},
+			),
+		}
+		root.RunArgs([]string{"valid"})
+		if !ran {
+			t.Error("Expected valid subcommand to run")
+		}
+	})
+}
+
 // TestSlicePositionalArgsErrorOutput verifies that slice positional args accept
 // variable argument counts (MinimumNArgs) instead of exact counts.
 func TestSlicePositionalArgsErrorOutput(t *testing.T) {
