@@ -16,7 +16,7 @@ func TestRunMain(t *testing.T) {
 		{
 			Name:     "with args",
 			Args:     []string{"--foo", "foo", "--bar", "1", "--file", "file", "--baz", "baz"},
-			Expected: "Hello world from subcommand1 with params: foo, 1, file, baz, <nil>",
+			Expected: "Hello world from subcommand1 with params: foo, 1, file, baz, \"\"",
 		},
 	})
 }

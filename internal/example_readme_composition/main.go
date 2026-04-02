@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"github.com/GiGurra/boa/pkg/boa"
+	"github.com/spf13/cobra"
 	"time"
 )
 
@@ -29,10 +30,11 @@ type Combined struct {
 }
 
 func main() {
-	boa.NewCmdT[Combined]("hello-world").
-		WithShort("a generic cli tool").
-		WithLong("A generic cli tool that has a longer description").
-		WithRunFunc(func(params *Combined) {
+	boa.CmdT[Combined]{
+		Use:   "hello-world",
+		Short: "a generic cli tool",
+		Long:  "A generic cli tool that has a longer description",
+		RunFunc: func(params *Combined, cmd *cobra.Command, args []string) {
 			fmt.Printf(
 				"Hello world with params: %s, %d, %s, %s, %s, %v\n",
 				params.Base.Foo,  // string
@@ -42,6 +44,6 @@ func main() {
 				params.FB,        // string
 				params.Time,      // time.Time
 			)
-		}).
-		Run()
+		},
+	}.Run()
 }

@@ -18,8 +18,7 @@ func Init(opts ...Option) {
 }
 
 // WithDefaultOptional makes plain Go type fields (string, int, etc.) optional by default
-// instead of required. Explicit struct tags (required, req, optional, opt) and
-// Required[T]/Optional[T] wrappers still override this setting.
+// instead of required. Explicit struct tags (required, req, optional, opt) still override this setting.
 func WithDefaultOptional() Option {
 	return func(c *globalConfig) {
 		c.defaultOptional = true

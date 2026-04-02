@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"github.com/GiGurra/boa/pkg/boa"
+	"github.com/spf13/cobra"
 )
 
 type Params struct {
@@ -14,12 +15,13 @@ type Params struct {
 }
 
 func main() {
-	boa.NewCmdT[Params]("hello-world").
-		WithShort("a generic cli tool").
-		WithRunFunc(func(params *Params) {
+	boa.CmdT[Params]{
+		Use:   "hello-world",
+		Short: "a generic cli tool",
+		RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
 			fmt.Printf("Numbers: %v\n", params.Numbers)
 			fmt.Printf("Tags: %v\n", params.Tags)
 			fmt.Printf("Ports: %v\n", params.Ports)
-		}).
-		Run()
+		},
+	}.Run()
 }

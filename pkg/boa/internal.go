@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -112,7 +113,7 @@ type Param interface {
 	SetName(string)
 	SetAlternatives([]string)
 	defaultValuePtr() any
-	descr() string
+	getDescr() string
 	IsRequired() bool
 	valuePtrF() any
 	parentCmd() *cobra.Command
@@ -144,15 +145,24 @@ type Param interface {
 	GetStrictAlts() bool
 }
 
+// configFileEntry tracks a configfile:"true" field and the struct it should load into.
+type configFileEntry struct {
+	mirror Param // the string param holding the file path
+	target any   // pointer to the struct to unmarshal into
+}
+
 type processingContext struct {
 	context.Context
-	RawAddrToMirror map[uintptr]Param
+	RawAddrToMirror map[unsafe.Pointer]Param
 	// We need to keep track of raw params, so we can
 	// override the raw values with cli values in case
 	// the user may have mapped config files to the params
 	// as well - since the config file deserialization will
 	// not be aware of the raw values, and just overwrite them.
-	RawAddresses []uintptr
+	RawAddresses []unsafe.Pointer
+	// ConfigFiles tracks all configfile:"true" fields and their target structs.
+	// Ordered: substruct entries first, root entry last (so root overrides inner).
+	ConfigFiles []configFileEntry
 }
 
 func parseEnv(ctx *processingContext, structPtr any) error {
@@ -189,56 +199,44 @@ func validate(ctx *processingContext, structPtr any) error {
 			return fmt.Errorf("missing required param '%s'%s", param.GetName(), envHint)
 		}
 
-		// special types validation for types stored as strings (time.Time, *url.URL)
+		// Post-parse conversion for types stored as strings in cobra (time.Time, *url.URL, JSON fallback, etc.)
 		if HasValue(param) {
-			if param.GetKind() == reflect.Struct {
-				if param.GetType() == timeType {
-					strVal := *param.valuePtrF().(*string)
-					res, err := parsePtr(param.GetName(), param.GetType(), param.GetKind(), strVal)
-					if err != nil {
-						return fmt.Errorf("invalid value for param '%s': %s", param.GetName(), err.Error())
-					}
-					param.setValuePtr(res)
+			converted := false
+			if handler, _ := lookupHandler(param.GetType()); handler != nil && handler.convert != nil {
+				res, err := handler.convert(param.GetName(), param.valuePtrF())
+				if err != nil {
+					return err
 				}
-			} else if param.GetKind() == reflect.Pointer && param.GetType() == urlPtrType {
-				// Check if the value is still a string (needs conversion) or already converted
-				if strPtr, ok := param.valuePtrF().(*string); ok {
-					strVal := *strPtr
-					res, err := parsePtr(param.GetName(), param.GetType(), param.GetKind(), strVal)
-					if err != nil {
-						return fmt.Errorf("invalid value for param '%s': %s", param.GetName(), err.Error())
-					}
-					param.setValuePtr(res)
-				}
-				// If it's already **url.URL, the conversion was already done
+				param.setValuePtr(res)
+				converted = true
 			} else if param.GetKind() == reflect.Slice {
-				elem := param.GetType().Elem()
-				// []time.Time - stored as []string, needs conversion
-				if elem == timeType {
-					if strSlice, ok := param.valuePtrF().(*[]string); ok && strSlice != nil {
-						times := make([]time.Time, len(*strSlice))
-						for i, s := range *strSlice {
-							t, err := parseTimeString(s)
-							if err != nil {
-								return fmt.Errorf("invalid value for param '%s' at index %d: %s", param.GetName(), i, err.Error())
-							}
-							times[i] = t
-						}
-						param.setValuePtr(&times)
+				if sliceHandler := lookupSliceHandler(param.GetType().Elem()); sliceHandler != nil && sliceHandler.convert != nil {
+					res, err := sliceHandler.convert(param.GetName(), param.valuePtrF())
+					if err != nil {
+						return err
 					}
+					param.setValuePtr(res)
+					converted = true
 				}
-				// []*url.URL - stored as []string, needs conversion
-				if elem == urlPtrType {
-					if strSlice, ok := param.valuePtrF().(*[]string); ok && strSlice != nil {
-						urls := make([]*url.URL, len(*strSlice))
-						for i, s := range *strSlice {
-							u, err := url.Parse(s)
-							if err != nil {
-								return fmt.Errorf("invalid value for param '%s' at index %d: %s", param.GetName(), i, err.Error())
-							}
-							urls[i] = u
+			}
+
+			// JSON fallback conversion: if value is still a *string but the target type
+			// is a complex type (map, nested slice, etc.) without a native handler, try JSON unmarshal
+			if !converted {
+				needsJsonFallback := false
+				if param.GetKind() == reflect.Map {
+					needsJsonFallback = lookupMapHandler(param.GetType()) == nil
+				} else if param.GetKind() == reflect.Slice && lookupSliceHandler(param.GetType().Elem()) == nil {
+					needsJsonFallback = true
+				}
+				if needsJsonFallback {
+					if strPtr, ok := param.valuePtrF().(*string); ok && strPtr != nil && *strPtr != "" {
+						fallback := jsonFallbackHandler(param.GetType())
+						res, err := fallback.convert(param.GetName(), param.valuePtrF())
+						if err != nil {
+							return err
 						}
-						param.setValuePtr(&urls)
+						param.setValuePtr(res)
 					}
 				}
 			}
@@ -270,11 +268,70 @@ func validate(ctx *processingContext, structPtr any) error {
 			if err := param.customValidatorOfPtr()(param.valuePtrF()); err != nil {
 				return fmt.Errorf("invalid value for param '%s': %s", param.GetName(), err.Error())
 			}
+
+			// min/max/pattern tag validation
+			if pm, ok := param.(*paramMeta); ok {
+				if err := validateMinMaxPattern(pm, param.valuePtrF()); err != nil {
+					return fmt.Errorf("invalid value for param '%s': %s", param.GetName(), err.Error())
+				}
+			}
 		}
 
 		return nil
 	}, nil)
 	return newUserInputError(err)
+}
+
+// validateMinMaxPattern checks min/max/pattern tag constraints.
+// For numeric types, min/max compare the value. For strings, min/max compare length.
+func validateMinMaxPattern(pm *paramMeta, valPtr any) error {
+	if pm.minVal == nil && pm.maxVal == nil && pm.pattern == "" {
+		return nil
+	}
+
+	v := reflect.ValueOf(valPtr)
+	if v.Kind() == reflect.Ptr && !v.IsNil() {
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.Int, reflect.Int32, reflect.Int64:
+		val := float64(v.Int())
+		if pm.minVal != nil && val < *pm.minVal {
+			return fmt.Errorf("value %v is below min %v", v.Int(), *pm.minVal)
+		}
+		if pm.maxVal != nil && val > *pm.maxVal {
+			return fmt.Errorf("value %v exceeds max %v", v.Int(), *pm.maxVal)
+		}
+	case reflect.Float32, reflect.Float64:
+		val := v.Float()
+		if pm.minVal != nil && val < *pm.minVal {
+			return fmt.Errorf("value %v is below min %v", val, *pm.minVal)
+		}
+		if pm.maxVal != nil && val > *pm.maxVal {
+			return fmt.Errorf("value %v exceeds max %v", val, *pm.maxVal)
+		}
+	case reflect.String:
+		str := v.String()
+		if pm.minVal != nil && float64(len(str)) < *pm.minVal {
+			return fmt.Errorf("length %d is below min %v", len(str), *pm.minVal)
+		}
+		if pm.maxVal != nil && float64(len(str)) > *pm.maxVal {
+			return fmt.Errorf("length %d exceeds max %v", len(str), *pm.maxVal)
+		}
+	}
+
+	if pm.pattern != "" && v.Kind() == reflect.String {
+		matched, err := regexp.MatchString(pm.pattern, v.String())
+		if err != nil {
+			return fmt.Errorf("invalid pattern %q: %w", pm.pattern, err)
+		}
+		if !matched {
+			return fmt.Errorf("value %q does not match pattern %q", v.String(), pm.pattern)
+		}
+	}
+
+	return nil
 }
 
 func ptrToAnyToString(ptr any) string {
@@ -309,7 +366,7 @@ func doParsePositional(f Param, strVal string) error {
 	return nil
 }
 
-func toTypedSlice[T SupportedTypes](slice any) []T {
+func toTypedSlice[T any](slice any) []T {
 	if slice == nil {
 		return nil
 	}
@@ -360,7 +417,7 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param, ctx *processingContex
 
 	extraInfos := make([]string, 0)
 
-	descr := f.descr()
+	descr := f.getDescr()
 	if f.GetEnv() != "" {
 		extraInfos = append(extraInfos, fmt.Sprintf("env: %s", f.GetEnv()))
 	}
@@ -484,222 +541,68 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param, ctx *processingContex
 		}
 	}()
 
-	switch f.GetKind() {
-	case reflect.String:
-		def := ""
+	// Look up type handler for scalar types (including net.IP which is []byte but treated as scalar)
+	if handler, _ := lookupHandler(f.GetType()); handler != nil {
+		var defVal any
 		if f.hasDefaultValue() {
-			defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
-			def = defVal.Convert(reflect.TypeOf(def)).Interface().(string)
+			defVal = f.defaultValuePtr()
 		}
-		f.setValuePtr(cmd.Flags().StringP(f.GetName(), f.GetShort(), def, descr))
+		f.setValuePtr(handler.bindFlag(cmd, f.GetName(), f.GetShort(), descr, defVal))
 		return nil
-	case reflect.Int:
-		def := 0
-		if f.hasDefaultValue() {
-			defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
-			def = defVal.Convert(reflect.TypeOf(def)).Interface().(int)
-		}
-		f.setValuePtr(cmd.Flags().IntP(f.GetName(), f.GetShort(), def, descr))
-		return nil
-	case reflect.Int32:
-		def := int32(0)
-		if f.hasDefaultValue() {
-			defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
-			def = defVal.Convert(reflect.TypeOf(def)).Interface().(int32)
-		}
-		f.setValuePtr(cmd.Flags().Int32P(f.GetName(), f.GetShort(), def, descr))
-		return nil
-	case reflect.Int64:
-		// Check if this is a time.Duration (which has underlying type int64)
-		if f.GetType() == durationType {
-			def := time.Duration(0)
-			if f.hasDefaultValue() {
-				defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
-				def = time.Duration(defVal.Int())
-			}
-			f.setValuePtr(cmd.Flags().DurationP(f.GetName(), f.GetShort(), def, descr))
-			return nil
-		}
-		def := int64(0)
-		if f.hasDefaultValue() {
-			defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
-			def = defVal.Convert(reflect.TypeOf(def)).Interface().(int64)
-		}
-		f.setValuePtr(cmd.Flags().Int64P(f.GetName(), f.GetShort(), def, descr))
-		return nil
-	case reflect.Float64:
-		def := 0.0
-		if f.hasDefaultValue() {
-			defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
-			def = defVal.Convert(reflect.TypeOf(def)).Interface().(float64)
-		}
-		f.setValuePtr(cmd.Flags().Float64P(f.GetName(), f.GetShort(), def, descr))
-		return nil
-	case reflect.Float32:
-		def := float32(0.0)
-		if f.hasDefaultValue() {
-			defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
-			def = defVal.Convert(reflect.TypeOf(def)).Interface().(float32)
-		}
-		f.setValuePtr(cmd.Flags().Float32P(f.GetName(), f.GetShort(), def, descr))
-		return nil
-	case reflect.Bool:
-		def := false
-		if f.hasDefaultValue() {
-			defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
-			def = defVal.Convert(reflect.TypeOf(def)).Interface().(bool)
-		}
-		f.setValuePtr(cmd.Flags().BoolP(f.GetName(), f.GetShort(), def, descr))
-		return nil
-	case reflect.Struct:
-		if f.GetType() == timeType {
-			if f.hasDefaultValue() {
-				def := *reflect.ValueOf(f.defaultValuePtr()).Interface().(*time.Time)
-				f.setValuePtr(cmd.Flags().StringP(f.GetName(), f.GetShort(), def.Format(time.RFC3339), descr))
-			} else {
-				f.setValuePtr(cmd.Flags().StringP(f.GetName(), f.GetShort(), "", descr))
-			}
-			return nil
-		} else {
-			return fmt.Errorf("general structs not yet supported: %s", f.GetKind().String())
-		}
-	case reflect.Slice:
-		// Check if this is net.IP (which is []byte)
-		if f.GetType() == ipType {
-			var def net.IP
-			if f.hasDefaultValue() {
-				defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
-				def = defVal.Interface().(net.IP)
-			}
-			f.setValuePtr(cmd.Flags().IPP(f.GetName(), f.GetShort(), def, descr))
-			return nil
-		}
+	}
 
+	// Map types — try native handler first, then JSON fallback
+	if f.GetKind() == reflect.Map {
+		mapHandler := lookupMapHandler(f.GetType())
+		if mapHandler == nil {
+			mapHandler = jsonFallbackHandler(f.GetType())
+		}
+		var defVal any
+		if f.hasDefaultValue() {
+			defVal = f.defaultValuePtr()
+		}
+		f.setValuePtr(mapHandler.bindFlag(cmd, f.GetName(), f.GetShort(), descr, defVal))
+		return nil
+	}
+
+	// Slice types — try native handler first, then JSON fallback
+	if f.GetKind() == reflect.Slice {
 		elemType := f.GetType().Elem()
+		sliceHandler := lookupSliceHandler(elemType)
 
-		// Check for special slice types first
-		// []net.IP - slice of IP addresses
-		if elemType == ipType {
-			var def []net.IP
+		if sliceHandler != nil {
+			var defVal any
 			if f.hasDefaultValue() {
-				defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
-				def = defVal.Interface().([]net.IP)
-			}
-			f.setValuePtr(cmd.Flags().IPSliceP(f.GetName(), f.GetShort(), def, descr))
-			return nil
-		}
-
-		// []time.Duration - slice of durations
-		if elemType == durationType {
-			var def []time.Duration
-			if f.hasDefaultValue() {
-				defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
-				if defVal.Kind() == reflect.Slice {
-					def = defVal.Interface().([]time.Duration)
-				} else {
-					// Parse from string
-					parsed, err := parseSliceSpecial(f.GetName(), f.defaultValueStr(), elemType)
+				defValRef := reflect.ValueOf(f.defaultValuePtr()).Elem()
+				// If default was parsed from string tag, it might need parsing into the proper slice type
+				if defValRef.Kind() != reflect.Slice {
+					parsed, err := sliceHandler.parse(f.GetName(), f.defaultValueStr())
 					if err != nil {
 						return fmt.Errorf("default value for slice param '%s' is invalid: %s", f.GetName(), err.Error())
 					}
-					def = parsed.([]time.Duration)
-					f.SetDefault(&def)
+					f.SetDefault(parsed)
 				}
+				defVal = f.defaultValuePtr()
 			}
-			f.setValuePtr(cmd.Flags().DurationSliceP(f.GetName(), f.GetShort(), def, descr))
+			f.setValuePtr(sliceHandler.bindFlag(cmd, f.GetName(), f.GetShort(), descr, defVal))
 			return nil
 		}
 
-		// []time.Time - stored as string slice, converted later
-		if elemType == timeType {
-			var def []string
-			if f.hasDefaultValue() {
-				defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
-				if defVal.Kind() == reflect.Slice && defVal.Type().Elem() == timeType {
-					// Convert []time.Time to []string for storage
-					times := defVal.Interface().([]time.Time)
-					def = make([]string, len(times))
-					for i, t := range times {
-						def[i] = t.Format(time.RFC3339)
-					}
-				}
-			}
-			f.setValuePtr(cmd.Flags().StringSliceP(f.GetName(), f.GetShort(), def, descr))
-			return nil
-		}
-
-		// []*url.URL - stored as string slice, converted later
-		if elemType == urlPtrType {
-			var def []string
-			if f.hasDefaultValue() {
-				defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
-				if defVal.Kind() == reflect.Slice && defVal.Type().Elem() == urlPtrType {
-					// Convert []*url.URL to []string for storage
-					urls := defVal.Interface().([]*url.URL)
-					def = make([]string, len(urls))
-					for i, u := range urls {
-						if u != nil {
-							def[i] = u.String()
-						}
-					}
-				}
-			}
-			f.setValuePtr(cmd.Flags().StringSliceP(f.GetName(), f.GetShort(), def, descr))
-			return nil
-		}
-
-		var defaultValueSlice any = nil
-		var err error
+		// JSON fallback for complex slice types (nested slices, etc.)
+		fallback := jsonFallbackHandler(f.GetType())
+		var defVal any
 		if f.hasDefaultValue() {
-			defaultValueSlice = reflect.ValueOf(f.defaultValuePtr()).Elem().Interface()
-			// if it already has the correct type, dont repeat
-			if reflect.TypeOf(f.defaultValuePtr()).Elem().Kind() != reflect.Slice {
-				defaultValueSlice, err = parseSlice(f.GetName(), f.defaultValueStr(), elemType)
-				if err != nil {
-					return fmt.Errorf("default value for slice param '%s' is invalid: %s", f.GetName(), err.Error())
-				}
-				f.SetDefault(defaultValueSlice)
-			}
+			defVal = f.defaultValuePtr()
 		}
-
-		switch elemType.Kind() {
-		case reflect.String:
-			f.setValuePtr(cmd.Flags().StringSliceP(f.GetName(), f.GetShort(), toTypedSlice[string](defaultValueSlice), descr))
-		case reflect.Int:
-			f.setValuePtr(cmd.Flags().IntSliceP(f.GetName(), f.GetShort(), toTypedSlice[int](defaultValueSlice), descr))
-		case reflect.Int32:
-			f.setValuePtr(cmd.Flags().Int32SliceP(f.GetName(), f.GetShort(), toTypedSlice[int32](defaultValueSlice), descr))
-		case reflect.Int64:
-			f.setValuePtr(cmd.Flags().Int64SliceP(f.GetName(), f.GetShort(), toTypedSlice[int64](defaultValueSlice), descr))
-		case reflect.Float32:
-			f.setValuePtr(cmd.Flags().Float32SliceP(f.GetName(), f.GetShort(), toTypedSlice[float32](defaultValueSlice), descr))
-		case reflect.Float64:
-			f.setValuePtr(cmd.Flags().Float64SliceP(f.GetName(), f.GetShort(), toTypedSlice[float64](defaultValueSlice), descr))
-		case reflect.Bool:
-			f.setValuePtr(cmd.Flags().BoolSliceP(f.GetName(), f.GetShort(), toTypedSlice[bool](defaultValueSlice), descr))
-		default:
-			return fmt.Errorf("unsupported slice element type '%v'. Check parameter '%s'", elemType, f.GetName())
-		}
+		f.setValuePtr(fallback.bindFlag(cmd, f.GetName(), f.GetShort(), descr, defVal))
 		return nil
-	case reflect.Array:
-		return fmt.Errorf("unsupported param type (Array): %s: ", f.GetKind().String())
-	case reflect.Pointer:
-		// Check if this is *url.URL
-		if f.GetType() == urlPtrType {
-			def := ""
-			if f.hasDefaultValue() {
-				defVal := reflect.ValueOf(f.defaultValuePtr()).Elem()
-				if !defVal.IsNil() {
-					def = defVal.Interface().(*url.URL).String()
-				}
-			}
-			f.setValuePtr(cmd.Flags().StringP(f.GetName(), f.GetShort(), def, descr))
-			return nil
-		}
-		return fmt.Errorf("unsupported param type (Pointer): %s: ", f.GetKind().String())
-	default:
-		return fmt.Errorf("unsupported param type: %s", f.GetKind().String())
 	}
+
+	if f.GetKind() == reflect.Array {
+		return fmt.Errorf("unsupported param type (Array): %s: ", f.GetKind().String())
+	}
+
+	return fmt.Errorf("unsupported param type: %s", f.GetKind().String())
 }
 
 func readEnv(f Param) error {
@@ -737,124 +640,6 @@ func readFrom(f Param, strVal string) error {
 	return nil
 }
 
-func parseSlice(
-	name string,
-	strVal string,
-	elemType reflect.Type,
-) (any, error) {
-
-	isEmptySlice := strVal == "[]"
-
-	// remove any brackets
-	strVal = strings.TrimSuffix(strings.TrimPrefix(strVal, "["), "]")
-
-	parts := strings.Split(strVal, ",")
-	for i, part := range parts {
-		parts[i] = strings.TrimSpace(part)
-	}
-	switch elemType.Kind() {
-	case reflect.String:
-
-		if isEmptySlice {
-			return &[]string{}, nil
-		}
-
-		return &parts, nil
-	case reflect.Int:
-		out := make([]int, len(parts))
-
-		if isEmptySlice {
-			return &out, nil
-		}
-
-		for i, part := range parts {
-			parsedInt, err := strconv.Atoi(part)
-			if err != nil {
-				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
-			}
-			out[i] = parsedInt
-		}
-		return &out, nil
-	case reflect.Int32:
-		out := make([]int32, len(parts))
-
-		if isEmptySlice {
-			return &out, nil
-		}
-
-		for i, part := range parts {
-			parsedInt64, err := strconv.ParseInt(part, 10, 32)
-			if err != nil {
-				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
-			}
-			out[i] = int32(parsedInt64)
-		}
-		return &out, nil
-	case reflect.Int64:
-		out := make([]int64, len(parts))
-
-		if isEmptySlice {
-			return &out, nil
-		}
-
-		for i, part := range parts {
-			parsedInt64, err := strconv.ParseInt(part, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
-			}
-			out[i] = parsedInt64
-		}
-		return &out, nil
-	case reflect.Float32:
-		out := make([]float32, len(parts))
-
-		if isEmptySlice {
-			return &out, nil
-		}
-
-		for i, part := range parts {
-			parsedFloat64, err := strconv.ParseFloat(part, 32)
-			if err != nil {
-				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
-			}
-			out[i] = float32(parsedFloat64)
-		}
-		return &out, nil
-	case reflect.Float64:
-		out := make([]float64, len(parts))
-
-		if isEmptySlice {
-			return &out, nil
-		}
-
-		for i, part := range parts {
-			parsedFloat64, err := strconv.ParseFloat(part, 64)
-			if err != nil {
-				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
-			}
-			out[i] = parsedFloat64
-		}
-		return &out, nil
-	case reflect.Bool:
-		out := make([]bool, len(parts))
-
-		if isEmptySlice {
-			return &out, nil
-		}
-
-		for i, part := range parts {
-			parsedBool, err := strconv.ParseBool(part)
-			if err != nil {
-				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
-			}
-			out[i] = parsedBool
-		}
-		return &out, nil
-	default:
-		return nil, fmt.Errorf("unsupported slice element type '%v'. Check parameter '%s'", elemType, name)
-	}
-}
-
 // parseTimeString parses a time string trying multiple common formats
 func parseTimeString(s string) (time.Time, error) {
 	formats := []string{
@@ -872,200 +657,57 @@ func parseTimeString(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("unable to parse time: %s", s)
 }
 
-// parseSliceSpecial parses slices of special types (time.Duration, time.Time, net.IP, *url.URL)
-func parseSliceSpecial(
-	name string,
-	strVal string,
-	elemType reflect.Type,
-) (any, error) {
-	isEmptySlice := strVal == "[]"
-
-	// remove any brackets
-	strVal = strings.TrimSuffix(strings.TrimPrefix(strVal, "["), "]")
-
-	parts := strings.Split(strVal, ",")
-	for i, part := range parts {
-		parts[i] = strings.TrimSpace(part)
-	}
-
-	//nolint:staticcheck // can't use tagged switch with reflect.Type comparisons
-	switch {
-	case elemType == durationType:
-		out := make([]time.Duration, len(parts))
-		if isEmptySlice {
-			return out, nil
-		}
-		for i, part := range parts {
-			d, err := time.ParseDuration(part)
-			if err != nil {
-				return nil, fmt.Errorf("invalid duration value for param %s: %s", name, err.Error())
-			}
-			out[i] = d
-		}
-		return out, nil
-
-	case elemType == timeType:
-		out := make([]time.Time, len(parts))
-		if isEmptySlice {
-			return out, nil
-		}
-		for i, part := range parts {
-			t, err := parseTimeString(part)
-			if err != nil {
-				return nil, fmt.Errorf("invalid time value for param %s: %s", name, err.Error())
-			}
-			out[i] = t
-		}
-		return out, nil
-
-	case elemType == ipType:
-		out := make([]net.IP, len(parts))
-		if isEmptySlice {
-			return out, nil
-		}
-		for i, part := range parts {
-			ip := net.ParseIP(part)
-			if ip == nil {
-				return nil, fmt.Errorf("invalid IP address for param %s: %s", name, part)
-			}
-			out[i] = ip
-		}
-		return out, nil
-
-	case elemType == urlPtrType:
-		out := make([]*url.URL, len(parts))
-		if isEmptySlice {
-			return out, nil
-		}
-		for i, part := range parts {
-			u, err := url.Parse(part)
-			if err != nil {
-				return nil, fmt.Errorf("invalid URL for param %s: %s", name, err.Error())
-			}
-			out[i] = u
-		}
-		return out, nil
-
-	default:
-		return nil, fmt.Errorf("unsupported special slice element type '%v'. Check parameter '%s'", elemType, name)
-	}
-}
-
 func parsePtr(
 	name string,
 	tpe reflect.Type,
 	kind reflect.Kind,
 	strVal string,
 ) (any, error) {
-
-	switch kind {
-	case reflect.String:
-		return &strVal, nil
-	case reflect.Int:
-		parsedInt, err := strconv.Atoi(strVal)
-		if err != nil {
-			return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
-		}
-		return &parsedInt, nil
-	case reflect.Int32:
-		parsedInt64, err := strconv.ParseInt(strVal, 10, 32)
-		if err != nil {
-			return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
-		}
-		parsedInt32 := int32(parsedInt64)
-		return &parsedInt32, nil
-	case reflect.Int64:
-		// Check if this is time.Duration
-		if tpe == durationType {
-			parsedDuration, err := time.ParseDuration(strVal)
-			if err != nil {
-				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
-			}
-			return &parsedDuration, nil
-		}
-		parsedInt64, err := strconv.ParseInt(strVal, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
-		}
-		return &parsedInt64, nil
-	case reflect.Float32:
-		parsedFloat64, err := strconv.ParseFloat(strVal, 32)
-		if err != nil {
-			return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
-		}
-		parsedFloat32 := float32(parsedFloat64)
-		return &parsedFloat32, nil
-	case reflect.Float64:
-		parsedFloat64, err := strconv.ParseFloat(strVal, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
-		}
-		return &parsedFloat64, nil
-	case reflect.Bool:
-		parsedBool, err := strconv.ParseBool(strVal)
-		if err != nil {
-			return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
-		}
-		return &parsedBool, nil
-	case reflect.Struct:
-		if tpe == timeType {
-			parsedTime, err := time.Parse(time.RFC3339, strVal)
-			if err != nil {
-				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
-			}
-			return &parsedTime, nil
-		} else {
-			return nil, fmt.Errorf("general structs not yet supported: %s", tpe.String())
-		}
-	case reflect.Slice:
-		// Check if this is net.IP (single IP, which is []byte)
-		if tpe == ipType {
-			parsedIP := net.ParseIP(strVal)
-			if parsedIP == nil {
-				return nil, fmt.Errorf("invalid IP address for param %s: %s", name, strVal)
-			}
-			return &parsedIP, nil
-		}
-		// Check for special slice element types
-		elem := tpe.Elem()
-		if elem == durationType || elem == timeType || elem == ipType || elem == urlPtrType {
-			parsed, err := parseSliceSpecial(name, strVal, elem)
-			if err != nil {
-				return nil, err
-			}
-			// parseSliceSpecial returns value, not pointer - wrap it
-			result := reflect.New(tpe)
-			result.Elem().Set(reflect.ValueOf(parsed))
-			return result.Interface(), nil
-		}
-		return parseSlice(name, strVal, tpe.Elem())
-	case reflect.Array:
-		return nil, fmt.Errorf("arrays not supported param type. Use a slice instead: %s", kind.String())
-	case reflect.Pointer:
-		// Check if this is *url.URL
-		if tpe == urlPtrType {
-			if strVal == "" {
-				return (*url.URL)(nil), nil
-			}
-			parsedURL, err := url.Parse(strVal)
-			if err != nil {
-				return nil, fmt.Errorf("invalid URL for param %s: %s", name, err.Error())
-			}
-			return &parsedURL, nil
-		}
-		return nil, fmt.Errorf("pointers not yet supported param type: %s", kind.String())
-	default:
-		return nil, fmt.Errorf("unsupported param type: %s", kind.String())
+	// Scalar types — look up by exact type first, then by kind
+	if handler, _ := lookupHandler(tpe); handler != nil {
+		return handler.parse(name, strVal)
 	}
+
+	// Map types — native handler or JSON fallback
+	if kind == reflect.Map {
+		if mapHandler := lookupMapHandler(tpe); mapHandler != nil {
+			return mapHandler.parse(name, strVal)
+		}
+		return jsonFallbackHandler(tpe).parse(name, strVal)
+	}
+
+	// Slice types — native handler or JSON fallback
+	if kind == reflect.Slice {
+		elemType := tpe.Elem()
+		if sliceHandler := lookupSliceHandler(elemType); sliceHandler != nil {
+			return sliceHandler.parse(name, strVal)
+		}
+		return jsonFallbackHandler(tpe).parse(name, strVal)
+	}
+
+	if kind == reflect.Array {
+		return nil, fmt.Errorf("arrays not supported param type. Use a slice instead: %s", kind.String())
+	}
+
+	return nil, fmt.Errorf("unsupported param type: %s", kind.String())
 }
 
 func camelToKebabCase(in string) string {
 	var result strings.Builder
+	runes := []rune(in)
 
-	for _, char := range in {
+	for i, char := range runes {
 		if unicode.IsUpper(char) {
-			if result.Len() > 0 {
-				result.WriteRune('-')
+			if i > 0 {
+				prev := runes[i-1]
+				// Insert dash before uppercase if previous was lowercase,
+				// or if previous was uppercase but next is lowercase (end of acronym).
+				// e.g., "DBHost" → "db-host", "myParam" → "my-param"
+				if unicode.IsLower(prev) {
+					result.WriteRune('-')
+				} else if unicode.IsUpper(prev) && i+1 < len(runes) && unicode.IsLower(runes[i+1]) {
+					result.WriteRune('-')
+				}
 			}
 			result.WriteRune(unicode.ToLower(char))
 		} else {
@@ -1106,6 +748,7 @@ func isBoaIgnored(field reflect.StructField) bool {
 	boaTags := getBoaTags(field)
 	return slices.Contains(boaTags, "ignore") ||
 		slices.Contains(boaTags, "ignored") ||
+		slices.Contains(boaTags, "configonly") ||
 		slices.Contains(boaTags, "-")
 }
 
@@ -1114,7 +757,9 @@ func traverse(
 	structPtr any,
 	fParam func(param Param, paramFieldName string, tags reflect.StructTag) error,
 	fStruct func(structPtr any) error,
+	prefixParts ...string,
 ) error {
+	prefix := strings.Join(prefixParts, "")
 
 	if reflect.TypeOf(structPtr).Kind() != reflect.Ptr {
 		return fmt.Errorf("expected pointer to struct")
@@ -1144,38 +789,40 @@ func traverse(
 		fieldAddr := rootValue.Field(i).Addr()
 		// check if field is a param
 		param, isParam := fieldAddr.Interface().(Param)
+		prefixedName := prefix + field.Name
 		if isParam {
-			//if !param.IsEnabled() { // cant do here, because it is not known yet
-			//	continue // this parameter is not enabled
-			//}
 			if fParam != nil {
-				err := fParam(param, field.Name, field.Tag)
+				err := fParam(param, prefixedName, field.Tag)
 				if err != nil {
 					return err
 				}
 			}
 		} else {
 
-			// check if it is a struct (but not time.Time which is a supported param type)
-			if field.Type.Kind() == reflect.Struct && field.Type != timeType {
-				if err := traverse(ctx, fieldAddr.Interface(), fParam, fStruct); err != nil {
+			// check if it is a struct (but not registered types like time.Time or custom types)
+			if field.Type.Kind() == reflect.Struct && !isSupportedType(field.Type) {
+				// Named (non-anonymous) struct fields get auto-prefixed
+				childPrefix := prefix
+				if !field.Anonymous {
+					childPrefix = prefix + field.Name
+				}
+				if err := traverse(ctx, fieldAddr.Interface(), fParam, fStruct, childPrefix); err != nil {
 					return err
 				}
 				continue
 			}
 
-			// check if it is a pointer to a struct (but not *url.URL which is a supported param type)
-			if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct && field.Type != urlPtrType {
+			// check if it is a pointer to a struct (but not *url.URL or pointer-to-supported-type)
+			if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct && !isSupportedType(field.Type) {
 				if !fieldAddr.IsNil() && !fieldAddr.Elem().IsNil() {
-					if err := traverse(ctx, fieldAddr.Elem().Interface(), fParam, fStruct); err != nil {
+					childPrefix := prefix
+					if !field.Anonymous {
+						childPrefix = prefix + field.Name
+					}
+					if err := traverse(ctx, fieldAddr.Elem().Interface(), fParam, fStruct, childPrefix); err != nil {
 						return err
 					}
 				}
-				continue
-			}
-
-			if field.Type.Kind() == reflect.Pointer && field.Type != urlPtrType {
-				slog.Warn(fmt.Sprintf("raw pointer types to parameters are not (yet?) supported. Field %s will be ignored", field.Name))
 				continue
 			}
 
@@ -1183,16 +830,23 @@ func traverse(
 			if isSupportedType(field.Type) {
 
 				// check if we already have a mirror for this field
-				addr := fieldAddr.Pointer()
+				addr := fieldAddr.UnsafePointer()
 				var ok bool
 				if param, ok = ctx.RawAddrToMirror[addr]; !ok {
 					param = newParam(&field, field.Type)
+					// Set prefix for named struct nesting
+					if prefix != "" {
+						if pm, ok := param.(*paramMeta); ok {
+							pm.flagPrefix = camelToKebabCase(prefix) + "-"
+							pm.envPrefix = kebabCaseToUpperSnakeCase(pm.flagPrefix[:len(pm.flagPrefix)-1]) + "_"
+						}
+					}
 					ctx.RawAddresses = append(ctx.RawAddresses, addr)
 					ctx.RawAddrToMirror[addr] = param
 				}
 
 				if fParam != nil {
-					err := fParam(param, field.Name, field.Tag)
+					err := fParam(param, prefixedName, field.Tag)
 					if err != nil {
 						return err
 					}
@@ -1229,8 +883,8 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 
 	ctx := &processingContext{
 		Context:         context.Background(), // prepare to override later?
-		RawAddrToMirror: map[uintptr]Param{},
-		RawAddresses:    []uintptr{},
+		RawAddrToMirror: map[unsafe.Pointer]Param{},
+		RawAddresses:    []unsafe.Pointer{},
 	}
 
 	// build mirrors
@@ -1314,11 +968,12 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 	if b.Params != nil {
 
 		// look in tags for info about positional args
+		currentStructPtr := b.Params
 		err := traverse(ctx, b.Params, func(param Param, _ string, tags reflect.StructTag) error {
 			if tags.Get("positional") == "true" || tags.Get("pos") == "true" {
 				param.setPositional(true)
 			}
-			if param.descr() == "" {
+			if param.getDescr() == "" {
 				if descr, ok := tags.Lookup("help"); ok {
 					param.setDescription(descr)
 				} else if descr, ok := tags.Lookup("desc"); ok {
@@ -1331,7 +986,12 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			}
 			if param.GetEnv() == "" {
 				if env, ok := tags.Lookup("env"); ok {
-					param.SetEnv(env)
+					// Apply struct prefix to explicit env tags
+					if pm, ok2 := param.(*paramMeta); ok2 && pm.envPrefix != "" {
+						param.SetEnv(pm.envPrefix + env)
+					} else {
+						param.SetEnv(env)
+					}
 				}
 			}
 			if param.GetShort() == "" {
@@ -1341,9 +1001,18 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			}
 			if param.GetName() == "" {
 				if name, ok := tags.Lookup("name"); ok {
-					param.SetName(name)
+					// Apply struct prefix to explicit name tags
+					if pm, ok2 := param.(*paramMeta); ok2 && pm.flagPrefix != "" {
+						param.SetName(pm.flagPrefix + name)
+					} else {
+						param.SetName(name)
+					}
 				} else if name, ok := tags.Lookup("long"); ok {
-					param.SetName(name)
+					if pm, ok2 := param.(*paramMeta); ok2 && pm.flagPrefix != "" {
+						param.SetName(pm.flagPrefix + name)
+					} else {
+						param.SetName(name)
+					}
 				}
 			}
 
@@ -1387,8 +1056,44 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 					param.SetDefault(ptr)
 				}
 			}
+
+			// Parse min/max/pattern validation tags
+			if pm, ok := param.(*paramMeta); ok {
+				if minStr, ok := tags.Lookup("min"); ok {
+					v, err := strconv.ParseFloat(minStr, 64)
+					if err != nil {
+						return fmt.Errorf("invalid min value for param %s: %s", param.GetName(), err.Error())
+					}
+					pm.minVal = &v
+				}
+				if maxStr, ok := tags.Lookup("max"); ok {
+					v, err := strconv.ParseFloat(maxStr, 64)
+					if err != nil {
+						return fmt.Errorf("invalid max value for param %s: %s", param.GetName(), err.Error())
+					}
+					pm.maxVal = &v
+				}
+				if pat, ok := tags.Lookup("pattern"); ok {
+					pm.pattern = pat
+				}
+			}
+
+			// Detect configfile tag
+			if cfgTag, ok := tags.Lookup("configfile"); ok && cfgTag == "true" {
+				if param.GetType().Kind() != reflect.String {
+					return fmt.Errorf("configfile tag on param %s: must be a string field", param.GetName())
+				}
+				ctx.ConfigFiles = append(ctx.ConfigFiles, configFileEntry{
+					mirror: param,
+					target: currentStructPtr,
+				})
+			}
+
 			return nil
-		}, nil)
+		}, func(structPtr any) error {
+			currentStructPtr = structPtr
+			return nil
+		})
 
 		if err != nil {
 			return nil, nil, fmt.Errorf("error parsing tags: %w", err)
@@ -1535,6 +1240,44 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			}
 
 			syncMirrors(ctx)
+
+			// Auto-load config files tagged with configfile:"true".
+			// Substruct configs load first, root config loads last (root overrides inner).
+			// Priority: CLI > env > root config > substruct config > defaults
+			if len(ctx.ConfigFiles) > 0 {
+				// Separate root and substruct entries
+				var subEntries, rootEntries []configFileEntry
+				for _, entry := range ctx.ConfigFiles {
+					if entry.target == b.Params {
+						rootEntries = append(rootEntries, entry)
+					} else {
+						subEntries = append(subEntries, entry)
+					}
+				}
+				// Load substruct configs first
+				for _, entry := range subEntries {
+					if entry.mirror.HasValue() {
+						filePath := *(entry.mirror.valuePtrF().(*string))
+						if filePath != "" {
+							if err := loadConfigFileInto(filePath, entry.target, b.ConfigUnmarshal); err != nil {
+								return NewUserInputError(fmt.Errorf("configfile %s: %w", entry.mirror.GetName(), err))
+							}
+						}
+					}
+				}
+				// Then load root config (overrides substruct values)
+				for _, entry := range rootEntries {
+					if entry.mirror.HasValue() {
+						filePath := *(entry.mirror.valuePtrF().(*string))
+						if filePath != "" {
+							if err := loadConfigFileInto(filePath, entry.target, b.ConfigUnmarshal); err != nil {
+								return NewUserInputError(fmt.Errorf("configfile %s: %w", entry.mirror.GetName(), err))
+							}
+						}
+					}
+				}
+				syncMirrors(ctx)
+			}
 
 			// if b.params or any inner struct implements CfgStructPreValidate, call it
 			err := traverse(ctx, b.Params, nil, func(innerParams any) error {
@@ -1735,11 +1478,15 @@ func syncMirrors(ctx *processingContext) {
 	for _, rawAddr := range ctx.RawAddresses {
 		mirror := ctx.RawAddrToMirror[rawAddr]
 
-		// Convert unsafe.Pointer to a reflect.Value of the appropriate pointer type
-		// without needing to create an unused ptrType variable
-		//goland:noinspection ALL
-		//nolint:govet // intentional: rawAddr is a valid uintptr from fieldAddr.Pointer()
-		ptrToRawValue := reflect.NewAt(mirror.GetType(), unsafe.Pointer(rawAddr))
+		// Check if this is a pointer field (e.g., *string, *int)
+		pm, isParamMeta := mirror.(*paramMeta)
+		if isParamMeta && pm.isPointer {
+			syncPointerField(rawAddr, mirror, pm)
+			continue
+		}
+
+		// Create a reflect.Value pointing to the raw field via its stored address
+		ptrToRawValue := reflect.NewAt(mirror.GetType(), rawAddr)
 
 		if !mirror.wasSetOnCli() && !mirror.wasSetByEnv() && !ptrToRawValue.Elem().IsZero() {
 			mirror.injectValuePtr(ptrToRawValue.Interface())
@@ -1767,7 +1514,37 @@ func syncMirrors(ctx *processingContext) {
 	}
 }
 
-func runImpl(cmd *cobra.Command, handler ResultHandler) {
+// syncPointerField handles bidirectional sync for pointer fields like *string, *int.
+// rawAddr points to the pointer field itself (e.g., the *string field in the user's struct).
+// The mirror stores the value type (string), while the raw field is a pointer (*string).
+func syncPointerField(rawAddr unsafe.Pointer, mirror Param, _ *paramMeta) {
+	// rawAddr points to the *string field. reflect.NewAt creates a **string pointing at it.
+	ptrType := reflect.PointerTo(mirror.GetType()) // e.g., *string
+	rawFieldPtr := reflect.NewAt(ptrType, rawAddr)  // **string pointing at the field
+	rawFieldVal := rawFieldPtr.Elem()                // the *string field value itself
+
+	// Raw → Mirror: if the user's pointer is non-nil, inject the pointed-to value
+	if !mirror.wasSetOnCli() && !mirror.wasSetByEnv() && !rawFieldVal.IsNil() {
+		// rawFieldVal.Interface() is *string — same type cobra uses
+		mirror.injectValuePtr(rawFieldVal.Interface())
+	}
+
+	// Mirror → Raw: if mirror has a value, set the pointer field
+	if mirror.wasSetOnCli() || mirror.wasSetByEnv() || (mirror.HasValue() && rawFieldVal.IsNil()) {
+		valPtr := mirror.valuePtrF()
+		if valPtr != nil {
+			mirrorVal := reflect.ValueOf(valPtr) // *string from cobra
+			// Skip if types don't match (e.g., string vs *url.URL before conversion)
+			if mirrorVal.Type().AssignableTo(rawFieldVal.Type()) {
+				if rawFieldVal.CanSet() {
+					rawFieldVal.Set(mirrorVal)
+				}
+			}
+		}
+	}
+}
+
+func runImpl(cmd *cobra.Command, handler resultHandler) {
 
 	if handler.Panic != nil {
 		defer func() {
@@ -1800,91 +1577,92 @@ func runImpl(cmd *cobra.Command, handler ResultHandler) {
 }
 
 func isSupportedType(t reflect.Type) bool {
-
-	// 	string |
-	//		int |
-	//		int32 |
-	//		int64 |
-	//		bool |
-	//		float64 |
-	//		float32 |
-	//		time.Time |
-	//		time.Duration |
-	//		net.IP |
-	//		*url.URL |
-	//		[]string |
-	//		[]int |
-	//		[]int32 |
-	//		[]int64 |
-	//		[]float32 |
-	//		[]float64
-	switch t.Kind() {
-	case
-		reflect.String,
-		reflect.Int,
-		reflect.Int32,
-		reflect.Bool,
-		reflect.Float32,
-		reflect.Float64:
+	// Exact type match (time.Time, time.Duration, net.IP, *url.URL)
+	if _, ok := exactTypeHandlers[t]; ok {
 		return true
-	case reflect.Int64:
-		// int64 and time.Duration (which is int64 underneath)
-		return true
-	case reflect.Struct:
-		if t == timeType {
-			return true
-		} else {
-			return false
-		}
-	case reflect.Slice:
-		// net.IP is []byte
-		if t == ipType {
-			return true
-		}
-		elem := t.Elem()
-		// Basic slice types
-		if elem.Kind() == reflect.String ||
-			elem.Kind() == reflect.Int ||
-			elem.Kind() == reflect.Int32 ||
-			elem.Kind() == reflect.Int64 ||
-			elem.Kind() == reflect.Float32 ||
-			elem.Kind() == reflect.Float64 ||
-			elem.Kind() == reflect.Bool {
-			return true
-		}
-		// []time.Time
-		if elem == timeType {
-			return true
-		}
-		// []net.IP (slice of net.IP which is itself []byte)
-		if elem == ipType {
-			return true
-		}
-		// []*url.URL
-		if elem == urlPtrType {
-			return true
-		}
-		return false
-	case reflect.Pointer:
-		// *url.URL
-		if t == urlPtrType {
-			return true
-		}
-		return false
-	default:
-		return false
 	}
+	// Kind-based match (string, int, bool, float, etc.)
+	if _, ok := kindHandlers[t.Kind()]; ok {
+		return true
+	}
+	// Map types — all map[string]V types are supported (native pflag or JSON fallback)
+	if t.Kind() == reflect.Map && t.Key().Kind() == reflect.String {
+		return true
+	}
+	// Slice types — all slices are supported (native pflag for basic elements, JSON fallback for complex)
+	if t.Kind() == reflect.Slice {
+		return true
+	}
+	// Pointer-to-supported-type (e.g., *string, *int, *bool)
+	if t.Kind() == reflect.Pointer {
+		return isSupportedType(t.Elem())
+	}
+	return false
+}
+
+// normalizeType converts type aliases to their base types for cobra compatibility.
+// For example, `type MyString string` returns reflect.TypeOf("") (string).
+// Special types (time.Time, time.Duration, net.IP, *url.URL) are returned as-is.
+func normalizeType(t reflect.Type) reflect.Type {
+	// Exact-match handlers have their own baseType (special types stay as-is)
+	if handler, ok := exactTypeHandlers[t]; ok {
+		return handler.baseType
+	}
+
+	// For slices, normalize via slice handlers
+	if t.Kind() == reflect.Slice {
+		elem := t.Elem()
+		// Special slice element types stay as-is
+		if _, ok := sliceExactTypeHandlers[elem]; ok {
+			return t
+		}
+		// Normalize basic slice element types
+		normElem := normalizeType(elem)
+		if normElem != elem {
+			return reflect.SliceOf(normElem)
+		}
+		return t
+	}
+
+	// Kind-based handlers provide the baseType for basic types + aliases
+	if handler, ok := kindHandlers[t.Kind()]; ok {
+		return handler.baseType
+	}
+
+	return t
 }
 
 func newParam(field *reflect.StructField, t reflect.Type) Param {
+	// Determine if this is a pointer-to-value field (e.g., *string, *int)
+	// Note: *url.URL is NOT treated as a pointer field — it's a specific supported type
+	isPtr := t.Kind() == reflect.Pointer && t != urlPtrType
+	valueType := t
+	if isPtr {
+		valueType = t.Elem()
+	}
 
-	required := !cfg.defaultOptional
+	// Normalize type aliases to their base types for cobra compatibility.
+	// e.g., `type MyString string` → store as string, since cobra's StringP returns *string.
+	// This matches the old required[T] behavior where newParam always created required[string]{},
+	// required[int]{}, etc. regardless of whether the field was a type alias.
+	valueType = normalizeType(valueType)
+
+	// Pointer, map, and nested slice fields default to optional (nil = not set)
+	isRequired := !cfg.defaultOptional
+	if isPtr || valueType.Kind() == reflect.Map {
+		isRequired = false
+	}
+	// Nested slices ([][]T) default to optional — flat slices keep the global default
+	if valueType.Kind() == reflect.Slice && valueType.Elem().Kind() == reflect.Slice {
+		isRequired = false
+	}
+
 	if requiredTag, ok := field.Tag.Lookup("required"); ok {
 		switch requiredTag {
 		case "true":
-			required = true
+			isRequired = true
 		case "false":
-			required = false
+			isRequired = false
 		default:
 			panic(fmt.Errorf("invalid value for field %s's required tag: %s", field.Name, requiredTag))
 		}
@@ -1892,9 +1670,9 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 	if requiredTag, ok := field.Tag.Lookup("req"); ok {
 		switch requiredTag {
 		case "true":
-			required = true
+			isRequired = true
 		case "false":
-			required = false
+			isRequired = false
 		default:
 			panic(fmt.Errorf("invalid value for field %s's required tag: %s", field.Name, requiredTag))
 		}
@@ -1902,9 +1680,9 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 	if optionalTag, ok := field.Tag.Lookup("optional"); ok {
 		switch optionalTag {
 		case "true":
-			required = false
+			isRequired = false
 		case "false":
-			required = true
+			isRequired = true
 		default:
 			panic(fmt.Errorf("invalid value for field %s's optional tag: %s", field.Name, optionalTag))
 		}
@@ -1912,176 +1690,18 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 	if optionalTag, ok := field.Tag.Lookup("opt"); ok {
 		switch optionalTag {
 		case "true":
-			required = false
+			isRequired = false
 		case "false":
-			required = true
+			isRequired = true
 		default:
 			panic(fmt.Errorf("invalid value for field %s's optional tag: %s", field.Name, optionalTag))
 		}
 	}
 
-	switch t.Kind() {
-	case reflect.String:
-		if required {
-			return &Required[string]{}
-		} else {
-			return &Optional[string]{}
-		}
-	case reflect.Int:
-		if required {
-			return &Required[int]{}
-		} else {
-			return &Optional[int]{}
-		}
-	case reflect.Int32:
-		if required {
-			return &Required[int32]{}
-		} else {
-			return &Optional[int32]{}
-		}
-	case reflect.Int64:
-		// Check if this is time.Duration
-		if t == durationType {
-			if required {
-				return &Required[time.Duration]{}
-			} else {
-				return &Optional[time.Duration]{}
-			}
-		}
-		if required {
-			return &Required[int64]{}
-		} else {
-			return &Optional[int64]{}
-		}
-	case reflect.Float32:
-		if required {
-			return &Required[float32]{}
-		} else {
-			return &Optional[float32]{}
-		}
-	case reflect.Float64:
-		if required {
-			return &Required[float64]{}
-		} else {
-			return &Optional[float64]{}
-		}
-	case reflect.Bool:
-		if required {
-			return &Required[bool]{}
-		} else {
-			return &Optional[bool]{}
-		}
-	case reflect.Struct:
-		if t == timeType {
-			if required {
-				return &Required[time.Time]{}
-			} else {
-				return &Optional[time.Time]{}
-			}
-		} else {
-			panic(fmt.Errorf("unsupported type %s", t.String()))
-		}
-	case reflect.Slice:
-		// Check if this is net.IP (which is []byte)
-		if t == ipType {
-			if required {
-				return &Required[net.IP]{}
-			} else {
-				return &Optional[net.IP]{}
-			}
-		}
-		elem := t.Elem()
-		// Check for special slice types first
-		// []net.IP - pflag has IPSliceP
-		if elem == ipType {
-			if required {
-				return &Required[[]net.IP]{}
-			} else {
-				return &Optional[[]net.IP]{}
-			}
-		}
-		// []time.Duration - pflag has DurationSliceP
-		if elem == durationType {
-			if required {
-				return &Required[[]time.Duration]{}
-			} else {
-				return &Optional[[]time.Duration]{}
-			}
-		}
-		// []time.Time - stored as []string, converted during validation
-		if elem == timeType {
-			if required {
-				return &Required[[]time.Time]{}
-			} else {
-				return &Optional[[]time.Time]{}
-			}
-		}
-		// []*url.URL - stored as []string, converted during validation
-		if elem == urlPtrType {
-			if required {
-				return &Required[[]*url.URL]{}
-			} else {
-				return &Optional[[]*url.URL]{}
-			}
-		}
-		switch elem.Kind() {
-		case reflect.String:
-			if required {
-				return &Required[[]string]{}
-			} else {
-				return &Optional[[]string]{}
-			}
-		case reflect.Int:
-			if required {
-				return &Required[[]int]{}
-			} else {
-				return &Optional[[]int]{}
-			}
-		case reflect.Int32:
-			if required {
-				return &Required[[]int32]{}
-			} else {
-				return &Optional[[]int32]{}
-			}
-		case reflect.Int64:
-			if required {
-				return &Required[[]int64]{}
-			} else {
-				return &Optional[[]int64]{}
-			}
-		case reflect.Float32:
-			if required {
-				return &Required[[]float32]{}
-			} else {
-				return &Optional[[]float32]{}
-			}
-		case reflect.Float64:
-			if required {
-				return &Required[[]float64]{}
-			} else {
-				return &Optional[[]float64]{}
-			}
-		case reflect.Bool:
-			if required {
-				return &Required[[]bool]{}
-			} else {
-				return &Optional[[]bool]{}
-			}
-		default:
-			panic(fmt.Errorf("unsupported slice type %s", t.String()))
-		}
-	case reflect.Pointer:
-		// Check if this is *url.URL
-		if t == urlPtrType {
-			if required {
-				return &Required[*url.URL]{}
-			} else {
-				return &Optional[*url.URL]{}
-			}
-		}
-		panic(fmt.Errorf("unsupported pointer type %s", t.String()))
-	default:
-		panic(fmt.Errorf("unsupported type %s", t.String()))
+	return &paramMeta{
+		fieldType:       valueType,
+		isPointer:       isPtr,
+		defaultRequired: isRequired,
 	}
 }
 

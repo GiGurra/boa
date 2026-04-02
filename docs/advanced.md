@@ -6,29 +6,16 @@ This page covers advanced BOA features for power users.
 
 Every parameter (whether using struct tags or programmatic configuration) implements the `Param` interface. Access it via `HookContext.GetParam()`:
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "cmd",
-        InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-            param := ctx.GetParam(&p.SomeField)
-            // Now use param methods...
-            return nil
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("cmd").
-        WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-            param := ctx.GetParam(&p.SomeField)
-            // Now use param methods...
-            return nil
-        })
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "cmd",
+    InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+        param := ctx.GetParam(&p.SomeField)
+        // Now use param methods...
+        return nil
+    },
+}
+```
 
 ### Param Methods
 
@@ -56,63 +43,33 @@ Every parameter (whether using struct tags or programmatic configuration) implem
 
 For type-safe parameter configuration, use `boa.GetParamT[T]()` instead of `GetParam()`. This returns a `ParamT[T]` interface with typed methods:
 
-=== "Direct API"
+```go
+type Params struct {
+    Port int    `descr:"Server port"`
+    Host string `descr:"Server host"`
+}
 
-    ```go
-    type Params struct {
-        Port int    `descr:"Server port"`
-        Host string `descr:"Server host"`
-    }
-
-    boa.CmdT[Params]{
-        Use: "server",
-        InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-            // Type-safe: compiler ensures correct types
-            portParam := boa.GetParamT(ctx, &p.Port)
-            portParam.SetDefaultT(8080)  // Takes int, not any
-            portParam.SetCustomValidatorT(func(port int) error {
-                if port < 1 || port > 65535 {
-                    return fmt.Errorf("port must be between 1 and 65535")
-                }
-                return nil
-            })
-
-            hostParam := boa.GetParamT(ctx, &p.Host)
-            hostParam.SetDefaultT("localhost")  // Takes string
-            hostParam.SetAlternatives([]string{"localhost", "0.0.0.0"})
-
-            return nil
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    type Params struct {
-        Port int    `descr:"Server port"`
-        Host string `descr:"Server host"`
-    }
-
-    boa.NewCmdT[Params]("server").
-        WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-            // Type-safe: compiler ensures correct types
-            portParam := boa.GetParamT(ctx, &p.Port)
-            portParam.SetDefaultT(8080)  // Takes int, not any
-            portParam.SetCustomValidatorT(func(port int) error {
-                if port < 1 || port > 65535 {
-                    return fmt.Errorf("port must be between 1 and 65535")
-                }
-                return nil
-            })
-
-            hostParam := boa.GetParamT(ctx, &p.Host)
-            hostParam.SetDefaultT("localhost")  // Takes string
-            hostParam.SetAlternatives([]string{"localhost", "0.0.0.0"})
-
+boa.CmdT[Params]{
+    Use: "server",
+    InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+        // Type-safe: compiler ensures correct types
+        portParam := boa.GetParamT(ctx, &p.Port)
+        portParam.SetDefaultT(8080)  // Takes int, not any
+        portParam.SetCustomValidatorT(func(port int) error {
+            if port < 1 || port > 65535 {
+                return fmt.Errorf("port must be between 1 and 65535")
+            }
             return nil
         })
-    ```
+
+        hostParam := boa.GetParamT(ctx, &p.Host)
+        hostParam.SetDefaultT("localhost")  // Takes string
+        hostParam.SetAlternatives([]string{"localhost", "0.0.0.0"})
+
+        return nil
+    },
+}
+```
 
 ### ParamT Methods
 
@@ -143,15 +100,17 @@ type DeployParams struct {
     ProdKey     string `descr:"Production API key" optional:"true"`
 }
 
-boa.NewCmdT[DeployParams]("deploy").
-    WithInitFuncCtx(func(ctx *boa.HookContext, p *DeployParams, cmd *cobra.Command) error {
+boa.CmdT[DeployParams]{
+    Use: "deploy",
+    InitFuncCtx: func(ctx *boa.HookContext, p *DeployParams, cmd *cobra.Command) error {
         // ProdKey is only required when deploying to production
         prodKeyParam := boa.GetParamT(ctx, &p.ProdKey)
         prodKeyParam.SetRequiredFn(func() bool {
             return p.Environment == "prod"
         })
         return nil
-    })
+    },
+}
 ```
 
 ## Dynamic Shell Completion
@@ -160,301 +119,234 @@ boa.NewCmdT[DeployParams]("deploy").
 
 For completion suggestions that depend on runtime state (like fetching from an API), use `SetAlternativesFunc` via `HookContext`:
 
-=== "Direct API"
+```go
+type Params struct {
+    Region string `descr:"AWS region"`
+}
 
-    ```go
-    type Params struct {
-        Region string `descr:"AWS region"`
-    }
-
-    func main() {
-        boa.CmdT[Params]{
-            Use: "app",
-            InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-                ctx.GetParam(&p.Region).SetAlternativesFunc(
-                    func(cmd *cobra.Command, args []string, toComplete string) []string {
-                        // Could fetch from API, read from file, etc.
-                        return []string{"us-east-1", "us-west-2", "eu-west-1"}
-                    },
-                )
-                return nil
-            },
-            RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
-                // ...
-            },
-        }.Run()
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    type Params struct {
-        Region string `descr:"AWS region"`
-    }
-
-    func main() {
-        boa.NewCmdT[Params]("app").
-            WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-                ctx.GetParam(&p.Region).SetAlternativesFunc(
-                    func(cmd *cobra.Command, args []string, toComplete string) []string {
-                        // Could fetch from API, read from file, etc.
-                        return []string{"us-east-1", "us-west-2", "eu-west-1"}
-                    },
-                )
-                return nil
-            }).
-            WithRunFunc(func(params *Params) {
-                // ...
-            }).
-            Run()
-    }
-    ```
+func main() {
+    boa.CmdT[Params]{
+        Use: "app",
+        InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+            ctx.GetParam(&p.Region).SetAlternativesFunc(
+                func(cmd *cobra.Command, args []string, toComplete string) []string {
+                    // Could fetch from API, read from file, etc.
+                    return []string{"us-east-1", "us-west-2", "eu-west-1"}
+                },
+            )
+            return nil
+        },
+        RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
+            // ...
+        },
+    }.Run()
+}
+```
 
 ### ValidArgsFunc
 
 For positional argument completion:
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "app",
-        ValidArgsFunc: func(p *Params, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-            // Return suggestions for positional args
-            return []string{"option1", "option2"}, cobra.ShellCompDirectiveDefault
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("app").
-        WithValidArgsFunc(func(p *Params, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-            // Return suggestions for positional args
-            return []string{"option1", "option2"}, cobra.ShellCompDirectiveDefault
-        })
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "app",
+    ValidArgsFunc: func(p *Params, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+        // Return suggestions for positional args
+        return []string{"option1", "option2"}, cobra.ShellCompDirectiveDefault
+    },
+}
+```
 
 ## Config File Loading
 
-Load configuration from files in the PreValidate hook:
+### Using the `configfile` Tag
 
-=== "Direct API"
+Tag a string field with `configfile:"true"` to automatically load a config file before validation:
 
-    ```go
-    type AppConfig struct {
-        Host string
-        Port int
-    }
+```go
+type Params struct {
+    ConfigFile string `configfile:"true" optional:"true" default:"config.json"`
+    Host       string
+    Port       int
+}
 
-    type Params struct {
-        ConfigFile string `descr:"Path to config file" optional:"true"`
-        AppConfig
-    }
+boa.CmdT[Params]{
+    Use: "app",
+    RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+        fmt.Printf("Host: %s, Port: %d\n", p.Host, p.Port)
+    },
+}.Run()
+```
 
-    func main() {
-        boa.CmdT[Params]{
-            Use: "app",
-            PreValidateFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command, args []string) error {
-                fileParam := ctx.GetParam(&p.ConfigFile)
-                return boa.UnMarshalFromFileParam(fileParam, &p.AppConfig, nil)
-            },
-            RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
-                fmt.Printf("Host: %s, Port: %d\n", p.Host, p.Port)
-            },
-        }.Run()
-    }
-    ```
+CLI and env var values always take precedence over config file values.
 
-=== "Builder API"
+### Config Format Registry
 
-    ```go
-    type AppConfig struct {
-        Host string
-        Port int
-    }
-
-    type Params struct {
-        ConfigFile string `descr:"Path to config file" optional:"true"`
-        AppConfig
-    }
-
-    func main() {
-        boa.NewCmdT[Params]("app").
-            WithPreValidateFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command, args []string) error {
-                fileParam := ctx.GetParam(&p.ConfigFile)
-                return boa.UnMarshalFromFileParam(fileParam, &p.AppConfig, nil)
-            }).
-            WithRunFunc(func(p *Params) {
-                fmt.Printf("Host: %s, Port: %d\n", p.Host, p.Port)
-            }).
-            Run()
-    }
-    ```
-
-Custom unmarshal functions (YAML, TOML, etc.):
+JSON is the only format shipped by default. Register additional formats by file extension:
 
 ```go
 import "gopkg.in/yaml.v3"
 
-boa.UnMarshalFromFileParam(fileParam, &p.AppConfig, yaml.Unmarshal)
+boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
+boa.RegisterConfigFormat(".toml", toml.Unmarshal)
+```
+
+Resolution order for unmarshal function:
+
+1. Explicit `ConfigUnmarshal` on the command
+2. Registered format matched by file extension
+3. `json.Unmarshal` (default fallback)
+
+You can also set `ConfigUnmarshal` directly on a command to override all format detection for that command:
+
+```go
+boa.CmdT[Params]{
+    Use:             "app",
+    ConfigUnmarshal: yaml.Unmarshal,
+    RunFunc:         func(p *Params, cmd *cobra.Command, args []string) { ... },
+}.Run()
+```
+
+### Substruct Config Files
+
+The `configfile:"true"` tag works on fields inside nested structs, not just at root. Each substruct can have its own config file:
+
+```go
+type DBConfig struct {
+    ConfigFile string `configfile:"true" optional:"true"`
+    Host       string `descr:"host" default:"localhost"`
+    Port       int    `descr:"port" default:"5432"`
+}
+
+type CacheConfig struct {
+    ConfigFile string `configfile:"true" optional:"true"`
+    TTL        int    `descr:"cache TTL" default:"300"`
+}
+
+type Params struct {
+    ConfigFile string      `configfile:"true" optional:"true" default:"config.json"`
+    DB         DBConfig
+    Cache      CacheConfig
+}
+```
+
+Substruct configs load first, then root config loads and overrides any overlapping values. The full merge priority is:
+
+1. **CLI flags** -- highest
+2. **Environment variables**
+3. **Root config file**
+4. **Substruct config files**
+5. **Default values**
+6. **Zero value** -- lowest
+
+This lets you split configuration across multiple files while maintaining a clear override hierarchy.
+
+### Using `LoadConfigFile` Explicitly
+
+For more control (e.g., loading into a sub-struct, multiple config files), use `LoadConfigFile` in a PreValidate hook:
+
+```go
+type AppConfig struct {
+    Host string
+    Port int
+}
+
+type Params struct {
+    ConfigFile string `descr:"Path to config file" optional:"true"`
+    AppConfig
+}
+
+boa.CmdT[Params]{
+    Use: "app",
+    PreValidateFunc: func(p *Params, cmd *cobra.Command, args []string) error {
+        return boa.LoadConfigFile(p.ConfigFile, &p.AppConfig, nil)
+    },
+    RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+        fmt.Printf("Host: %s, Port: %d\n", p.Host, p.Port)
+    },
+}.Run()
 ```
 
 ## Checking Value Sources
 
 Use `HookContext` in your run function to check how values were set:
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "app",
-        RunFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command, args []string) {
-            if ctx.HasValue(&p.Port) {
-                fmt.Printf("Port explicitly set to %d\n", p.Port)
-            } else {
-                fmt.Println("Using default port")
-            }
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("app").
-        WithRunFuncCtx(func(ctx *boa.HookContext, p *Params) {
-            if ctx.HasValue(&p.Port) {
-                fmt.Printf("Port explicitly set to %d\n", p.Port)
-            } else {
-                fmt.Println("Using default port")
-            }
-        })
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "app",
+    RunFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command, args []string) {
+        if ctx.HasValue(&p.Port) {
+            fmt.Printf("Port explicitly set to %d\n", p.Port)
+        } else {
+            fmt.Println("Using default port")
+        }
+    },
+}
+```
 
 ## Accessing Cobra Directly
 
 Access the underlying Cobra command for features BOA doesn't wrap:
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "app",
-        InitFunc: func(p *Params, cmd *cobra.Command) error {
-            cmd.Deprecated = "use 'new-app' instead"
-            cmd.Hidden = true
-            cmd.SilenceUsage = true
-            return nil
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("app").
-        WithInitFunc2E(func(p *Params, cmd *cobra.Command) error {
-            cmd.Deprecated = "use 'new-app' instead"
-            cmd.Hidden = true
-            cmd.SilenceUsage = true
-            return nil
-        })
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "app",
+    InitFunc: func(p *Params, cmd *cobra.Command) error {
+        cmd.Deprecated = "use 'new-app' instead"
+        cmd.Hidden = true
+        cmd.SilenceUsage = true
+        return nil
+    },
+}
+```
 
 Or after flags are created:
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "app",
-        PostCreateFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-            flag := cmd.Flags().Lookup("verbose")
-            flag.NoOptDefVal = "true"  // --verbose without value means true
-            return nil
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("app").
-        WithPostCreateFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-            flag := cmd.Flags().Lookup("verbose")
-            flag.NoOptDefVal = "true"  // --verbose without value means true
-            return nil
-        })
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "app",
+    PostCreateFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+        flag := cmd.Flags().Lookup("verbose")
+        flag.NoOptDefVal = "true"  // --verbose without value means true
+        return nil
+    },
+}
+```
 
 ## Command Groups
 
 Organize subcommands into groups in help output:
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[boa.NoParams]{
-        Use: "app",
-        Groups: []*cobra.Group{
-            {ID: "core", Title: "Core Commands:"},
-            {ID: "util", Title: "Utility Commands:"},
-        },
-        SubCmds: boa.SubCmds(
-            boa.CmdT[Params]{Use: "init", GroupID: "core"},
-            boa.CmdT[Params]{Use: "run", GroupID: "core"},
-            boa.CmdT[Params]{Use: "version", GroupID: "util"},
-        ),
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[boa.NoParams]("app").
-        WithGroups(
-            &cobra.Group{ID: "core", Title: "Core Commands:"},
-            &cobra.Group{ID: "util", Title: "Utility Commands:"},
-        ).
-        WithSubCmds(
-            boa.NewCmdT[Params]("init").WithGroupID("core"),
-            boa.NewCmdT[Params]("run").WithGroupID("core"),
-            boa.NewCmdT[Params]("version").WithGroupID("util"),
-        )
-    ```
+```go
+boa.CmdT[boa.NoParams]{
+    Use: "app",
+    Groups: []*cobra.Group{
+        {ID: "core", Title: "Core Commands:"},
+        {ID: "util", Title: "Utility Commands:"},
+    },
+    SubCmds: boa.SubCmds(
+        boa.CmdT[Params]{Use: "init", GroupID: "core"},
+        boa.CmdT[Params]{Use: "run", GroupID: "core"},
+        boa.CmdT[Params]{Use: "version", GroupID: "util"},
+    ),
+}
+```
 
 ## Testing Commands
 
 ### Inject Arguments
 
-=== "Direct API"
+```go
+cmd := boa.CmdT[Params]{
+    Use: "app",
+    RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+        // ...
+    },
+}
 
-    ```go
-    cmd := boa.CmdT[Params]{
-        Use: "app",
-        RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
-            // ...
-        },
-    }
-
-    // Test with specific args
-    cmd.RunArgs([]string{"--name", "test", "--port", "8080"})
-    ```
-
-=== "Builder API"
-
-    ```go
-    cmd := boa.NewCmdT[Params]("app").
-        WithRunFunc(func(p *Params) {
-            // ...
-        })
-
-    // Test with specific args
-    cmd.RunArgs([]string{"--name", "test", "--port", "8080"})
-    ```
+// Test with specific args
+cmd.RunArgs([]string{"--name", "test", "--port", "8080"})
+```
 
 ### Testing with Error Returns
 
@@ -462,14 +354,15 @@ Use `RunFuncE` and `RunArgsE` for testable commands that return errors:
 
 ```go
 func TestMyCommand(t *testing.T) {
-    err := boa.NewCmdT[Params]("app").
-        WithRunFuncE(func(p *Params) error {
+    err := boa.CmdT[Params]{
+        Use: "app",
+        RunFuncE: func(p *Params, cmd *cobra.Command, args []string) error {
             if p.Port < 1024 {
                 return fmt.Errorf("port must be >= 1024")
             }
             return nil
-        }).
-        RunArgsE([]string{"--port", "80"})
+        },
+    }.RunArgsE([]string{"--port", "80"})
 
     if err == nil {
         t.Fatal("expected error for port < 1024")
@@ -481,11 +374,12 @@ Use `ToCobraE()` when you need the underlying cobra command with `RunE` set:
 
 ```go
 func TestMyCommand(t *testing.T) {
-    cmd, err := boa.NewCmdT[Params]("app").
-        WithRunFuncE(func(p *Params) error {
+    cmd, err := boa.CmdT[Params]{
+        Use: "app",
+        RunFuncE: func(p *Params, cmd *cobra.Command, args []string) error {
             return nil
-        }).
-        ToCobraE()
+        },
+    }.ToCobraE()
     if err != nil {
         t.Fatalf("setup failed: %v", err)
     }
@@ -498,35 +392,21 @@ func TestMyCommand(t *testing.T) {
 
 ### Validate Without Running
 
-=== "Direct API"
+```go
+cmd := boa.CmdT[Params]{
+    Use:     "app",
+    RawArgs: []string{"--name", "test"},
+}
 
-    ```go
-    cmd := boa.CmdT[Params]{
-        Use:     "app",
-        RawArgs: []string{"--name", "test"},
-    }
-
-    err := cmd.Validate()
-    if err != nil {
-        // Validation failed
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    cmd := boa.NewCmdT[Params]("app").
-        WithRawArgs([]string{"--name", "test"})
-
-    err := cmd.Validate()
-    if err != nil {
-        // Validation failed
-    }
-    ```
+err := cmd.Validate()
+if err != nil {
+    // Validation failed
+}
+```
 
 ## Interface-Based Hooks
 
-Implement interfaces on your config struct instead of using `With*` methods:
+Implement interfaces on your config struct instead of using function fields:
 
 ```go
 type Config struct {
@@ -566,3 +446,189 @@ Available interfaces:
 - `CfgStructPreValidateCtx` - `PreValidateCtx(ctx *HookContext) error`
 - `CfgStructPreExecute` - `PreExecute() error`
 - `CfgStructPreExecuteCtx` - `PreExecuteCtx(ctx *HookContext) error`
+
+## JSON Fallback for Complex Types
+
+Any field type that doesn't have native pflag support (e.g., nested slices, complex maps) automatically falls back to JSON parsing. BOA registers the flag as a `StringP` and uses `json.Unmarshal` to parse the value.
+
+This means you can use arbitrarily complex types in your params struct:
+
+```go
+type Params struct {
+    Matrix  [][]int              `descr:"nested matrix" optional:"true"`
+    Meta    map[string][]string  `descr:"metadata" optional:"true"`
+    Config  map[string]any       `descr:"arbitrary config" optional:"true"`
+}
+
+// CLI usage:
+//   --matrix '[[1,2],[3,4]]'
+//   --meta '{"tags":["a","b"],"owners":["alice"]}'
+//   --config '{"debug":true,"retries":3}'
+```
+
+The same JSON syntax works for environment variables. Config files work natively since they are already unmarshaled from JSON/YAML/etc.
+
+### Simple Maps
+
+Simple map types like `map[string]string` and `map[string]int` use the more ergonomic `key=val,key=val` syntax on the CLI, and only fall back to JSON for complex value types:
+
+```go
+type Params struct {
+    Labels map[string]string   `descr:"simple key=val syntax"`
+    Deep   map[string][]string `descr:"JSON syntax required"`
+}
+// --labels env=prod,team=backend
+// --deep '{"groups":["admin","users"]}'
+```
+
+## Config-File-Only Fields with `boa:"ignore"` / `boa:"configonly"`
+
+Fields tagged with `boa:"ignore"` (or its alias `boa:"configonly"`) are excluded from CLI flag and environment variable registration. They won't appear in `--help` and can't be set via the command line.
+
+However, config file loading uses `json.Unmarshal` (or your configured unmarshal function) which writes directly to struct fields, bypassing the CLI layer entirely. This means ignored fields are still populated from config files.
+
+This pattern is useful for fields that only make sense in a config file:
+
+```go
+type Params struct {
+    ConfigFile string            `configfile:"true" optional:"true" default:"config.json"`
+    Host       string            `descr:"server host"`
+    Port       int               `descr:"server port"`
+    InternalID string            `boa:"configonly"` // only from config file
+    Metadata   map[string]string `boa:"configonly"` // complex config, not a CLI concern
+}
+```
+
+`boa:"configonly"` is functionally identical to `boa:"ignore"` but communicates intent more clearly.
+
+With `config.json`:
+```json
+{
+    "Host": "example.com",
+    "Port": 8080,
+    "InternalID": "abc-123",
+    "Metadata": {"version": "2", "region": "us-east-1"}
+}
+```
+
+`Host` and `Port` can be overridden via CLI flags; `InternalID` and `Metadata` are only loaded from the config file.
+
+## Named Struct Auto-Prefixing
+
+Named (non-anonymous) struct fields automatically prefix their children's flag names and env var names with the field name in kebab-case. This is the primary mechanism for avoiding flag name collisions when reusing struct types.
+
+### How It Works
+
+```go
+type DBConfig struct {
+    Host string `descr:"database host" default:"localhost"`
+    Port int    `descr:"database port" default:"5432"`
+}
+
+type Params struct {
+    Primary DBConfig  // --primary-host, --primary-port, env: PRIMARY_HOST, PRIMARY_PORT
+    Replica DBConfig  // --replica-host, --replica-port, env: REPLICA_HOST, REPLICA_PORT
+}
+```
+
+### Prefixing Rules
+
+| Scenario | Flag Name | Env Var |
+|----------|-----------|---------|
+| Embedded `DBConfig` with `Host` | `--host` | `HOST` |
+| Named `DB DBConfig` with `Host` | `--db-host` | `DB_HOST` |
+| Deep `Infra.Primary.Host` | `--infra-primary-host` | `INFRA_PRIMARY_HOST` |
+| Named field + explicit `name:"host"` | `--db-host` (prefixed) | N/A |
+| Named field + explicit `env:"SERVER_HOST"` | N/A | `DB_SERVER_HOST` (prefixed) |
+| Embedded + explicit `env:"MY_HOST"` | N/A | `MY_HOST` (not prefixed) |
+
+### Deep Nesting
+
+Prefixes chain at every named (non-anonymous) level:
+
+```go
+type ConnectionConfig struct {
+    Host string `default:"localhost"`
+    Port int    `default:"5432"`
+}
+
+type ClusterConfig struct {
+    Primary ConnectionConfig
+    Replica ConnectionConfig
+}
+
+type Params struct {
+    Infra ClusterConfig
+}
+// Flags: --infra-primary-host, --infra-primary-port, --infra-replica-host, --infra-replica-port
+// Env vars: INFRA_PRIMARY_HOST, INFRA_PRIMARY_PORT, etc.
+```
+
+### Explicit Tags Are Also Prefixed
+
+Inside a named struct field, both auto-generated and explicit tag values get the parent prefix. This is intentional -- it avoids collisions when the same struct type appears multiple times:
+
+```go
+type ServerConfig struct {
+    Host string `name:"host" env:"SERVER_HOST" default:"localhost"`
+}
+
+type Params struct {
+    API ServerConfig  // flag: --api-host, env: API_SERVER_HOST
+    Web ServerConfig  // flag: --web-host, env: WEB_SERVER_HOST
+}
+```
+
+## Custom Type Registration
+
+Register user-defined types as CLI parameters with `RegisterType`. The type is stored as a string flag in cobra and converted via your provided `Parse`/`Format` functions:
+
+```go
+type SemVer struct {
+    Major, Minor, Patch int
+}
+
+func init() {
+    boa.RegisterType[SemVer](boa.TypeDef[SemVer]{
+        Parse: func(s string) (SemVer, error) {
+            var v SemVer
+            _, err := fmt.Sscanf(s, "%d.%d.%d", &v.Major, &v.Minor, &v.Patch)
+            return v, err
+        },
+        Format: func(v SemVer) string {
+            return fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
+        },
+    })
+}
+
+type Params struct {
+    Version SemVer `descr:"app version" default:"1.0.0"`
+}
+```
+
+`TypeDef[T]` fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Parse` | `func(string) (T, error)` | Converts a CLI string into the typed value (required) |
+| `Format` | `func(T) string` | Converts the typed value back to a string for default display. If nil, `fmt.Sprintf("%v", val)` is used |
+
+## ConfigFormatExtensions
+
+`boa.ConfigFormatExtensions()` returns the file extensions that have registered config format handlers. Always includes `.json` (registered by default). This is used by the `boaviper` subpackage for auto-discovery:
+
+```go
+exts := boa.ConfigFormatExtensions() // e.g., [".json", ".yaml"]
+```
+
+## Type Handler Registry (Architecture)
+
+Internally, BOA uses a type handler registry (`type_handler.go`) instead of scattered type switches. Each handler provides:
+
+- **`bindFlag`** -- how to create a cobra/pflag flag for this type
+- **`parse`** -- how to convert a string value into the target type
+- **`convert`** -- optional post-parse conversion (e.g., for types stored as strings in cobra)
+
+Handlers are registered by exact type (for special types like `time.Time`, `net.IP`) or by `reflect.Kind` (for basic types like `string`, `int`). Map types use composed handlers that delegate value parsing to the appropriate scalar handler for their value type.
+
+Types without a registered handler fall back to `StringP` + `json.Unmarshal`, which is how nested slices and complex maps are supported automatically.

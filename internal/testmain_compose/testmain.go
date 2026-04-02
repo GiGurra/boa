@@ -9,27 +9,27 @@ import (
 
 func main() {
 	type Base1 struct {
-		Foo  boa.Required[string]
-		Bar  boa.Required[int]
-		File boa.Required[string]
+		Foo  string
+		Bar  int
+		File string
 	}
 
 	type Base2 struct {
-		Foo2  boa.Required[string]
-		Bar2  boa.Required[int]
-		File2 boa.Required[string]
+		Foo2  string
+		Bar2  int
+		File2 string
 	}
 
 	type Base3 struct {
-		Foo3  boa.Required[string]
-		Bar3  boa.Required[int]
-		File3 boa.Required[string]
+		Foo3  string
+		Bar3  int
+		File3 string
 	}
 
 	type Base4 struct {
-		Foo24  boa.Required[string]
-		Bar24  boa.Required[int]
-		File24 boa.Required[string]
+		Foo24  string
+		Bar24  int
+		File24 string
 	}
 
 	var params struct {
@@ -37,30 +37,28 @@ func main() {
 		Base2
 		Base3
 		Base4
-		Baz  boa.Required[string]
-		FB   boa.Optional[string]
-		Time boa.Optional[time.Time]
+		Baz  string
+		FB   string    `optional:"true"`
+		Time time.Time `optional:"true"`
 	}
 
-	boa.Cmd{
+	if err := (boa.Cmd{
 		Use:    "hello-world",
 		Short:  "a generic cli tool",
 		Long:   `A generic cli tool that has a longer description. See the README.MD for more information`,
 		Params: &params,
 		RunFunc: func(cmd *cobra.Command, args []string) {
 			fmt.Printf(
-				"Hello world from subcommand1 with params: %s, %d, %s, %s, %v, %v\n",
-				params.Base.Foo.Value(),  // string
-				params.Base.Bar.Value(),  // int
-				params.Base.File.Value(), // string
-				params.Baz.Value(),       // string
-				params.FB.Value(),        // *string
-				params.Time.Value(),      // *time.Time
+				"Hello world from subcommand1 with params: %s, %d, %s, %s, %q, %v\n",
+				params.Base.Foo,  // string
+				params.Base.Bar,  // int
+				params.Base.File, // string
+				params.Baz,       // string
+				params.FB,        // string
+				params.Time,      // time.Time
 			)
 		},
-	}.RunH(boa.ResultHandler{
-		Failure: func(err error) {
-			fmt.Printf("Error: %v\n", err)
-		},
-	})
+	}.RunE()); err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
 }

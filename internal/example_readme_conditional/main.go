@@ -16,9 +16,10 @@ type Params struct {
 }
 
 func main() {
-	boa.NewCmdT[Params]("hello-world").
-		WithShort("a generic cli tool").
-		WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+	boa.CmdT[Params]{
+		Use:   "hello-world",
+		Short: "a generic cli tool",
+		InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
 			// FilePath is required when Mode is "file"
 			ctx.GetParam(&p.FilePath).SetRequiredFn(func() bool {
 				return p.Mode == "file"
@@ -30,9 +31,9 @@ func main() {
 			})
 
 			return nil
-		}).
-		WithRunFunc(func(params *Params) {
+		},
+		RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
 			fmt.Printf("Hello World! Mode=%s\n", params.Mode)
-		}).
-		Run()
+		},
+	}.Run()
 }

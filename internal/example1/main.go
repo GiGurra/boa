@@ -8,12 +8,11 @@ import (
 
 type Params struct {
 	// Simple parameter declarations
-	Baz string `required:"true"`
-	FB  string `required:"false"`
-	// More flexible declarations
-	Foo  boa.Required[string]
-	Bar  boa.Required[int] `default:"4"`
-	File boa.Optional[string]
+	Baz  string `required:"true"`
+	FB   string `required:"false"`
+	Foo  string
+	Bar  int    `default:"4"`
+	File string `optional:"true"`
 }
 
 func main() {
@@ -24,11 +23,11 @@ func main() {
 		RunFunc: func(params *Params, _ *cobra.Command, _ []string) {
 			fmt.Printf(
 				"Hello world with params: %s, %d, %v, %s, %v\n",
-				params.Foo.Value(),  // string
-				params.Bar.Value(),  // int
-				params.File.Value(), // *string
-				params.Baz,          // string
-				params.FB,           // *string
+				params.Foo,  // string
+				params.Bar,  // int
+				params.File, // string
+				params.Baz,  // string
+				params.FB,   // string
 			)
 		},
 	}.Run()

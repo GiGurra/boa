@@ -18,7 +18,7 @@ By default (when `ParamEnrich` is `nil`), BOA applies `ParamEnricherDefault`, wh
 
 | Enricher | What it does |
 |----------|--------------|
-| `ParamEnricherName` | Converts `MyParam` → `--my-param` (kebab-case) |
+| `ParamEnricherName` | Converts `MyParam` -> `--my-param` (kebab-case) |
 | `ParamEnricherShort` | Auto-assigns `-m` from first char (skips conflicts, reserves `-h`) |
 | `ParamEnricherBool` | Sets `default: false` for boolean params |
 
@@ -48,105 +48,54 @@ You can compose your own enricher to change the default behavior.
 
 ### Enable Auto Env Vars
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "cmd",
-        ParamEnrich: boa.ParamEnricherCombine(
-            boa.ParamEnricherName,
-            boa.ParamEnricherShort,
-            boa.ParamEnricherEnv,
-            boa.ParamEnricherBool,
-        ),
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("cmd").WithParamEnrich(
-        boa.ParamEnricherCombine(
-            boa.ParamEnricherName,
-            boa.ParamEnricherShort,
-            boa.ParamEnricherEnv,
-            boa.ParamEnricherBool,
-        ),
-    )
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "cmd",
+    ParamEnrich: boa.ParamEnricherCombine(
+        boa.ParamEnricherName,
+        boa.ParamEnricherShort,
+        boa.ParamEnricherEnv,
+        boa.ParamEnricherBool,
+    ),
+}
+```
 
 ### Prefix Env Vars
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "cmd",
-        ParamEnrich: boa.ParamEnricherCombine(
-            boa.ParamEnricherName,
-            boa.ParamEnricherEnv,
-            boa.ParamEnricherEnvPrefix("MYAPP"),
-        ),
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("cmd").WithParamEnrich(
-        boa.ParamEnricherCombine(
-            boa.ParamEnricherName,
-            boa.ParamEnricherEnv,
-            boa.ParamEnricherEnvPrefix("MYAPP"),
-        ),
-    )
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "cmd",
+    ParamEnrich: boa.ParamEnricherCombine(
+        boa.ParamEnricherName,
+        boa.ParamEnricherEnv,
+        boa.ParamEnricherEnvPrefix("MYAPP"),
+    ),
+}
+```
 
 This turns `MY_PARAM` into `MYAPP_MY_PARAM`.
 
 ### Disable Auto Short Flags
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "cmd",
-        ParamEnrich: boa.ParamEnricherCombine(
-            boa.ParamEnricherName,
-            boa.ParamEnricherEnv,
-            boa.ParamEnricherBool,
-        ),
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("cmd").WithParamEnrich(
-        boa.ParamEnricherCombine(
-            boa.ParamEnricherName,
-            boa.ParamEnricherEnv,
-            boa.ParamEnricherBool,
-        ),
-    )
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "cmd",
+    ParamEnrich: boa.ParamEnricherCombine(
+        boa.ParamEnricherName,
+        boa.ParamEnricherEnv,
+        boa.ParamEnricherBool,
+    ),
+}
+```
 
 ### Disable All Enrichment
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use:         "cmd",
-        ParamEnrich: boa.ParamEnricherNone,
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("cmd").WithParamEnrich(boa.ParamEnricherNone)
-    ```
+```go
+boa.CmdT[Params]{
+    Use:         "cmd",
+    ParamEnrich: boa.ParamEnricherNone,
+}
+```
 
 With no enrichment, you must specify everything via struct tags:
 
@@ -168,6 +117,31 @@ type Params struct {
 | `ParamEnricherBool` | Sets false default for booleans |
 | `ParamEnricherCombine(...)` | Combines multiple enrichers |
 
+## Interaction with Named Struct Prefixing
+
+When a field lives inside a named (non-anonymous) struct field, enrichers operate on the already-prefixed name. For example:
+
+```go
+type DBConfig struct {
+    Host string `default:"localhost"`
+    Port int    `default:"5432"`
+}
+
+type Params struct {
+    DB DBConfig  // named field
+}
+```
+
+With `ParamEnricherDefault`, `DB.Host` gets:
+
+1. **Prefix applied**: field name becomes `DBHost` internally
+2. **`ParamEnricherName`**: converts `DBHost` → `--db-host`
+3. **`ParamEnricherShort`**: assigns `-d` (if available)
+
+With `ParamEnricherEnv` added, the flag name `db-host` is converted to env var `DB_HOST`.
+
+Explicit `env:"..."` tags inside named struct fields are also prefixed: `env:"SERVER_HOST"` inside field `API` becomes `API_SERVER_HOST`.
+
 ## Override Auto-Derived Values
 
 Struct tags always take precedence over enrichers:
@@ -179,3 +153,5 @@ type Params struct {
     MyHost string `name:"server" env:"APP_SERVER"`
 }
 ```
+
+Note: Inside named struct fields, explicit `name` and `env` tags are also prefixed. `name:"host"` inside field `DB` becomes `--db-host`.

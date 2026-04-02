@@ -44,125 +44,95 @@ type Params struct {
 }
 ```
 
+## Min/Max Validation
+
+Use `min` and `max` tags to constrain values. For numeric types, they validate the value. For strings, they validate the string length:
+
+```go
+type Params struct {
+    Port    int     `descr:"port" min:"1" max:"65535"`
+    Rate    float64 `descr:"rate" min:"0.0" max:"1.0"`
+    Name    string  `descr:"name" min:"3" max:"20"`
+    Retries int     `descr:"retries" max:"10"`
+    Count   int     `descr:"count" min:"0"`
+}
+```
+
+When a pointer field has `min`/`max` tags, validation only triggers when a value is actually provided (nil = no validation).
+
+## Pattern Validation
+
+Use `pattern` to validate string fields against a regular expression:
+
+```go
+type Params struct {
+    Name string `descr:"app name" pattern:"^[a-z][a-z0-9-]*$"`
+    Tag  string `descr:"version tag" pattern:"^v[0-9]+\\.[0-9]+\\.[0-9]+$"`
+}
+```
+
+Like `min`/`max`, pattern validation is skipped for optional pointer fields that are not set.
+
 ## Conditional Requirements
 
 Make parameters conditionally required based on other values using `HookContext`:
 
-=== "Direct API"
+```go
+type Params struct {
+    Mode     string
+    FilePath string `optional:"true"`
+    URL      string `optional:"true"`
+}
 
-    ```go
-    type Params struct {
-        Mode     string
-        FilePath string `optional:"true"`
-        URL      string `optional:"true"`
-    }
+func main() {
+    boa.CmdT[Params]{
+        Use: "app",
+        InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+            // FilePath required when Mode is "file"
+            ctx.GetParam(&p.FilePath).SetRequiredFn(func() bool {
+                return p.Mode == "file"
+            })
 
-    func main() {
-        boa.CmdT[Params]{
-            Use: "app",
-            InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-                // FilePath required when Mode is "file"
-                ctx.GetParam(&p.FilePath).SetRequiredFn(func() bool {
-                    return p.Mode == "file"
-                })
+            // URL required when Mode is "http"
+            ctx.GetParam(&p.URL).SetRequiredFn(func() bool {
+                return p.Mode == "http"
+            })
 
-                // URL required when Mode is "http"
-                ctx.GetParam(&p.URL).SetRequiredFn(func() bool {
-                    return p.Mode == "http"
-                })
-
-                return nil
-            },
-            RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
-                // ...
-            },
-        }.Run()
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    type Params struct {
-        Mode     string
-        FilePath string `optional:"true"`
-        URL      string `optional:"true"`
-    }
-
-    func main() {
-        boa.NewCmdT[Params]("app").
-            WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-                // FilePath required when Mode is "file"
-                ctx.GetParam(&p.FilePath).SetRequiredFn(func() bool {
-                    return p.Mode == "file"
-                })
-
-                // URL required when Mode is "http"
-                ctx.GetParam(&p.URL).SetRequiredFn(func() bool {
-                    return p.Mode == "http"
-                })
-
-                return nil
-            }).
-            WithRunFunc(func(p *Params) {
-                // ...
-            }).
-            Run()
-    }
-    ```
+            return nil
+        },
+        RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+            // ...
+        },
+    }.Run()
+}
+```
 
 ## Conditional Visibility
 
 Hide parameters entirely based on conditions:
 
-=== "Direct API"
+```go
+type Params struct {
+    Debug   bool   `optional:"true"`
+    Verbose bool   `optional:"true"`
+}
 
-    ```go
-    type Params struct {
-        Debug   bool   `optional:"true"`
-        Verbose bool   `optional:"true"`
-    }
-
-    func main() {
-        boa.CmdT[Params]{
-            Use: "app",
-            InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-                // Verbose flag only visible when Debug is true
-                ctx.GetParam(&p.Verbose).SetIsEnabledFn(func() bool {
-                    return p.Debug
-                })
-                return nil
-            },
-            RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
-                // ...
-            },
-        }.Run()
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    type Params struct {
-        Debug   bool   `optional:"true"`
-        Verbose bool   `optional:"true"`
-    }
-
-    func main() {
-        boa.NewCmdT[Params]("app").
-            WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-                // Verbose flag only visible when Debug is true
-                ctx.GetParam(&p.Verbose).SetIsEnabledFn(func() bool {
-                    return p.Debug
-                })
-                return nil
-            }).
-            WithRunFunc(func(p *Params) {
-                // ...
-            }).
-            Run()
-    }
-    ```
+func main() {
+    boa.CmdT[Params]{
+        Use: "app",
+        InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+            // Verbose flag only visible when Debug is true
+            ctx.GetParam(&p.Verbose).SetIsEnabledFn(func() bool {
+                return p.Debug
+            })
+            return nil
+        },
+        RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+            // ...
+        },
+    }.Run()
+}
+```
 
 ## Dynamic Alternatives
 
@@ -184,8 +154,9 @@ When multiple sources provide values, BOA uses this priority:
 
 1. **CLI flags** - `--port 8080`
 2. **Environment variables** - `PORT=8080`
-3. **Config files** - (via PreValidate hook)
-4. **Default values** - `default:"8080"`
-5. **Zero value** - `0` for int, `""` for string, etc.
+3. **Root config file** - (via `configfile` tag at root or PreValidate hook)
+4. **Substruct config files** - (via `configfile` tag in nested structs)
+5. **Default values** - `default:"8080"`
+6. **Zero value** - `0` for int, `""` for string, etc.
 
 Higher priority sources override lower ones.

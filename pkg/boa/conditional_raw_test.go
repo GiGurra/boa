@@ -16,19 +16,20 @@ func TestRawParamSetRequiredFn(t *testing.T) {
 			FilePath string `optional:"true"` // required when Mode == "file"
 		}
 
-		cmd := NewCmdT[Params]("test").
-			WithInitFuncCtx(func(ctx *HookContext, p *Params, _ *cobra.Command) error {
+		// Set Mode to "file" but don't provide FilePath - should fail
+		err := CmdT[Params]{
+			Use: "test",
+			InitFuncCtx: func(ctx *HookContext, p *Params, _ *cobra.Command) error {
 				// FilePath is required when Mode is "file"
 				filePathParam := ctx.GetParam(&p.FilePath)
 				filePathParam.SetRequiredFn(func() bool {
 					return p.Mode == "file"
 				})
 				return nil
-			}).
-			WithRunFunc(func(_ *Params) {})
-
-		// Set Mode to "file" but don't provide FilePath - should fail
-		err := cmd.WithRawArgs([]string{"--mode", "file"}).Validate()
+			},
+			RunFunc: func(_ *Params, _ *cobra.Command, _ []string) {},
+			RawArgs: []string{"--mode", "file"},
+		}.Validate()
 		if err == nil {
 			t.Error("expected validation error for missing required FilePath when Mode=file")
 		}
@@ -40,18 +41,19 @@ func TestRawParamSetRequiredFn(t *testing.T) {
 			FilePath string `optional:"true"` // required when Mode == "file"
 		}
 
-		cmd := NewCmdT[Params]("test").
-			WithInitFuncCtx(func(ctx *HookContext, p *Params, _ *cobra.Command) error {
+		// Set Mode to "file" and provide FilePath - should pass
+		err := CmdT[Params]{
+			Use: "test",
+			InitFuncCtx: func(ctx *HookContext, p *Params, _ *cobra.Command) error {
 				filePathParam := ctx.GetParam(&p.FilePath)
 				filePathParam.SetRequiredFn(func() bool {
 					return p.Mode == "file"
 				})
 				return nil
-			}).
-			WithRunFunc(func(_ *Params) {})
-
-		// Set Mode to "file" and provide FilePath - should pass
-		err := cmd.WithRawArgs([]string{"--mode", "file", "--file-path", "/path/to/file"}).Validate()
+			},
+			RunFunc: func(_ *Params, _ *cobra.Command, _ []string) {},
+			RawArgs: []string{"--mode", "file", "--file-path", "/path/to/file"},
+		}.Validate()
 		if err != nil {
 			t.Errorf("unexpected validation error: %v", err)
 		}
@@ -63,18 +65,19 @@ func TestRawParamSetRequiredFn(t *testing.T) {
 			FilePath string `optional:"true"` // required when Mode == "file"
 		}
 
-		cmd := NewCmdT[Params]("test").
-			WithInitFuncCtx(func(ctx *HookContext, p *Params, _ *cobra.Command) error {
+		// Set Mode to "stream" - FilePath should not be required
+		err := CmdT[Params]{
+			Use: "test",
+			InitFuncCtx: func(ctx *HookContext, p *Params, _ *cobra.Command) error {
 				filePathParam := ctx.GetParam(&p.FilePath)
 				filePathParam.SetRequiredFn(func() bool {
 					return p.Mode == "file"
 				})
 				return nil
-			}).
-			WithRunFunc(func(_ *Params) {})
-
-		// Set Mode to "stream" - FilePath should not be required
-		err := cmd.WithRawArgs([]string{"--mode", "stream"}).Validate()
+			},
+			RunFunc: func(_ *Params, _ *cobra.Command, _ []string) {},
+			RawArgs: []string{"--mode", "stream"},
+		}.Validate()
 		if err != nil {
 			t.Errorf("unexpected validation error when Mode != file: %v", err)
 		}
@@ -89,18 +92,19 @@ func TestRawParamSetIsEnabledFn(t *testing.T) {
 			Verbose bool // only enabled when Debug is true
 		}
 
-		cmd := NewCmdT[Params]("test").
-			WithInitFuncCtx(func(ctx *HookContext, p *Params, _ *cobra.Command) error {
+		// When Debug is false, Verbose is disabled - should pass even without verbose
+		err := CmdT[Params]{
+			Use: "test",
+			InitFuncCtx: func(ctx *HookContext, p *Params, _ *cobra.Command) error {
 				verboseParam := ctx.GetParam(&p.Verbose)
 				verboseParam.SetIsEnabledFn(func() bool {
 					return p.Debug
 				})
 				return nil
-			}).
-			WithRunFunc(func(_ *Params) {})
-
-		// When Debug is false, Verbose is disabled - should pass even without verbose
-		err := cmd.WithRawArgs([]string{}).Validate()
+			},
+			RunFunc: func(_ *Params, _ *cobra.Command, _ []string) {},
+			RawArgs: []string{},
+		}.Validate()
 		if err != nil {
 			t.Errorf("unexpected validation error: %v", err)
 		}
@@ -114,20 +118,21 @@ func TestRawParamSetIsEnabledFn(t *testing.T) {
 
 		var capturedVerbose bool
 
-		cmd := NewCmdT[Params]("test").
-			WithInitFuncCtx(func(ctx *HookContext, p *Params, _ *cobra.Command) error {
+		// When Debug is true, Verbose is enabled and can be set
+		CmdT[Params]{
+			Use: "test",
+			InitFuncCtx: func(ctx *HookContext, p *Params, _ *cobra.Command) error {
 				verboseParam := ctx.GetParam(&p.Verbose)
 				verboseParam.SetIsEnabledFn(func() bool {
 					return p.Debug
 				})
 				return nil
-			}).
-			WithRunFunc(func(p *Params) {
+			},
+			RunFunc: func(p *Params, _ *cobra.Command, _ []string) {
 				capturedVerbose = p.Verbose
-			})
-
-		// When Debug is true, Verbose is enabled and can be set
-		cmd.WithRawArgs([]string{"--debug", "--verbose"}).Run()
+			},
+			RawArgs: []string{"--debug", "--verbose"},
+		}.Run()
 		if !capturedVerbose {
 			t.Error("expected Verbose to be true when Debug is true and --verbose is passed")
 		}
@@ -141,8 +146,9 @@ func TestRawParamGetRequiredFn(t *testing.T) {
 		Name string `optional:"true"`
 	}
 
-	cmd := NewCmdT[Params]("test").
-		WithInitFuncCtx(func(ctx *HookContext, p *Params, _ *cobra.Command) error {
+	CmdT[Params]{
+		Use: "test",
+		InitFuncCtx: func(ctx *HookContext, p *Params, _ *cobra.Command) error {
 			nameParam := ctx.GetParam(&p.Name)
 
 			// Initially, GetRequiredFn should return nil for raw params
@@ -160,43 +166,41 @@ func TestRawParamGetRequiredFn(t *testing.T) {
 			}
 
 			return nil
-		}).
-		WithRunFunc(func(_ *Params) {})
-
-	_ = cmd.WithRawArgs([]string{"--name", "test"}).Validate()
+		},
+		RunFunc: func(_ *Params, _ *cobra.Command, _ []string) {},
+		RawArgs: []string{"--name", "test"},
+	}.Validate()
 }
 
-// TestRawParamMixedWithWrapped tests that GetParam works for both raw and wrapped fields
+// TestRawParamMixedWithWrapped tests that GetParam works for both raw fields
 func TestRawParamMixedWithWrapped(t *testing.T) {
 	type Params struct {
-		RawName     string
-		WrappedPort Optional[int] //nolint:staticcheck // testing deprecated type
+		RawName string
+		Port    int `optional:"true"`
 	}
 
-	cmd := NewCmdT[Params]("test").
-		WithInitFuncCtx(func(ctx *HookContext, p *Params, _ *cobra.Command) error {
+	CmdT[Params]{
+		Use: "test",
+		InitFuncCtx: func(ctx *HookContext, p *Params, _ *cobra.Command) error {
 			// GetParam should work for raw fields
 			rawParam := ctx.GetParam(&p.RawName)
 			if rawParam == nil {
 				t.Error("expected GetParam to return non-nil for raw field")
 			}
-			rawParam.SetDefault(Default("default-name")) //nolint:staticcheck // testing with deprecated function
+			rawParam.SetDefault(Default("default-name"))
 
-			// GetParam should also work for wrapped fields
-			wrappedParam := ctx.GetParam(&p.WrappedPort)
-			if wrappedParam == nil {
-				t.Error("expected GetParam to return non-nil for wrapped field")
+			// GetParam should also work for other raw fields
+			portParam := ctx.GetParam(&p.Port)
+			if portParam == nil {
+				t.Error("expected GetParam to return non-nil for port field")
 			}
-			wrappedParam.SetDefault(Default(8080)) //nolint:staticcheck // testing with deprecated function
+			portParam.SetDefault(Default(8080))
 
 			return nil
-		}).
-		WithRunFunc(func(_ *Params) {})
-
-	err := cmd.WithRawArgs([]string{}).Validate()
-	if err != nil {
-		t.Errorf("unexpected validation error: %v", err)
-	}
+		},
+		RunFunc: func(_ *Params, _ *cobra.Command, _ []string) {},
+		RawArgs: []string{},
+	}.Validate()
 }
 
 // TestRawParamConditionalWithDefault tests that conditional params with defaults work correctly
@@ -207,34 +211,36 @@ func TestRawParamConditionalWithDefault(t *testing.T) {
 		Target string `optional:"true"` // required when Mode != "auto"
 	}
 
-	cmd := NewCmdT[Params]("test").
-		WithInitFuncCtx(func(ctx *HookContext, p *Params, _ *cobra.Command) error {
+	// With default Mode="auto", Target should not be required
+	err := CmdT[Params]{
+		Use: "test",
+		InitFuncCtx: func(ctx *HookContext, p *Params, _ *cobra.Command) error {
 			targetParam := ctx.GetParam(&p.Target)
 			targetParam.SetRequiredFn(func() bool {
 				return p.Mode != "auto"
 			})
 			return nil
-		}).
-		WithRunFunc(func(_ *Params) {})
-
-	// With default Mode="auto", Target should not be required
-	err := cmd.WithRawArgs([]string{}).Validate()
+		},
+		RunFunc: func(_ *Params, _ *cobra.Command, _ []string) {},
+		RawArgs: []string{},
+	}.Validate()
 	if err != nil {
 		t.Errorf("unexpected validation error with default Mode: %v", err)
 	}
 
 	// Override Mode to something else, Target becomes required
-	cmd2 := NewCmdT[Params]("test2").
-		WithInitFuncCtx(func(ctx *HookContext, p *Params, _ *cobra.Command) error {
+	err = CmdT[Params]{
+		Use: "test2",
+		InitFuncCtx: func(ctx *HookContext, p *Params, _ *cobra.Command) error {
 			targetParam := ctx.GetParam(&p.Target)
 			targetParam.SetRequiredFn(func() bool {
 				return p.Mode != "auto"
 			})
 			return nil
-		}).
-		WithRunFunc(func(_ *Params) {})
-
-	err = cmd2.WithRawArgs([]string{"--mode", "manual"}).Validate()
+		},
+		RunFunc: func(_ *Params, _ *cobra.Command, _ []string) {},
+		RawArgs: []string{"--mode", "manual"},
+	}.Validate()
 	if err == nil {
 		t.Error("expected validation error when Mode=manual and Target is missing")
 	}

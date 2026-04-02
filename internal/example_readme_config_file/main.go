@@ -19,20 +19,19 @@ type ConfigFromFile struct {
 }
 
 func main() {
-	boa.NewCmdT[ConfigFromFile]("my-app").
-		WithPreValidateFuncCtx(func(ctx *boa.HookContext, params *ConfigFromFile, cmd *cobra.Command, args []string) error {
+	boa.CmdT[ConfigFromFile]{
+		Use: "my-app",
+		PreValidateFunc: func(params *ConfigFromFile, cmd *cobra.Command, args []string) error {
 			// Load configuration from file if provided
-			// boa.UnMarshalFromFileParam is a helper to unmarshal from a file
 			// CLI and env var values take precedence over file values
-			fileParam := ctx.GetParam(&params.File)
-			return boa.UnMarshalFromFileParam(fileParam, &params.AppConfig, nil)
-		}).
-		WithRunFunc(func(params *ConfigFromFile) {
+			return boa.LoadConfigFile(params.File, &params.AppConfig, nil)
+		},
+		RunFunc: func(params *ConfigFromFile, cmd *cobra.Command, args []string) {
 			// Use parameters loaded from the file
 			fmt.Printf("Host: %s, Port: %d\n",
 				params.Host,
 				params.Port,
 			)
-		}).
-		Run()
+		},
+	}.Run()
 }

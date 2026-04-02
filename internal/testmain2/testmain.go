@@ -9,11 +9,11 @@ import (
 func main() {
 
 	var subCommand1Params = struct {
-		Foo  boa.Required[string] `descr:"a foo"`
-		Bar  boa.Required[int]    `descr:"a bar" env:"BAR_X" default:"4"`
-		Path boa.Required[string] `pos:"true"`
-		Baz  boa.Required[string] `pos:"true" default:"cba"`
-		FB   boa.Optional[string] `pos:"true"`
+		Foo  string `descr:"a foo"`
+		Bar  int    `descr:"a bar" env:"BAR_X" default:"4"`
+		Path string `pos:"true"`
+		Baz  string `pos:"true" default:"cba"`
+		FB   string `pos:"true" optional:"true"`
 	}{}
 
 	boa.Cmd{
@@ -27,10 +27,10 @@ func main() {
 				Params:      &subCommand1Params,
 				ParamEnrich: boa.ParamEnricherCombine(boa.ParamEnricherName, boa.ParamEnricherEnv),
 				RunFunc: func(cmd *cobra.Command, args []string) {
-					p1 := subCommand1Params.Foo.Value()
-					p2 := subCommand1Params.Bar.Value()
-					p3 := subCommand1Params.Path.Value()
-					p4 := subCommand1Params.Baz.Value()
+					p1 := subCommand1Params.Foo
+					p2 := subCommand1Params.Bar
+					p3 := subCommand1Params.Path
+					p4 := subCommand1Params.Baz
 					fmt.Printf("Hello world from subcommand1 with params: %s, %d, %s, %s\n", p1, p2, p3, p4)
 				},
 			}.ToCobra(),
@@ -42,9 +42,5 @@ func main() {
 				},
 			}.ToCobra(),
 		},
-	}.RunH(boa.ResultHandler{
-		Failure: func(err error) {
-			fmt.Printf("Error: %v\n", err)
-		},
-	})
+	}.Run()
 }

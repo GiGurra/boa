@@ -10,8 +10,8 @@ import (
 )
 
 type TestStruct struct {
-	Flag1 Required[string]
-	Flag2 Required[int]
+	Flag1 string
+	Flag2 int
 }
 
 func TestTyped1(t *testing.T) {
@@ -23,34 +23,23 @@ func TestTyped1(t *testing.T) {
 
 	os.Args = []string{"test", "--flag1", "value1", "--flag2", "42"}
 
-	cmd :=
-		NewCmdT[TestStruct]("test").
-			WithRunFunc(func(params *TestStruct) {
-				fmt.Printf("params: %+v\n", params)
-				if params.Flag1.Value() != "value1" {
-					t.Fatalf("expected value1 but got %s", params.Flag1.Value())
-				}
-				if params.Flag2.Value() != 42 {
-					t.Fatalf("expected 42 but got %d", params.Flag2.Value())
-				}
-			})
+	ran := false
+	CmdT[TestStruct]{
+		Use: "test",
+		RunFunc: func(params *TestStruct, cmd *cobra.Command, args []string) {
+			ran = true
+			fmt.Printf("params: %+v\n", params)
+			if params.Flag1 != "value1" {
+				t.Fatalf("expected value1 but got %s", params.Flag1)
+			}
+			if params.Flag2 != 42 {
+				t.Fatalf("expected 42 but got %d", params.Flag2)
+			}
+		},
+	}.Run()
 
-	if cmd.Params.Flag1.HasValue() {
-		t.Errorf("Flag1 should not have value")
-	}
-
-	if cmd.Params.Flag2.HasValue() {
-		t.Errorf("Flag2 should not have value")
-	}
-
-	cmd.Run()
-
-	if !cmd.Params.Flag1.HasValue() {
-		t.Errorf("Flag1 should have value")
-	}
-
-	if !cmd.Params.Flag2.HasValue() {
-		t.Errorf("Flag2 should have value")
+	if !ran {
+		t.Fatal("expected command to run")
 	}
 }
 
@@ -58,8 +47,8 @@ type CustomStringType string
 type CustomIntType int
 
 type TestStructCustType struct {
-	Flag1 Required[CustomStringType]
-	Flag2 Required[CustomIntType]
+	Flag1 CustomStringType
+	Flag2 CustomIntType
 }
 
 func TestTypedCustType1(t *testing.T) {
@@ -71,40 +60,29 @@ func TestTypedCustType1(t *testing.T) {
 
 	os.Args = []string{"test", "--flag1", "value1", "--flag2", "42"}
 
-	cmd :=
-		NewCmdT[TestStructCustType]("test").
-			WithRunFunc(func(params *TestStructCustType) {
-				fmt.Printf("params: %+v\n", params)
-				if params.Flag1.Value() != "value1" {
-					t.Fatalf("expected value1 but got %s", params.Flag1.Value())
-				}
-				if params.Flag2.Value() != 42 {
-					t.Fatalf("expected 42 but got %d", params.Flag2.Value())
-				}
-			})
+	ran := false
+	CmdT[TestStructCustType]{
+		Use: "test",
+		RunFunc: func(params *TestStructCustType, cmd *cobra.Command, args []string) {
+			ran = true
+			fmt.Printf("params: %+v\n", params)
+			if params.Flag1 != "value1" {
+				t.Fatalf("expected value1 but got %s", params.Flag1)
+			}
+			if params.Flag2 != 42 {
+				t.Fatalf("expected 42 but got %d", params.Flag2)
+			}
+		},
+	}.Run()
 
-	if cmd.Params.Flag1.HasValue() {
-		t.Errorf("Flag1 should not have value")
-	}
-
-	if cmd.Params.Flag2.HasValue() {
-		t.Errorf("Flag2 should not have value")
-	}
-
-	cmd.Run()
-
-	if !cmd.Params.Flag1.HasValue() {
-		t.Errorf("Flag1 should have value")
-	}
-
-	if !cmd.Params.Flag2.HasValue() {
-		t.Errorf("Flag2 should have value")
+	if !ran {
+		t.Fatal("expected command to run")
 	}
 }
 
 type TestStructCustTypeOptional struct {
-	Flag1 Optional[CustomStringType]
-	Flag2 Optional[CustomIntType]
+	Flag1 CustomStringType `optional:"true"`
+	Flag2 CustomIntType    `optional:"true"`
 }
 
 func TestTypedCustTypeOptional(t *testing.T) {
@@ -116,108 +94,72 @@ func TestTypedCustTypeOptional(t *testing.T) {
 
 	os.Args = []string{"test", "--flag1", "value1", "--flag2", "42"}
 
-	cmd :=
-		NewCmdT[TestStructCustTypeOptional]("test").
-			WithRunFunc(func(params *TestStructCustTypeOptional) {
-				fmt.Printf("params: %+v\n", params)
-				if params.Flag1.Value() == nil {
-					t.Fatalf("expected Flag1 to have value")
-				}
-				if *params.Flag1.Value() != "value1" {
-					t.Fatalf("expected value1 but got %s", *params.Flag1.Value())
-				}
-				if params.Flag2.Value() == nil {
-					t.Fatalf("expected Flag2 to have value")
-				}
-				if *params.Flag2.Value() != 42 {
-					t.Fatalf("expected 42 but got %d", *params.Flag2.Value())
-				}
-			})
+	ran := false
+	CmdT[TestStructCustTypeOptional]{
+		Use: "test",
+		RunFunc: func(params *TestStructCustTypeOptional, cmd *cobra.Command, args []string) {
+			ran = true
+			fmt.Printf("params: %+v\n", params)
+			if params.Flag1 != "value1" {
+				t.Fatalf("expected value1 but got %s", params.Flag1)
+			}
+			if params.Flag2 != 42 {
+				t.Fatalf("expected 42 but got %d", params.Flag2)
+			}
+		},
+	}.Run()
 
-	if cmd.Params.Flag1.HasValue() {
-		t.Errorf("Flag1 should not have value")
-	}
-
-	if cmd.Params.Flag2.HasValue() {
-		t.Errorf("Flag2 should not have value")
-	}
-
-	cmd.Run()
-
-	if !cmd.Params.Flag1.HasValue() {
-		t.Errorf("Flag1 should have value")
-	}
-
-	if !cmd.Params.Flag2.HasValue() {
-		t.Errorf("Flag2 should have value")
+	if !ran {
+		t.Fatal("expected command to run")
 	}
 }
 
 func TestTyped2(t *testing.T) {
 
-	cmd :=
-		NewCmdT2("test", &TestStruct{}).
-			WithRawArgs([]string{"--flag1", "value1", "--flag2", "42"}).
-			WithRunFunc3(func(params *TestStruct, cmd *cobra.Command, args []string) {
-				fmt.Printf("params: %+v\n", params)
-				if params.Flag1.Value() != "value1" {
-					t.Fatalf("expected value1 but got %s", params.Flag1.Value())
-				}
-				if params.Flag2.Value() != 42 {
-					t.Fatalf("expected 42 but got %d", params.Flag2.Value())
-				}
-			})
+	ran := false
+	CmdT[TestStruct]{
+		Use:     "test",
+		RawArgs: []string{"--flag1", "value1", "--flag2", "42"},
+		RunFunc: func(params *TestStruct, cmd *cobra.Command, args []string) {
+			ran = true
+			fmt.Printf("params: %+v\n", params)
+			if params.Flag1 != "value1" {
+				t.Fatalf("expected value1 but got %s", params.Flag1)
+			}
+			if params.Flag2 != 42 {
+				t.Fatalf("expected 42 but got %d", params.Flag2)
+			}
+		},
+	}.Run()
 
-	if cmd.Params.Flag1.HasValue() {
-		t.Errorf("Flag1 should not have value")
-	}
-
-	if cmd.Params.Flag2.HasValue() {
-		t.Errorf("Flag2 should not have value")
-	}
-
-	cmd.Run()
-
-	if !cmd.Params.Flag1.HasValue() {
-		t.Errorf("Flag1 should have value")
-	}
-
-	if !cmd.Params.Flag2.HasValue() {
-		t.Errorf("Flag2 should have value")
+	if !ran {
+		t.Fatal("expected command to run")
 	}
 }
 
 func TestTypedWithInitFunc(t *testing.T) {
 
-	cmd :=
-		NewCmdT[TestStruct]("test").
-			WithInitFunc(func(params *TestStruct) { params.Flag2.Default = Default(42) }).
-			WithRunFunc(func(params *TestStruct) {
-				fmt.Printf("params: %+v\n", params)
-				if params.Flag1.Value() != "value1" {
-					t.Fatalf("expected value1 but got %s", params.Flag1.Value())
-				}
-				if params.Flag2.Value() != 42 {
-					t.Fatalf("expected 42 but got %d", params.Flag2.Value())
-				}
-			})
+	ran := false
+	CmdT[TestStruct]{
+		Use: "test",
+		InitFuncCtx: func(ctx *HookContext, params *TestStruct, cmd *cobra.Command) error {
+			ctx.GetParam(&params.Flag2).SetDefault(Default(42))
+			return nil
+		},
+		RunFunc: func(params *TestStruct, cmd *cobra.Command, args []string) {
+			ran = true
+			fmt.Printf("params: %+v\n", params)
+			if params.Flag1 != "value1" {
+				t.Fatalf("expected value1 but got %s", params.Flag1)
+			}
+			if params.Flag2 != 42 {
+				t.Fatalf("expected 42 but got %d", params.Flag2)
+			}
+		},
+	}.RunArgs([]string{"--flag1", "value1"})
 
-	if cmd.Params.Flag1.HasValue() {
-		t.Errorf("Flag1 should not have value")
-	}
-
-	if cmd.Params.Flag2.HasValue() {
-		t.Errorf("Flag2 should not have value")
-	}
-
-	cmd.WithRawArgs([]string{"--flag1", "value1"}).Run()
-
-	if !cmd.Params.Flag1.HasValue() {
-		t.Errorf("Flag1 should have value")
-	}
-
-	if !cmd.Params.Flag2.HasValue() {
-		t.Errorf("Flag2 should have value")
+	if !ran {
+		t.Fatal("expected command to run")
 	}
 }
 
@@ -230,14 +172,20 @@ func TestNoParams(t *testing.T) {
 
 	os.Args = []string{"test"}
 
-	cmd :=
-		NewCmdT[NoParams]("test").
-			WithRunFunc(func(_ *NoParams) {
-			})
-	cmdCpy := cmd
+	ran := false
+	cmd := CmdT[NoParams]{
+		Use: "test",
+		RunFunc: func(_ *NoParams, cmd *cobra.Command, args []string) {
+			ran = true
+		},
+	}
 
 	cmd.Run()
-	if cmdCpy.Validate() != nil {
+	if !ran {
+		t.Fatal("expected command to run")
+	}
+
+	if cmd.Validate() != nil {
 		t.Fatalf("expected no error but got %v", cmd.Validate())
 	}
 }
@@ -251,15 +199,21 @@ func TestCmdTree(t *testing.T) {
 	os.Args = []string{"test", "subcmd1", "--flag1", "value1", "--flag2", "42"}
 
 	ranInnerCommand := false
-	NewCmdT[NoParams]("test").WithSubCmds(
-		NewCmdT[TestStruct]("subcmd1").WithRunFunc(func(params *TestStruct) {
-			fmt.Printf("params: %+v\n", params)
-			if params.Flag1.Value() != "value1" {
-				t.Fatalf("expected value1 but got %s", params.Flag1.Value())
-			}
-			ranInnerCommand = true
-		}),
-	).Run()
+	Cmd{
+		Use: "test",
+		SubCmds: SubCmds(
+			CmdT[TestStruct]{
+				Use: "subcmd1",
+				RunFunc: func(params *TestStruct, cmd *cobra.Command, args []string) {
+					fmt.Printf("params: %+v\n", params)
+					if params.Flag1 != "value1" {
+						t.Fatalf("expected value1 but got %s", params.Flag1)
+					}
+					ranInnerCommand = true
+				},
+			},
+		),
+	}.Run()
 
 	if !ranInnerCommand {
 		t.Fatalf("expected inner command to run but it didn't")
@@ -333,7 +287,7 @@ func TestCmdList(t *testing.T) {
 			t.Fatalf("expected to not run")
 		},
 		SubCmds: SubCmds(
-			NewCmdT[NoParams]("123").WithRunFunc(func(params *NoParams) {}),
+			CmdT[NoParams]{Use: "123"},
 			CmdT[NoParams]{Use: "subcmd1"},
 			Cmd{Use: "subcmd2"},
 			CmdT[Args]{Use: "subcmd3", RunFunc: func(params *Args, cmd *cobra.Command, args []string) {
@@ -433,10 +387,12 @@ func TestSlicePositionalArgs(t *testing.T) {
 }
 
 func TestCommandAliases(t *testing.T) {
-	cmd := NewCmdT[NoParams]("server").
-		WithAliases("srv", "s").
-		WithShort("Start the server").
-		WithRunFunc(func(_ *NoParams) {})
+	cmd := CmdT[NoParams]{
+		Use:     "server",
+		Short:   "Start the server",
+		Aliases: []string{"srv", "s"},
+		RunFunc: func(_ *NoParams, cmd *cobra.Command, args []string) {},
+	}
 
 	cobraCmd := cmd.ToCobra()
 	if len(cobraCmd.Aliases) != 2 {
@@ -452,9 +408,10 @@ func TestCommandAliases(t *testing.T) {
 
 func TestCommandAliasesNonGeneric(t *testing.T) {
 	cmd := Cmd{
-		Use:   "server",
-		Short: "Start the server",
-	}.WithAliases("srv", "s")
+		Use:     "server",
+		Short:   "Start the server",
+		Aliases: []string{"srv", "s"},
+	}
 
 	cobraCmd := cmd.ToCobra()
 	if len(cobraCmd.Aliases) != 2 {
@@ -472,18 +429,26 @@ func TestCommandGroups(t *testing.T) {
 	ran := false
 
 	// Groups are auto-generated from subcommand GroupIDs
-	root := NewCmdT[NoParams]("app").
-		WithSubCmds(
-			NewCmdT[NoParams]("start").
-				WithGroupID("core").
-				WithRunFunc(func(_ *NoParams) { ran = true }),
-			NewCmdT[NoParams]("stop").
-				WithGroupID("core").
-				WithRunFunc(func(_ *NoParams) {}),
-			NewCmdT[NoParams]("debug").
-				WithGroupID("extra").
-				WithRunFunc(func(_ *NoParams) {}),
-		)
+	root := CmdT[NoParams]{
+		Use: "app",
+		SubCmds: SubCmds(
+			CmdT[NoParams]{
+				Use:     "start",
+				GroupID: "core",
+				RunFunc: func(_ *NoParams, cmd *cobra.Command, args []string) { ran = true },
+			},
+			CmdT[NoParams]{
+				Use:     "stop",
+				GroupID: "core",
+				RunFunc: func(_ *NoParams, cmd *cobra.Command, args []string) {},
+			},
+			CmdT[NoParams]{
+				Use:     "debug",
+				GroupID: "extra",
+				RunFunc: func(_ *NoParams, cmd *cobra.Command, args []string) {},
+			},
+		),
+	}
 
 	cobraCmd := root.ToCobra()
 
@@ -517,9 +482,10 @@ func TestCommandGroupsNonGeneric(t *testing.T) {
 	// Groups are auto-generated from subcommand GroupIDs
 	root := Cmd{
 		Use: "app",
-	}.WithSubCmds(
-		Cmd{Use: "start"}.WithGroupID("core"),
-	)
+		SubCmds: SubCmds(
+			Cmd{Use: "start", GroupID: "core"},
+		),
+	}
 
 	cobraCmd := root.ToCobra()
 
@@ -546,12 +512,16 @@ func TestCommandGroupsNonGeneric(t *testing.T) {
 func TestAliasExecution(t *testing.T) {
 	ran := false
 
-	root := NewCmdT[NoParams]("app").
-		WithSubCmds(
-			NewCmdT[NoParams]("server").
-				WithAliases("srv", "s").
-				WithRunFunc(func(_ *NoParams) { ran = true }),
-		)
+	root := CmdT[NoParams]{
+		Use: "app",
+		SubCmds: SubCmds(
+			CmdT[NoParams]{
+				Use:     "server",
+				Aliases: []string{"srv", "s"},
+				RunFunc: func(_ *NoParams, cmd *cobra.Command, args []string) { ran = true },
+			},
+		),
+	}
 
 	// Execute using alias
 	root.RunArgs([]string{"srv"})
@@ -569,14 +539,16 @@ func TestAliasExecution(t *testing.T) {
 
 func TestMixedExplicitAndAutoGeneratedGroups(t *testing.T) {
 	// "core" has explicit custom title, "extra" will be auto-generated
-	root := NewCmdT[NoParams]("app").
-		WithGroups(
-			&cobra.Group{ID: "core", Title: "Core Commands:"},
-		).
-		WithSubCmds(
-			NewCmdT[NoParams]("start").WithGroupID("core"),
-			NewCmdT[NoParams]("debug").WithGroupID("extra"),
-		)
+	root := CmdT[NoParams]{
+		Use: "app",
+		Groups: []*cobra.Group{
+			{ID: "core", Title: "Core Commands:"},
+		},
+		SubCmds: SubCmds(
+			CmdT[NoParams]{Use: "start", GroupID: "core"},
+			CmdT[NoParams]{Use: "debug", GroupID: "extra"},
+		),
+	}
 
 	cobraCmd := root.ToCobra()
 
@@ -702,98 +674,6 @@ func TestRunFuncCtxE_Error(t *testing.T) {
 	}
 	if err.Error() != expectedErr.Error() {
 		t.Fatalf("expected error '%v' but got '%v'", expectedErr, err)
-	}
-}
-
-func TestWithRunFuncE_Builder(t *testing.T) {
-	ran := false
-	type Args struct {
-		Value int
-	}
-	err := NewCmdT[Args]("test").
-		WithRunFuncE(func(params *Args) error {
-			ran = true
-			if params.Value != 42 {
-				return fmt.Errorf("expected 42 but got %d", params.Value)
-			}
-			return nil
-		}).
-		RunArgsE([]string{"--value", "42"})
-
-	if err != nil {
-		t.Fatalf("expected no error but got %v", err)
-	}
-	if !ran {
-		t.Fatalf("expected command to run but it didn't")
-	}
-}
-
-func TestWithRunFuncE3_Builder(t *testing.T) {
-	ran := false
-	type Args struct {
-		Value int
-	}
-	err := NewCmdT[Args]("test").
-		WithRunFuncE3(func(params *Args, cmd *cobra.Command, args []string) error {
-			ran = true
-			if params.Value != 99 {
-				return fmt.Errorf("expected 99 but got %d", params.Value)
-			}
-			return nil
-		}).
-		RunArgsE([]string{"--value", "99"})
-
-	if err != nil {
-		t.Fatalf("expected no error but got %v", err)
-	}
-	if !ran {
-		t.Fatalf("expected command to run but it didn't")
-	}
-}
-
-func TestWithRunFuncCtxE_Builder(t *testing.T) {
-	ran := false
-	type Args struct {
-		Flag bool
-	}
-	err := NewCmdT[Args]("test").
-		WithRunFuncCtxE(func(ctx *HookContext, params *Args) error {
-			ran = true
-			if !params.Flag {
-				return fmt.Errorf("expected flag to be true")
-			}
-			return nil
-		}).
-		RunArgsE([]string{"--flag"})
-
-	if err != nil {
-		t.Fatalf("expected no error but got %v", err)
-	}
-	if !ran {
-		t.Fatalf("expected command to run but it didn't")
-	}
-}
-
-func TestWithRunFuncCtxE4_Builder(t *testing.T) {
-	ran := false
-	type Args struct {
-		Flag bool
-	}
-	err := NewCmdT[Args]("test").
-		WithRunFuncCtxE4(func(ctx *HookContext, params *Args, cmd *cobra.Command, args []string) error {
-			ran = true
-			if ctx == nil {
-				return fmt.Errorf("expected HookContext but got nil")
-			}
-			return nil
-		}).
-		RunArgsE([]string{})
-
-	if err != nil {
-		t.Fatalf("expected no error but got %v", err)
-	}
-	if !ran {
-		t.Fatalf("expected command to run but it didn't")
 	}
 }
 
@@ -923,23 +803,21 @@ func TestCmdRunE(t *testing.T) {
 }
 
 // Tests for hook errors with RunE
-//
-// When using RunE(), all errors (from hooks and RunFuncE) are returned as errors
-// rather than causing panics. This provides consistent error handling.
 
 func TestInitFuncError_WithRunE(t *testing.T) {
 	type Args struct {
 		Name string
 	}
-	err := NewCmdT[Args]("test").
-		WithInitFuncE(func(params *Args) error {
+	err := CmdT[Args]{
+		Use: "test",
+		InitFunc: func(params *Args, cmd *cobra.Command) error {
 			return fmt.Errorf("init failed")
-		}).
-		WithRunFuncE(func(params *Args) error {
+		},
+		RunFuncE: func(params *Args, cmd *cobra.Command, args []string) error {
 			t.Fatal("RunFuncE should not be called when InitFunc fails")
 			return nil
-		}).
-		RunArgsE([]string{"--name", "test"})
+		},
+	}.RunArgsE([]string{"--name", "test"})
 
 	if err == nil {
 		t.Fatalf("expected error but got nil")
@@ -953,16 +831,16 @@ func TestPreValidateFuncError_WithRunE(t *testing.T) {
 	type Args struct {
 		Name string
 	}
-	expectedErr := fmt.Errorf("prevalidate failed")
-	err := NewCmdT[Args]("test").
-		WithPreValidateFuncE(func(params *Args, cmd *cobra.Command, args []string) error {
-			return expectedErr
-		}).
-		WithRunFuncE(func(params *Args) error {
+	err := CmdT[Args]{
+		Use: "test",
+		PreValidateFunc: func(params *Args, cmd *cobra.Command, args []string) error {
+			return fmt.Errorf("prevalidate failed")
+		},
+		RunFuncE: func(params *Args, cmd *cobra.Command, args []string) error {
 			t.Fatal("RunFuncE should not be called when PreValidateFunc fails")
 			return nil
-		}).
-		RunArgsE([]string{"--name", "test"})
+		},
+	}.RunArgsE([]string{"--name", "test"})
 
 	if err == nil {
 		t.Fatalf("expected error but got nil")
@@ -976,16 +854,16 @@ func TestPreExecuteFuncError_WithRunE(t *testing.T) {
 	type Args struct {
 		Name string
 	}
-	expectedErr := fmt.Errorf("preexecute failed")
-	err := NewCmdT[Args]("test").
-		WithPreExecuteFuncE(func(params *Args, cmd *cobra.Command, args []string) error {
-			return expectedErr
-		}).
-		WithRunFuncE(func(params *Args) error {
+	err := CmdT[Args]{
+		Use: "test",
+		PreExecuteFunc: func(params *Args, cmd *cobra.Command, args []string) error {
+			return fmt.Errorf("preexecute failed")
+		},
+		RunFuncE: func(params *Args, cmd *cobra.Command, args []string) error {
 			t.Fatal("RunFuncE should not be called when PreExecuteFunc fails")
 			return nil
-		}).
-		RunArgsE([]string{"--name", "test"})
+		},
+	}.RunArgsE([]string{"--name", "test"})
 
 	if err == nil {
 		t.Fatalf("expected error but got nil")
@@ -999,15 +877,16 @@ func TestInitFuncCtxError_WithRunE(t *testing.T) {
 	type Args struct {
 		Name string
 	}
-	err := NewCmdT[Args]("test").
-		WithInitFuncCtx(func(ctx *HookContext, params *Args, cmd *cobra.Command) error {
+	err := CmdT[Args]{
+		Use: "test",
+		InitFuncCtx: func(ctx *HookContext, params *Args, cmd *cobra.Command) error {
 			return fmt.Errorf("init ctx failed")
-		}).
-		WithRunFuncE(func(params *Args) error {
+		},
+		RunFuncE: func(params *Args, cmd *cobra.Command, args []string) error {
 			t.Fatal("RunFuncE should not be called when InitFuncCtx fails")
 			return nil
-		}).
-		RunArgsE([]string{"--name", "test"})
+		},
+	}.RunArgsE([]string{"--name", "test"})
 
 	if err == nil {
 		t.Fatalf("expected error but got nil")
@@ -1021,15 +900,16 @@ func TestPreValidateFuncCtxError_WithRunE(t *testing.T) {
 	type Args struct {
 		Name string
 	}
-	err := NewCmdT[Args]("test").
-		WithPreValidateFuncCtx(func(ctx *HookContext, params *Args, cmd *cobra.Command, args []string) error {
+	err := CmdT[Args]{
+		Use: "test",
+		PreValidateFuncCtx: func(ctx *HookContext, params *Args, cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("prevalidate ctx failed")
-		}).
-		WithRunFuncE(func(params *Args) error {
+		},
+		RunFuncE: func(params *Args, cmd *cobra.Command, args []string) error {
 			t.Fatal("RunFuncE should not be called when PreValidateFuncCtx fails")
 			return nil
-		}).
-		RunArgsE([]string{"--name", "test"})
+		},
+	}.RunArgsE([]string{"--name", "test"})
 
 	if err == nil {
 		t.Fatalf("expected error but got nil")
@@ -1043,15 +923,16 @@ func TestPreExecuteFuncCtxError_WithRunE(t *testing.T) {
 	type Args struct {
 		Name string
 	}
-	err := NewCmdT[Args]("test").
-		WithPreExecuteFuncCtx(func(ctx *HookContext, params *Args, cmd *cobra.Command, args []string) error {
+	err := CmdT[Args]{
+		Use: "test",
+		PreExecuteFuncCtx: func(ctx *HookContext, params *Args, cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("preexecute ctx failed")
-		}).
-		WithRunFuncE(func(params *Args) error {
+		},
+		RunFuncE: func(params *Args, cmd *cobra.Command, args []string) error {
 			t.Fatal("RunFuncE should not be called when PreExecuteFuncCtx fails")
 			return nil
-		}).
-		RunArgsE([]string{"--name", "test"})
+		},
+	}.RunArgsE([]string{"--name", "test"})
 
 	if err == nil {
 		t.Fatalf("expected error but got nil")
@@ -1070,24 +951,25 @@ func TestHooksSucceed_RunFuncECalled(t *testing.T) {
 	preExecuteCalled := false
 	runCalled := false
 
-	err := NewCmdT[Args]("test").
-		WithInitFuncE(func(params *Args) error {
+	err := CmdT[Args]{
+		Use: "test",
+		InitFunc: func(params *Args, cmd *cobra.Command) error {
 			initCalled = true
 			return nil
-		}).
-		WithPreValidateFuncE(func(params *Args, cmd *cobra.Command, args []string) error {
+		},
+		PreValidateFunc: func(params *Args, cmd *cobra.Command, args []string) error {
 			preValidateCalled = true
 			return nil
-		}).
-		WithPreExecuteFuncE(func(params *Args, cmd *cobra.Command, args []string) error {
+		},
+		PreExecuteFunc: func(params *Args, cmd *cobra.Command, args []string) error {
 			preExecuteCalled = true
 			return nil
-		}).
-		WithRunFuncE(func(params *Args) error {
+		},
+		RunFuncE: func(params *Args, cmd *cobra.Command, args []string) error {
 			runCalled = true
 			return nil
-		}).
-		RunArgsE([]string{"--name", "test"})
+		},
+	}.RunArgsE([]string{"--name", "test"})
 
 	if err != nil {
 		t.Fatalf("expected no error but got %v", err)

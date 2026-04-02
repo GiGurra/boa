@@ -10,75 +10,35 @@ go get github.com/GiGurra/boa@latest
 
 ### Minimum Setup
 
-=== "Direct API"
+```go
+package main
 
-    ```go
-    package main
+import (
+    "fmt"
+    "github.com/GiGurra/boa/pkg/boa"
+    "github.com/spf13/cobra"
+)
 
-    import (
-        "fmt"
-        "github.com/GiGurra/boa/pkg/boa"
-        "github.com/spf13/cobra"
-    )
+type Params struct {
+    Foo  string `descr:"a foo"`
+    Bar  int    `descr:"a bar" env:"BAR_X" optional:"true"`
+    Path string `positional:"true"`
+    Baz  string `positional:"true" default:"cba"`
+    FB   string `positional:"true" optional:"true"`
+}
 
-    type Params struct {
-        Foo  string `descr:"a foo"`
-        Bar  int    `descr:"a bar" env:"BAR_X" optional:"true"`
-        Path string `positional:"true"`
-        Baz  string `positional:"true" default:"cba"`
-        FB   string `positional:"true" optional:"true"`
-    }
-
-    func main() {
-        boa.CmdT[Params]{
-            Use:   "hello-world",
-            Short: "a generic cli tool",
-            Long:  "A generic cli tool that has a longer description",
-            RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
-                fmt.Printf("Hello world with params: %s, %d, %s, %s, %s\n",
-                    params.Foo, params.Bar, params.Path, params.Baz, params.FB)
-            },
-        }.Run()
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    package main
-
-    import (
-        "fmt"
-        "github.com/GiGurra/boa/pkg/boa"
-    )
-
-    type Params struct {
-        Foo  string `descr:"a foo"`
-        Bar  int    `descr:"a bar" env:"BAR_X" optional:"true"`
-        Path string `positional:"true"`
-        Baz  string `positional:"true" default:"cba"`
-        FB   string `positional:"true" optional:"true"`
-    }
-
-    func main() {
-        boa.NewCmdT[Params]("hello-world").
-            WithShort("a generic cli tool").
-            WithLong("A generic cli tool that has a longer description").
-            WithRunFunc(func(params *Params) {
-                fmt.Printf("Hello world with params: %s, %d, %s, %s, %s\n",
-                    params.Foo, params.Bar, params.Path, params.Baz, params.FB)
-            }).
-            Run()
-    }
-    ```
-
-!!! tip "Builder API RunFunc variants"
-    The Builder API provides multiple `WithRunFunc` signatures for flexibility:
-
-    - `WithRunFunc(func(params *Struct))` — simplified, params only
-    - `WithRunFunc3(func(params *Struct, cmd *cobra.Command, args []string))` — full signature
-    - `WithRunFuncCtx(func(ctx *HookContext, params *Struct))` — with [HookContext](hooks.md#hookcontext)
-    - `WithRunFuncCtx4(func(ctx *HookContext, params *Struct, cmd *cobra.Command, args []string))` — full signature with HookContext
+func main() {
+    boa.CmdT[Params]{
+        Use:   "hello-world",
+        Short: "a generic cli tool",
+        Long:  "A generic cli tool that has a longer description",
+        RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
+            fmt.Printf("Hello world with params: %s, %d, %s, %s, %s\n",
+                params.Foo, params.Bar, params.Path, params.Baz, params.FB)
+        },
+    }.Run()
+}
+```
 
 Help output:
 
@@ -89,8 +49,8 @@ Usage:
   hello-world <path> <baz> [f-b] [flags]
 
 Flags:
-      --bar int      a bar (env: BAR_X) (default 4)
-  -f, --foo string   a foo (env: FOO, required)
+  -b, --bar int      a bar (env: BAR_X)
+  -f, --foo string   a foo (required)
   -h, --help         help for hello-world
 ```
 
@@ -98,91 +58,49 @@ Flags:
 
 Create hierarchical CLI tools with sub-commands:
 
-=== "Direct API"
+```go
+package main
 
-    ```go
-    package main
+import (
+    "fmt"
+    "github.com/GiGurra/boa/pkg/boa"
+    "github.com/spf13/cobra"
+)
 
-    import (
-        "fmt"
-        "github.com/GiGurra/boa/pkg/boa"
-        "github.com/spf13/cobra"
-    )
+type SubParams struct {
+    Foo  string `descr:"a foo"`
+    Bar  int    `descr:"a bar" env:"BAR_X" default:"4"`
+    Path string `positional:"true"`
+}
 
-    type SubParams struct {
-        Foo  string `descr:"a foo"`
-        Bar  int    `descr:"a bar" env:"BAR_X" default:"4"`
-        Path string `positional:"true"`
-    }
+type OtherParams struct {
+    Foo2 string `descr:"a foo"`
+}
 
-    type OtherParams struct {
-        Foo2 string `descr:"a foo"`
-    }
-
-    func main() {
-        boa.CmdT[boa.NoParams]{
-            Use:   "hello-world",
-            Short: "a generic cli tool",
-            SubCmds: boa.SubCmds(
-                boa.CmdT[SubParams]{
-                    Use:   "subcommand1",
-                    Short: "a subcommand",
-                    RunFunc: func(params *SubParams, cmd *cobra.Command, args []string) {
-                        fmt.Printf("Hello from subcommand1: %s, %d, %s\n",
-                            params.Foo, params.Bar, params.Path)
-                    },
+func main() {
+    boa.CmdT[boa.NoParams]{
+        Use:   "hello-world",
+        Short: "a generic cli tool",
+        SubCmds: boa.SubCmds(
+            boa.CmdT[SubParams]{
+                Use:   "subcommand1",
+                Short: "a subcommand",
+                RunFunc: func(params *SubParams, cmd *cobra.Command, args []string) {
+                    fmt.Printf("Hello from subcommand1: %s, %d, %s\n",
+                        params.Foo, params.Bar, params.Path)
                 },
-                boa.CmdT[OtherParams]{
-                    Use:   "subcommand2",
-                    Short: "another subcommand",
-                    RunFunc: func(params *OtherParams, cmd *cobra.Command, args []string) {
-                        fmt.Println("Hello from subcommand2")
-                    },
+            },
+            boa.CmdT[OtherParams]{
+                Use:   "subcommand2",
+                Short: "another subcommand",
+                RunFunc: func(params *OtherParams, cmd *cobra.Command, args []string) {
+                    fmt.Println("Hello from subcommand2")
                 },
-            ),
-        }.Run()
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    package main
-
-    import (
-        "fmt"
-        "github.com/GiGurra/boa/pkg/boa"
-    )
-
-    type SubParams struct {
-        Foo  string `descr:"a foo"`
-        Bar  int    `descr:"a bar" env:"BAR_X" default:"4"`
-        Path string `positional:"true"`
-    }
-
-    type OtherParams struct {
-        Foo2 string `descr:"a foo"`
-    }
-
-    func main() {
-        boa.NewCmdT[boa.NoParams]("hello-world").
-            WithShort("a generic cli tool").
-            WithSubCmds(
-                boa.NewCmdT[SubParams]("subcommand1").
-                    WithShort("a subcommand").
-                    WithRunFunc(func(params *SubParams) {
-                        fmt.Printf("Hello from subcommand1: %s, %d, %s\n",
-                            params.Foo, params.Bar, params.Path)
-                    }),
-                boa.NewCmdT[OtherParams]("subcommand2").
-                    WithShort("another subcommand").
-                    WithRunFunc(func(params *OtherParams) {
-                        fmt.Println("Hello from subcommand2")
-                    }),
-            ).
-            Run()
-    }
-    ```
+            },
+        ),
+    }.Run()
+}
+```
 
 ## Struct Composition
 
@@ -195,16 +113,31 @@ type Base struct {
     File string
 }
 
+type DBConfig struct {
+    Host string `default:"localhost"`
+    Port int    `default:"5432"`
+}
+
 type Combined struct {
-    Base
-    Baz  string
-    Time time.Time `optional:"true"`
+    Base               // embedded (anonymous): --foo, --bar, --file (no prefix)
+    DB     DBConfig    // named field: --db-host, --db-port (auto-prefixed)
+    Baz    string
+    Time   time.Time `optional:"true"`
 }
 ```
 
-!!! note
-    Nested struct fields use their own field names as flags, not prefixed with the parent struct name.
-    For example, `Base.Foo` becomes `--foo`, not `--base-foo`.
+**Embedded (anonymous) fields** are not prefixed. `Base.Foo` becomes `--foo`, not `--base-foo`.
+
+**Named struct fields** auto-prefix their children with the field name in kebab-case. `DB.Host` becomes `--db-host`. This prevents collisions when the same struct type is used in multiple fields:
+
+```go
+type Params struct {
+    Primary DBConfig  // --primary-host, --primary-port
+    Replica DBConfig  // --replica-host, --replica-port
+}
+```
+
+Deep nesting chains prefixes: `Infra.Primary.Host` becomes `--infra-primary-host`. Explicit `name:"..."` and `env:"..."` tags also get prefixed inside named fields. See [Struct Tags](struct-tags.md#named-struct-auto-prefixing) for full details.
 
 ## Array/Slice Parameters
 
@@ -218,102 +151,100 @@ type Params struct {
 }
 ```
 
+## Pointer Fields
+
+Use pointer types for truly optional parameters where you need to distinguish "not set" from "zero value":
+
+```go
+type Params struct {
+    Name    *string `descr:"user name"`   // nil if not provided
+    Retries *int    `descr:"retry count"` // nil if not provided
+    Verbose *bool   `descr:"verbose mode"`
+}
+
+func main() {
+    boa.CmdT[Params]{
+        Use: "app",
+        RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+            if p.Name != nil {
+                fmt.Println("Name:", *p.Name)
+            } else {
+                fmt.Println("No name provided")
+            }
+        },
+    }.Run()
+}
+```
+
+Pointer fields are always optional by default, even without `boa.WithDefaultOptional()`. Use `required:"true"` to override.
+
+## Map Fields
+
+Maps are supported as CLI flags with `key=val,key=val` syntax:
+
+```go
+type Params struct {
+    Labels map[string]string `descr:"key=value labels"`
+    Limits map[string]int    `descr:"resource limits"`
+}
+// Usage: myapp --labels env=prod,team=backend --limits cpu=4,memory=8192
+```
+
+Maps default to optional. For complex map types like `map[string][]string`, pass JSON on the CLI:
+
+```
+myapp --meta '{"tags":["a","b"],"owners":["alice"]}'
+```
+
 ## Value Priority
 
 When multiple sources provide values, BOA uses this priority order:
 
 1. **Command-line flags** - Highest priority
 2. **Environment variables**
-3. **Config files** (when using PreValidate hook)
-4. **Default values**
-5. **Zero value** - Lowest priority
+3. **Root config file** (via `configfile` tag at root or PreValidate hook)
+4. **Substruct config files** (via `configfile` tag in nested structs)
+5. **Default values**
+6. **Zero value** - Lowest priority
 
 ## Config File Support
 
-Load configuration from files using the PreValidate hook:
+Tag a string field with `configfile:"true"` and boa loads it automatically:
 
-=== "Direct API"
+```go
+type Params struct {
+    ConfigFile string `configfile:"true" optional:"true" default:"config.json"`
+    Host       string
+    Port       int
+}
 
-    ```go
-    type AppConfig struct {
-        Host string
-        Port int
-    }
+func main() {
+    boa.CmdT[Params]{
+        Use: "my-app",
+        RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
+            fmt.Printf("Host: %s, Port: %d\n", params.Host, params.Port)
+        },
+    }.Run()
+}
+```
 
-    type ConfigFromFile struct {
-        File string `descr:"config file path"`
-        AppConfig
-    }
+The config file (JSON by default) is loaded before validation. CLI and env var values always take precedence over config file values.
 
-    func main() {
-        boa.CmdT[ConfigFromFile]{
-            Use: "my-app",
-            PreValidateFuncCtx: func(ctx *boa.HookContext, params *ConfigFromFile, cmd *cobra.Command, args []string) error {
-                fileParam := ctx.GetParam(&params.File)
-                return boa.UnMarshalFromFileParam(fileParam, &params.AppConfig, nil)
-            },
-            RunFunc: func(params *ConfigFromFile, cmd *cobra.Command, args []string) {
-                fmt.Printf("Host: %s, Port: %d\n", params.Host, params.Port)
-            },
-        }.Run()
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    type AppConfig struct {
-        Host string
-        Port int
-    }
-
-    type ConfigFromFile struct {
-        File string `descr:"config file path"`
-        AppConfig
-    }
-
-    func main() {
-        boa.NewCmdT[ConfigFromFile]("my-app").
-            WithPreValidateFuncCtx(func(ctx *boa.HookContext, params *ConfigFromFile, cmd *cobra.Command, args []string) error {
-                fileParam := ctx.GetParam(&params.File)
-                return boa.UnMarshalFromFileParam(fileParam, &params.AppConfig, nil)
-            }).
-            WithRunFunc(func(params *ConfigFromFile) {
-                fmt.Printf("Host: %s, Port: %d\n", params.Host, params.Port)
-            }).
-            Run()
-    }
-    ```
+Nested structs can also have their own `configfile:"true"` field for independent config files. For YAML, TOML, or other formats, register them with `boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)`. See [Advanced Usage](advanced.md#config-file-loading) for substruct config files, format registry, and the explicit `LoadConfigFile` API.
 
 ## Accessing Cobra
 
 Access the underlying Cobra command for advanced customization:
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "hello-world",
-        InitFunc: func(params *Params, cmd *cobra.Command) error {
-            cmd.Deprecated = "this command is deprecated"
-            return nil
-        },
-        RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
-            // ...
-        },
-    }.Run()
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("hello-world").
-        WithInitFunc2E(func(params *Params, cmd *cobra.Command) error {
-            cmd.Deprecated = "this command is deprecated"
-            return nil
-        }).
-        WithRunFunc(func(params *Params) {
-            // ...
-        }).
-        Run()
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "hello-world",
+    InitFunc: func(params *Params, cmd *cobra.Command) error {
+        cmd.Deprecated = "this command is deprecated"
+        return nil
+    },
+    RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
+        // ...
+    },
+}.Run()
+```

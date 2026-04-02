@@ -3,26 +3,28 @@ package boa
 import (
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // Tests for time.Duration support
 
 func TestDuration_Required(t *testing.T) {
 	type Params struct {
-		Timeout Required[time.Duration] `descr:"operation timeout"`
+		Timeout time.Duration `descr:"operation timeout"`
 	}
 
-	params := Params{}
 	wasRun := false
 
-	NewCmdT2("test", &params).
-		WithRunFunc(func(p *Params) {
+	CmdT[Params]{
+		Use: "test",
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
 			wasRun = true
-			if p.Timeout.Value() != 5*time.Second {
-				t.Errorf("expected 5s, got %v", p.Timeout.Value())
+			if p.Timeout != 5*time.Second {
+				t.Errorf("expected 5s, got %v", p.Timeout)
 			}
-		}).
-		RunArgs([]string{"--timeout", "5s"})
+		},
+	}.RunArgs([]string{"--timeout", "5s"})
 
 	if !wasRun {
 		t.Fatal("run func was not called")
@@ -31,23 +33,23 @@ func TestDuration_Required(t *testing.T) {
 
 func TestDuration_Optional(t *testing.T) {
 	type Params struct {
-		Timeout Optional[time.Duration] `descr:"operation timeout"`
+		Timeout time.Duration `descr:"operation timeout" optional:"true"`
 	}
 
-	params := Params{}
 	wasRun := false
 
-	NewCmdT2("test", &params).
-		WithRunFunc(func(p *Params) {
+	CmdT[Params]{
+		Use: "test",
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
 			wasRun = true
-			if !p.Timeout.HasValue() {
+			if !ctx.HasValue(&p.Timeout) {
 				t.Error("expected timeout to have value")
 			}
-			if *p.Timeout.Value() != 1*time.Hour+30*time.Minute {
-				t.Errorf("expected 1h30m, got %v", *p.Timeout.Value())
+			if p.Timeout != 1*time.Hour+30*time.Minute {
+				t.Errorf("expected 1h30m, got %v", p.Timeout)
 			}
-		}).
-		RunArgs([]string{"--timeout", "1h30m"})
+		},
+	}.RunArgs([]string{"--timeout", "1h30m"})
 
 	if !wasRun {
 		t.Fatal("run func was not called")
@@ -57,20 +59,20 @@ func TestDuration_Optional(t *testing.T) {
 func TestDuration_WithDefault(t *testing.T) {
 	t.Run("default from struct tag", func(t *testing.T) {
 		type Params struct {
-			Timeout Required[time.Duration] `descr:"operation timeout" default:"10s"`
+			Timeout time.Duration `descr:"operation timeout" default:"10s"`
 		}
 
-		params := Params{}
 		wasRun := false
 
-		NewCmdT2("test", &params).
-			WithRunFunc(func(p *Params) {
+		CmdT[Params]{
+			Use: "test",
+			RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
 				wasRun = true
-				if p.Timeout.Value() != 10*time.Second {
-					t.Errorf("expected 10s, got %v", p.Timeout.Value())
+				if p.Timeout != 10*time.Second {
+					t.Errorf("expected 10s, got %v", p.Timeout)
 				}
-			}).
-			RunArgs([]string{})
+			},
+		}.RunArgs([]string{})
 
 		if !wasRun {
 			t.Fatal("run func was not called")
@@ -79,20 +81,20 @@ func TestDuration_WithDefault(t *testing.T) {
 
 	t.Run("CLI overrides default", func(t *testing.T) {
 		type Params struct {
-			Timeout Required[time.Duration] `descr:"operation timeout" default:"10s"`
+			Timeout time.Duration `descr:"operation timeout" default:"10s"`
 		}
 
-		params := Params{}
 		wasRun := false
 
-		NewCmdT2("test", &params).
-			WithRunFunc(func(p *Params) {
+		CmdT[Params]{
+			Use: "test",
+			RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
 				wasRun = true
-				if p.Timeout.Value() != 30*time.Second {
-					t.Errorf("expected 30s, got %v", p.Timeout.Value())
+				if p.Timeout != 30*time.Second {
+					t.Errorf("expected 30s, got %v", p.Timeout)
 				}
-			}).
-			RunArgs([]string{"--timeout", "30s"})
+			},
+		}.RunArgs([]string{"--timeout", "30s"})
 
 		if !wasRun {
 			t.Fatal("run func was not called")
@@ -102,7 +104,7 @@ func TestDuration_WithDefault(t *testing.T) {
 
 func TestDuration_ParseFormats(t *testing.T) {
 	type Params struct {
-		D Required[time.Duration] `descr:"duration"`
+		D time.Duration `descr:"duration"`
 	}
 
 	testCases := []struct {
@@ -122,17 +124,17 @@ func TestDuration_ParseFormats(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.input, func(t *testing.T) {
-			params := Params{}
 			wasRun := false
 
-			NewCmdT2("test", &params).
-				WithRunFunc(func(p *Params) {
+			CmdT[Params]{
+				Use: "test",
+				RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
 					wasRun = true
-					if p.D.Value() != tc.expected {
-						t.Errorf("expected %v, got %v", tc.expected, p.D.Value())
+					if p.D != tc.expected {
+						t.Errorf("expected %v, got %v", tc.expected, p.D)
 					}
-				}).
-				RunArgs([]string{"--d", tc.input})
+				},
+			}.RunArgs([]string{"--d", tc.input})
 
 			if !wasRun {
 				t.Fatal("run func was not called")
@@ -146,17 +148,17 @@ func TestDuration_Raw(t *testing.T) {
 		Timeout time.Duration `descr:"operation timeout" optional:"true"`
 	}
 
-	params := Params{}
 	wasRun := false
 
-	NewCmdT2("test", &params).
-		WithRunFunc(func(p *Params) {
+	CmdT[Params]{
+		Use: "test",
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
 			wasRun = true
 			if p.Timeout != 2*time.Minute {
 				t.Errorf("expected 2m, got %v", p.Timeout)
 			}
-		}).
-		RunArgs([]string{"--timeout", "2m"})
+		},
+	}.RunArgs([]string{"--timeout", "2m"})
 
 	if !wasRun {
 		t.Fatal("run func was not called")
@@ -168,17 +170,17 @@ func TestDuration_RawWithDefault(t *testing.T) {
 		Timeout time.Duration `descr:"operation timeout" default:"30s"`
 	}
 
-	params := Params{}
 	wasRun := false
 
-	NewCmdT2("test", &params).
-		WithRunFunc(func(p *Params) {
+	CmdT[Params]{
+		Use: "test",
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
 			wasRun = true
 			if p.Timeout != 30*time.Second {
 				t.Errorf("expected 30s, got %v", p.Timeout)
 			}
-		}).
-		RunArgs([]string{})
+		},
+	}.RunArgs([]string{})
 
 	if !wasRun {
 		t.Fatal("run func was not called")
@@ -187,22 +189,22 @@ func TestDuration_RawWithDefault(t *testing.T) {
 
 func TestDuration_EnvVar(t *testing.T) {
 	type Params struct {
-		Timeout Required[time.Duration] `descr:"operation timeout" env:"TEST_TIMEOUT_DUR"`
+		Timeout time.Duration `descr:"operation timeout" env:"TEST_TIMEOUT_DUR"`
 	}
 
 	t.Setenv("TEST_TIMEOUT_DUR", "45s")
 
-	params := Params{}
 	wasRun := false
 
-	NewCmdT2("test", &params).
-		WithRunFunc(func(p *Params) {
+	CmdT[Params]{
+		Use: "test",
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
 			wasRun = true
-			if p.Timeout.Value() != 45*time.Second {
-				t.Errorf("expected 45s, got %v", p.Timeout.Value())
+			if p.Timeout != 45*time.Second {
+				t.Errorf("expected 45s, got %v", p.Timeout)
 			}
-		}).
-		RunArgs([]string{})
+		},
+	}.RunArgs([]string{})
 
 	if !wasRun {
 		t.Fatal("run func was not called")

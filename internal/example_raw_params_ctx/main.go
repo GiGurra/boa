@@ -1,8 +1,7 @@
 // Example demonstrating context-aware hooks for customizing raw parameters.
 //
 // This example shows how to use HookContext to access and configure
-// auto-generated parameter mirrors for raw struct fields (string, int, etc.)
-// that don't use the Required[T]/Optional[T] wrappers.
+// auto-generated parameter mirrors for raw struct fields (string, int, etc.).
 package main
 
 import (
@@ -12,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// ServerConfig uses raw fields instead of Required[T]/Optional[T] wrappers.
+// ServerConfig uses raw fields instead of wrappers.
 // The HookContext API allows us to customize these fields programmatically.
 type ServerConfig struct {
 	Host     string // Will be customized via InitCtx
@@ -49,16 +48,17 @@ func (c *ServerConfig) InitCtx(ctx *boa.HookContext) error {
 }
 
 func main() {
-	boa.NewCmdT[ServerConfig]("server").
-		WithShort("Start the server with configurable options").
-		WithRunFunc(func(params *ServerConfig) {
+	boa.CmdT[ServerConfig]{
+		Use:   "server",
+		Short: "Start the server with configurable options",
+		RunFunc: func(params *ServerConfig, cmd *cobra.Command, args []string) {
 			fmt.Printf("Starting server:\n")
 			fmt.Printf("  Host:     %s\n", params.Host)
 			fmt.Printf("  Port:     %d\n", params.Port)
 			fmt.Printf("  LogLevel: %s\n", params.LogLevel)
 			fmt.Printf("  Protocol: %s\n", params.Protocol)
-		}).
-		Run()
+		},
+	}.Run()
 }
 
 // Alternative: Using function-based hooks instead of interface
@@ -68,8 +68,9 @@ func exampleWithFunctionHook() {
 		Verbose bool
 	}
 
-	boa.NewCmdT[Config]("app").
-		WithInitFuncCtx(func(ctx *boa.HookContext, params *Config, cmd *cobra.Command) error {
+	boa.CmdT[Config]{
+		Use: "app",
+		InitFuncCtx: func(ctx *boa.HookContext, params *Config, cmd *cobra.Command) error {
 			// Configure the Name parameter
 			nameParam := ctx.GetParam(&params.Name)
 			nameParam.SetDefault(boa.Default("default-name"))
@@ -80,28 +81,29 @@ func exampleWithFunctionHook() {
 			verboseParam.SetShort("v")
 
 			return nil
-		}).
-		WithRunFunc(func(params *Config) {
+		},
+		RunFunc: func(params *Config, cmd *cobra.Command, args []string) {
 			fmt.Printf("Name: %s, Verbose: %v\n", params.Name, params.Verbose)
-		}).
-		Run()
+		},
+	}.Run()
 }
 
 // Example showing GetParam works for both raw and wrapped fields
 func exampleMixedFields() {
 	type MixedConfig struct {
-		RawHost     string             // raw field
-		WrappedPort boa.Required[int]  // wrapped field
-		OptionalTLS boa.Optional[bool] // optional wrapped field
+		RawHost     string // raw field
+		WrappedPort int    // raw field
+		OptionalTLS bool   `optional:"true"` // optional raw field
 	}
 
-	boa.NewCmdT[MixedConfig]("mixed").
-		WithInitFuncCtx(func(ctx *boa.HookContext, params *MixedConfig, cmd *cobra.Command) error {
+	boa.CmdT[MixedConfig]{
+		Use: "mixed",
+		InitFuncCtx: func(ctx *boa.HookContext, params *MixedConfig, cmd *cobra.Command) error {
 			// GetParam works for raw fields - returns the auto-generated mirror
 			rawParam := ctx.GetParam(&params.RawHost)
 			rawParam.SetDefault(boa.Default("0.0.0.0"))
 
-			// GetParam also works for wrapped fields - returns the field itself
+			// GetParam also works for other raw fields
 			wrappedParam := ctx.GetParam(&params.WrappedPort)
 			wrappedParam.SetDefault(boa.Default(443))
 
@@ -110,12 +112,12 @@ func exampleMixedFields() {
 			optParam.SetDefault(boa.Default(true))
 
 			return nil
-		}).
-		WithRunFunc(func(params *MixedConfig) {
+		},
+		RunFunc: func(params *MixedConfig, cmd *cobra.Command, args []string) {
 			fmt.Printf("Host: %s, Port: %d, TLS: %v\n",
 				params.RawHost,
-				params.WrappedPort.Value(),
-				params.OptionalTLS.Value())
-		}).
-		Run()
+				params.WrappedPort,
+				params.OptionalTLS)
+		},
+	}.Run()
 }
