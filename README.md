@@ -380,7 +380,9 @@ type Params struct {
 }
 ```
 
-### Config file serialization and configuration
+### Config file support
+
+Tag a string field with `configfile:"true"` and boa loads it automatically before validation:
 
 ```go
 package main
@@ -391,33 +393,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type AppConfig struct {
-	Host string
-	Port int
-}
-
-type ConfigFromFile struct {
-	File string `descr:"config file path" optional:"true"`
-	AppConfig
+type Params struct {
+	ConfigFile string `configfile:"true" optional:"true" default:"config.json"`
+	Host       string
+	Port       int
 }
 
 func main() {
-	boa.CmdT[ConfigFromFile]{
+	boa.CmdT[Params]{
 		Use: "my-app",
-		PreValidateFunc: func(params *ConfigFromFile, cmd *cobra.Command, args []string) error {
-			// Load configuration from file if provided
-			// CLI and env var values take precedence over file values
-			return boa.LoadConfigFile(params.File, &params.AppConfig, nil)
-		},
-		RunFunc: func(params *ConfigFromFile, cmd *cobra.Command, args []string) {
-			fmt.Printf("Host: %s, Port: %d\n",
-				params.Host,
-				params.Port,
-			)
+		RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
+			fmt.Printf("Host: %s, Port: %d\n", params.Host, params.Port)
 		},
 	}.Run()
 }
 ```
+
+CLI and env var values always take precedence over config file values. For YAML or other formats, set `ConfigUnmarshal: yaml.Unmarshal` on the command. For more control, use `boa.LoadConfigFile` in a `PreValidateFunc` hook instead.
 
 ## Parameter value source priority
 

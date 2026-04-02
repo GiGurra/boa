@@ -142,37 +142,32 @@ When multiple sources provide values, BOA uses this priority order:
 
 1. **Command-line flags** - Highest priority
 2. **Environment variables**
-3. **Config files** (when using PreValidate hook)
+3. **Config files** (via `configfile` tag or PreValidate hook)
 4. **Default values**
 5. **Zero value** - Lowest priority
 
 ## Config File Support
 
-Load configuration from files using the PreValidate hook:
+Tag a string field with `configfile:"true"` and boa loads it automatically:
 
 ```go
-type AppConfig struct {
-    Host string
-    Port int
-}
-
-type ConfigFromFile struct {
-    File string `descr:"config file path" optional:"true"`
-    AppConfig
+type Params struct {
+    ConfigFile string `configfile:"true" optional:"true" default:"config.json"`
+    Host       string
+    Port       int
 }
 
 func main() {
-    boa.CmdT[ConfigFromFile]{
+    boa.CmdT[Params]{
         Use: "my-app",
-        PreValidateFunc: func(params *ConfigFromFile, cmd *cobra.Command, args []string) error {
-            return boa.LoadConfigFile(params.File, &params.AppConfig, nil)
-        },
-        RunFunc: func(params *ConfigFromFile, cmd *cobra.Command, args []string) {
+        RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
             fmt.Printf("Host: %s, Port: %d\n", params.Host, params.Port)
         },
     }.Run()
 }
 ```
+
+The config file (JSON by default) is loaded before validation. CLI and env var values always take precedence over config file values. See [Advanced Usage](advanced.md#config-file-loading) for custom formats and the explicit `LoadConfigFile` API.
 
 ## Accessing Cobra
 

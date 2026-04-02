@@ -159,7 +159,42 @@ boa.CmdT[Params]{
 
 ## Config File Loading
 
-Load configuration from files in the PreValidate hook:
+### Using the `configfile` Tag
+
+Tag a string field with `configfile:"true"` to automatically load a config file before validation:
+
+```go
+type Params struct {
+    ConfigFile string `configfile:"true" optional:"true" default:"config.json"`
+    Host       string
+    Port       int
+}
+
+boa.CmdT[Params]{
+    Use: "app",
+    RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+        fmt.Printf("Host: %s, Port: %d\n", p.Host, p.Port)
+    },
+}.Run()
+```
+
+CLI and env var values always take precedence over config file values.
+
+For YAML, TOML, or other formats, set `ConfigUnmarshal`:
+
+```go
+import "gopkg.in/yaml.v3"
+
+boa.CmdT[Params]{
+    Use:             "app",
+    ConfigUnmarshal: yaml.Unmarshal,
+    RunFunc:         func(p *Params, cmd *cobra.Command, args []string) { ... },
+}.Run()
+```
+
+### Using `LoadConfigFile` Explicitly
+
+For more control (e.g., loading into a sub-struct, multiple config files), use `LoadConfigFile` in a PreValidate hook:
 
 ```go
 type AppConfig struct {
@@ -172,25 +207,15 @@ type Params struct {
     AppConfig
 }
 
-func main() {
-    boa.CmdT[Params]{
-        Use: "app",
-        PreValidateFunc: func(p *Params, cmd *cobra.Command, args []string) error {
-            return boa.LoadConfigFile(p.ConfigFile, &p.AppConfig, nil)
-        },
-        RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
-            fmt.Printf("Host: %s, Port: %d\n", p.Host, p.Port)
-        },
-    }.Run()
-}
-```
-
-Custom unmarshal functions (YAML, TOML, etc.):
-
-```go
-import "gopkg.in/yaml.v3"
-
-boa.LoadConfigFile(p.ConfigFile, &p.AppConfig, yaml.Unmarshal)
+boa.CmdT[Params]{
+    Use: "app",
+    PreValidateFunc: func(p *Params, cmd *cobra.Command, args []string) error {
+        return boa.LoadConfigFile(p.ConfigFile, &p.AppConfig, nil)
+    },
+    RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+        fmt.Printf("Host: %s, Port: %d\n", p.Host, p.Port)
+    },
+}.Run()
 ```
 
 ## Checking Value Sources

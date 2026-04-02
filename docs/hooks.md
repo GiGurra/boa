@@ -85,7 +85,7 @@ boa.CmdT[Params]{
 
 ## PreValidate Hook
 
-Runs after parameters are parsed but before validation. Ideal for loading config files.
+Runs after parameters are parsed but before validation. Useful for loading config files explicitly (though the `configfile` struct tag handles this automatically — see [Advanced](advanced.md#config-file-loading)).
 
 ### Interface-based
 

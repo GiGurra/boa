@@ -16,6 +16,7 @@ Quick reference for all BOA struct tags.
 | `positional` | `pos` | Positional argument | `positional:"true"` |
 | `alts` | `alternatives` | Allowed values | `alts:"a,b,c"` |
 | `strict-alts` | `strict` | Validate alts | `strict:"true"` |
+| `configfile` | | Auto-load config file | `configfile:"true"` |
 
 ## Examples
 
@@ -65,6 +66,20 @@ type Params struct {
     Level  string `alts:"debug,info,warn,error" strict:"true"`
 }
 ```
+
+### Config File
+
+```go
+type Params struct {
+    Config string `configfile:"true" optional:"true" default:"config.json" descr:"Path to config file"`
+    Host   string `descr:"Server hostname"`
+    Port   int    `descr:"Server port"`
+}
+// Usage: myapp --config myconfig.json
+// Or just: myapp (loads config.json by default)
+```
+
+The tagged field must be a `string`. Only one `configfile` field per struct. See [Advanced](advanced.md#config-file-loading) for details.
 
 ### Combined Example
 
