@@ -75,6 +75,9 @@ type CmdT[Struct any] struct {
 	ValidArgs []string
 	// ValidArgsFunc is a function returning valid arguments for bash completion
 	ValidArgsFunc func(params *Struct, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
+	// ConfigUnmarshal specifies the unmarshal function for config files loaded via the configfile tag.
+	// If nil, defaults to json.Unmarshal.
+	ConfigUnmarshal func([]byte, any) error
 	// RawArgs allows injecting command line arguments instead of using os.Args
 	RawArgs []string
 }
@@ -219,6 +222,7 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		PostCreateFuncCtx:  postCreateFuncCtx,
 		PreValidateFuncCtx: preValidateFuncCtx,
 		PreExecuteFuncCtx:  preExecuteFuncCtx,
+		ConfigUnmarshal:    b.ConfigUnmarshal,
 		RawArgs:            b.RawArgs,
 	}
 }

@@ -104,6 +104,9 @@ type Cmd struct {
 	PreValidateFuncCtx func(ctx *HookContext, params any, cmd *cobra.Command, args []string) error
 	// PreExecuteFuncCtx runs after validation but before command execution with access to HookContext
 	PreExecuteFuncCtx func(ctx *HookContext, params any, cmd *cobra.Command, args []string) error
+	// ConfigUnmarshal specifies the unmarshal function for config files loaded via the configfile tag.
+	// If nil, defaults to json.Unmarshal.
+	ConfigUnmarshal func([]byte, any) error
 	// RawArgs allows injecting command line arguments instead of using os.Args
 	RawArgs []string
 }
@@ -438,6 +441,11 @@ func SubCmds(cmds ...CmdIfc) []*cobra.Command {
 // CLI and env var values still take precedence when used in PreValidateFunc.
 // If unmarshalFunc is nil, defaults to json.Unmarshal.
 func LoadConfigFile[T any](filePath string, target *T, unmarshalFunc func([]byte, any) error) error {
+	return loadConfigFileInto(filePath, target, unmarshalFunc)
+}
+
+// loadConfigFileInto is the non-generic implementation used internally.
+func loadConfigFileInto(filePath string, target any, unmarshalFunc func([]byte, any) error) error {
 	if filePath == "" {
 		return nil
 	}

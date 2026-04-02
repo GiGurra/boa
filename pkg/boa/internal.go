@@ -153,6 +153,9 @@ type processingContext struct {
 	// as well - since the config file deserialization will
 	// not be aware of the raw values, and just overwrite them.
 	RawAddresses []unsafe.Pointer
+	// ConfigFileMirror is the Param for the field tagged with configfile:"true".
+	// If set, boa automatically loads the config file before validation.
+	ConfigFileMirror Param
 }
 
 func parseEnv(ctx *processingContext, structPtr any) error {
@@ -1387,6 +1390,18 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 					param.SetDefault(ptr)
 				}
 			}
+
+			// Detect configfile tag
+			if cfgTag, ok := tags.Lookup("configfile"); ok && cfgTag == "true" {
+				if param.GetType().Kind() != reflect.String {
+					return fmt.Errorf("configfile tag on param %s: must be a string field", param.GetName())
+				}
+				if ctx.ConfigFileMirror != nil {
+					return fmt.Errorf("configfile tag on param %s: only one configfile field is allowed per struct", param.GetName())
+				}
+				ctx.ConfigFileMirror = param
+			}
+
 			return nil
 		}, nil)
 
@@ -1535,6 +1550,15 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			}
 
 			syncMirrors(ctx)
+
+			// Auto-load config file if a field is tagged with configfile:"true"
+			if ctx.ConfigFileMirror != nil && ctx.ConfigFileMirror.HasValue() {
+				filePath := *(ctx.ConfigFileMirror.valuePtrF().(*string))
+				if err := loadConfigFileInto(filePath, b.Params, b.ConfigUnmarshal); err != nil {
+					return NewUserInputError(fmt.Errorf("configfile: %w", err))
+				}
+				syncMirrors(ctx)
+			}
 
 			// if b.params or any inner struct implements CfgStructPreValidate, call it
 			err := traverse(ctx, b.Params, nil, func(innerParams any) error {
