@@ -9,7 +9,7 @@ import (
 func main() {
 
 	var subCommand1Params = struct {
-		Foo boa.Required[string] `alts:"abc,cde,fgh"`
+		Foo string `alts:"abc,cde,fgh"`
 	}{}
 
 	boa.Cmd{
@@ -24,7 +24,7 @@ func main() {
 				Params:      &subCommand1Params,
 				ParamEnrich: boa.ParamEnricherCombine(boa.ParamEnricherName, boa.ParamEnricherEnv),
 				RunFunc: func(cmd *cobra.Command, args []string) {
-					p1 := subCommand1Params.Foo.Value()
+					p1 := subCommand1Params.Foo
 					fmt.Printf("Hello world from subcommand1 with params: %s\n", p1)
 				},
 			}.ToCobra(),
@@ -36,9 +36,5 @@ func main() {
 				},
 			}.ToCobra(),
 		},
-	}.RunH(boa.ResultHandler{
-		Failure: func(err error) {
-			fmt.Printf("Error: %v\n", err)
-		},
-	})
+	}.Run()
 }

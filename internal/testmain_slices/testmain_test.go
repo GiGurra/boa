@@ -15,7 +15,7 @@ func TestRunMain(t *testing.T) {
 		{
 			Name:     "with args",
 			Args:     []string{"--without-defaults", "1"},
-			Expected: "Hello world from subcommand1 with params: [1], [1 2 3]",
+			Expected: "params: without=[1], with=[1 2 3]",
 		},
 	})
 }

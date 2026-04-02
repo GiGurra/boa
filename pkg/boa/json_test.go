@@ -10,19 +10,19 @@ import (
 )
 
 type AppConfig struct {
-	Host                Required[string] `long:"host" env:"HOST"`
-	Port                Required[int]    `long:"port" env:"PORT" default:"8080"`
-	KafkaCredentials    Optional[string] `long:"kafka-credentials" env:"KAFKA_CREDENTIALS" default:""`
-	KafkaNilCredentials Optional[string] `long:"kafka-nil-credentials" env:"KAFKA_NIL_CREDENTIALS"`
+	Host                string `env:"HOST"`
+	Port                int    `env:"PORT" default:"8080"`
+	KafkaCredentials    string `env:"KAFKA_CREDENTIALS" default:"" optional:"true"`
+	KafkaNilCredentials string `env:"KAFKA_NIL_CREDENTIALS" optional:"true"`
 }
 
 func TestJsonSerialization(t *testing.T) {
 
 	data := AppConfig{
-		Host:                Req("someHost"),
-		Port:                Req(12345),
-		KafkaCredentials:    Opt("someCredentials"),
-		KafkaNilCredentials: OptP[string](nil),
+		Host:                "someHost",
+		Port:                12345,
+		KafkaCredentials:    "someCredentials",
+		KafkaNilCredentials: "",
 	}
 
 	// Serialize to JSON
@@ -39,40 +39,26 @@ func TestJsonSerialization(t *testing.T) {
 	}
 
 	// Check if the deserialized data matches the original
-	if data.Port.Value() != deserialized.Port.Value() {
-		t.Errorf("Port mismatch: got %d, want %d", deserialized.Port.Value(), data.Port.Value())
+	if data.Port != deserialized.Port {
+		t.Errorf("Port mismatch: got %d, want %d", deserialized.Port, data.Port)
 	}
 
-	if data.Host.Value() != deserialized.Host.Value() {
-		t.Errorf("Host mismatch: got %s, want %s", deserialized.Host.Value(), data.Host.Value())
+	if data.Host != deserialized.Host {
+		t.Errorf("Host mismatch: got %s, want %s", deserialized.Host, data.Host)
 	}
 
-	if data.KafkaNilCredentials.HasValue() {
-		t.Errorf("KafkaNilCredentials should not have value")
-	}
-
-	if deserialized.KafkaNilCredentials.HasValue() {
-		t.Errorf("KafkaNilCredentials should not have value")
-	}
-
-	if !data.KafkaCredentials.HasValue() {
-		t.Errorf("KafkaCredentials should have value")
-	}
-	if !deserialized.KafkaCredentials.HasValue() {
-		t.Errorf("KafkaCredentials should have value")
-	}
-	if data.KafkaCredentials.GetOrElse("") != deserialized.KafkaCredentials.GetOrElse("") {
-		t.Errorf("KafkaCredentials mismatch: got %s, want %s", deserialized.KafkaCredentials.GetOrElse(""), data.KafkaCredentials.GetOrElse(""))
+	if data.KafkaCredentials != deserialized.KafkaCredentials {
+		t.Errorf("KafkaCredentials mismatch: got %s, want %s", deserialized.KafkaCredentials, data.KafkaCredentials)
 	}
 }
 
 type EmbeddedConfigStruct struct {
-	Foobar Required[string] `long:"foobar" env:"FOOBAR" default:"foobar"`
+	Foobar string `default:"foobar"`
 	AppConfig
 }
 
 type EmbeddedConfigStructPointer struct {
-	Foobar Required[string] `long:"foobar" env:"FOOBAR" default:"foobar"`
+	Foobar string `default:"foobar"`
 	*AppConfig
 }
 
@@ -80,12 +66,12 @@ func TestJsonSerializationEmbeddedStruct(t *testing.T) {
 
 	data :=
 		EmbeddedConfigStruct{
-			Foobar: Req("foobar"),
+			Foobar: "foobar",
 			AppConfig: AppConfig{
-				Host:                Req("someHost"),
-				Port:                Req(12345),
-				KafkaCredentials:    Opt("someCredentials"),
-				KafkaNilCredentials: OptP[string](nil),
+				Host:                "someHost",
+				Port:                12345,
+				KafkaCredentials:    "someCredentials",
+				KafkaNilCredentials: "",
 			},
 		}
 
@@ -102,7 +88,7 @@ func TestJsonSerializationEmbeddedStruct(t *testing.T) {
   "Host": "someHost",
   "Port": 12345,
   "KafkaCredentials": "someCredentials",
-  "KafkaNilCredentials": null
+  "KafkaNilCredentials": ""
 }`
 
 	if string(serialized) != expSerialized {
@@ -116,34 +102,20 @@ func TestJsonSerializationEmbeddedStruct(t *testing.T) {
 	}
 
 	// Check if the deserialized data matches the original
-	if data.Port.Value() != deserialized.Port.Value() {
-		t.Errorf("Port mismatch: got %d, want %d", deserialized.Port.Value(), data.Port.Value())
+	if data.Port != deserialized.Port {
+		t.Errorf("Port mismatch: got %d, want %d", deserialized.Port, data.Port)
 	}
 
-	if data.Host.Value() != deserialized.Host.Value() {
-		t.Errorf("Host mismatch: got %s, want %s", deserialized.Host.Value(), data.Host.Value())
+	if data.Host != deserialized.Host {
+		t.Errorf("Host mismatch: got %s, want %s", deserialized.Host, data.Host)
 	}
 
-	if data.KafkaNilCredentials.HasValue() {
-		t.Errorf("KafkaNilCredentials should not have value")
+	if data.KafkaCredentials != deserialized.KafkaCredentials {
+		t.Errorf("KafkaCredentials mismatch: got %s, want %s", deserialized.KafkaCredentials, data.KafkaCredentials)
 	}
 
-	if deserialized.KafkaNilCredentials.HasValue() {
-		t.Errorf("KafkaNilCredentials should not have value")
-	}
-
-	if !data.KafkaCredentials.HasValue() {
-		t.Errorf("KafkaCredentials should have value")
-	}
-	if !deserialized.KafkaCredentials.HasValue() {
-		t.Errorf("KafkaCredentials should have value")
-	}
-	if data.KafkaCredentials.GetOrElse("") != deserialized.KafkaCredentials.GetOrElse("") {
-		t.Errorf("KafkaCredentials mismatch: got %s, want %s", deserialized.KafkaCredentials.GetOrElse(""), data.KafkaCredentials.GetOrElse(""))
-	}
-
-	if deserialized.Foobar.Value() != "foobar" {
-		t.Errorf("Foobar mismatch: got %s, want %s", deserialized.Foobar.Value(), "foobar")
+	if deserialized.Foobar != "foobar" {
+		t.Errorf("Foobar mismatch: got %s, want %s", deserialized.Foobar, "foobar")
 	}
 }
 
@@ -151,12 +123,12 @@ func TestJsonSerializationEmbeddedStructPointerValid(t *testing.T) {
 
 	err := Cmd{
 		Params: &EmbeddedConfigStructPointer{
-			Foobar: Req("foobar"),
+			Foobar: "foobar",
 			AppConfig: &AppConfig{
-				Host:                Req("someHost"),
-				Port:                Req(12345),
-				KafkaCredentials:    Opt("someCredentials"),
-				KafkaNilCredentials: OptP[string](nil),
+				Host:                "someHost",
+				Port:                12345,
+				KafkaCredentials:    "someCredentials",
+				KafkaNilCredentials: "",
 			},
 		},
 		ParamEnrich: ParamEnricherName, RawArgs: []string{},
@@ -167,11 +139,11 @@ func TestJsonSerializationEmbeddedStructPointerValid(t *testing.T) {
 
 	err = Cmd{
 		Params: &EmbeddedConfigStructPointer{
-			Foobar: Req("foobar"),
+			Foobar: "foobar",
 			AppConfig: &AppConfig{
-				Port:                Req(12345),
-				KafkaCredentials:    Opt("someCredentials"),
-				KafkaNilCredentials: OptP[string](nil),
+				Port:                12345,
+				KafkaCredentials:    "someCredentials",
+				KafkaNilCredentials: "",
 			},
 		},
 		ParamEnrich: ParamEnricherName, RawArgs: []string{},
@@ -191,12 +163,12 @@ func TestJsonSerializationEmbeddedStructPointer(t *testing.T) {
 
 	data :=
 		EmbeddedConfigStructPointer{
-			Foobar: Req("foobar"),
+			Foobar: "foobar",
 			AppConfig: &AppConfig{
-				Host:                Req("someHost"),
-				Port:                Req(12345),
-				KafkaCredentials:    Opt("someCredentials"),
-				KafkaNilCredentials: OptP[string](nil),
+				Host:                "someHost",
+				Port:                12345,
+				KafkaCredentials:    "someCredentials",
+				KafkaNilCredentials: "",
 			},
 		}
 
@@ -213,7 +185,7 @@ func TestJsonSerializationEmbeddedStructPointer(t *testing.T) {
   "Host": "someHost",
   "Port": 12345,
   "KafkaCredentials": "someCredentials",
-  "KafkaNilCredentials": null
+  "KafkaNilCredentials": ""
 }`
 
 	if string(serialized) != expSerialized {
@@ -227,50 +199,36 @@ func TestJsonSerializationEmbeddedStructPointer(t *testing.T) {
 	}
 
 	// Check if the deserialized data matches the original
-	if data.Port.Value() != deserialized.Port.Value() {
-		t.Errorf("Port mismatch: got %d, want %d", deserialized.Port.Value(), data.Port.Value())
+	if data.Port != deserialized.Port {
+		t.Errorf("Port mismatch: got %d, want %d", deserialized.Port, data.Port)
 	}
 
-	if data.Host.Value() != deserialized.Host.Value() {
-		t.Errorf("Host mismatch: got %s, want %s", deserialized.Host.Value(), data.Host.Value())
+	if data.Host != deserialized.Host {
+		t.Errorf("Host mismatch: got %s, want %s", deserialized.Host, data.Host)
 	}
 
-	if data.KafkaNilCredentials.HasValue() {
-		t.Errorf("KafkaNilCredentials should not have value")
+	if data.KafkaCredentials != deserialized.KafkaCredentials {
+		t.Errorf("KafkaCredentials mismatch: got %s, want %s", deserialized.KafkaCredentials, data.KafkaCredentials)
 	}
 
-	if deserialized.KafkaNilCredentials.HasValue() {
-		t.Errorf("KafkaNilCredentials should not have value")
-	}
-
-	if !data.KafkaCredentials.HasValue() {
-		t.Errorf("KafkaCredentials should have value")
-	}
-	if !deserialized.KafkaCredentials.HasValue() {
-		t.Errorf("KafkaCredentials should have value")
-	}
-	if data.KafkaCredentials.GetOrElse("") != deserialized.KafkaCredentials.GetOrElse("") {
-		t.Errorf("KafkaCredentials mismatch: got %s, want %s", deserialized.KafkaCredentials.GetOrElse(""), data.KafkaCredentials.GetOrElse(""))
-	}
-
-	if deserialized.Foobar.Value() != "foobar" {
-		t.Errorf("Foobar mismatch: got %s, want %s", deserialized.Foobar.Value(), "foobar")
+	if deserialized.Foobar != "foobar" {
+		t.Errorf("Foobar mismatch: got %s, want %s", deserialized.Foobar, "foobar")
 	}
 }
 
 type AppConfigFromFile struct {
-	File                Required[string] `long:"file"`
-	Host                Required[string] `long:"host"`
-	Port                Required[int]    `long:"port" default:"8080"`
-	KafkaCredentials    Optional[string] `long:"kafka-credentials"`
-	KafkaNilCredentials Optional[string] `long:"kafka-nil-credentials"`
+	File                string `optional:"true"`
+	Host                string
+	Port                int    `default:"8080"`
+	KafkaCredentials    string `optional:"true"`
+	KafkaNilCredentials string `optional:"true"`
 }
 
 func TestWriteJsonToFileAndTreatAsConfig(t *testing.T) {
 	origCfg := AppConfig{
-		Host:             Req("someHost"),
-		Port:             Req(12345),
-		KafkaCredentials: Opt("someCredentials"),
+		Host:             "someHost",
+		Port:             12345,
+		KafkaCredentials: "someCredentials",
 	}
 
 	// Serialize to JSON
@@ -296,24 +254,28 @@ func TestWriteJsonToFileAndTreatAsConfig(t *testing.T) {
 		t.Fatalf("Failed to write to temp file: %v", err)
 	}
 
-	NewCmdT[AppConfigFromFile]("root").
-		WithPreValidateFuncE(func(params *AppConfigFromFile, cmd *cobra.Command, args []string) error {
-			return UnMarshalFromFileParam(&params.File, params, nil)
-		}).
-		WithRunFunc(func(params *AppConfigFromFile) {
-			if params.Host.Value() != origCfg.Host.Value() {
-				t.Fatalf("Host mismatch: got %s, want %s", params.Host.Value(), origCfg.Host.Value())
+	CmdT[AppConfigFromFile]{
+		Use: "root",
+		PreValidateFunc: func(params *AppConfigFromFile, cmd *cobra.Command, args []string) error {
+			if params.File != "" {
+				return LoadConfigFile(params.File, params, nil)
 			}
-		}).
-		RunArgs([]string{"-f", file.Name()})
+			return nil
+		},
+		RunFunc: func(params *AppConfigFromFile, cmd *cobra.Command, args []string) {
+			if params.Host != origCfg.Host {
+				t.Fatalf("Host mismatch: got %s, want %s", params.Host, origCfg.Host)
+			}
+		},
+	}.RunArgs([]string{"-f", file.Name()})
 
 }
 
 func TestWriteJsonToFileAndTreatAsConfigCliOvrd(t *testing.T) {
 	origCfg := AppConfig{
-		Host:             Req("someHost"),
-		Port:             Req(12345),
-		KafkaCredentials: Opt("someCredentials"),
+		Host:             "someHost",
+		Port:             12345,
+		KafkaCredentials: "someCredentials",
 	}
 
 	// Serialize to JSON
@@ -339,18 +301,22 @@ func TestWriteJsonToFileAndTreatAsConfigCliOvrd(t *testing.T) {
 		t.Fatalf("Failed to write to temp file: %v", err)
 	}
 
-	NewCmdT[AppConfigFromFile]("root").
-		WithPreValidateFuncE(func(params *AppConfigFromFile, cmd *cobra.Command, args []string) error {
-			return UnMarshalFromFileParam(&params.File, params, nil)
-		}).
-		WithRunFunc(func(params *AppConfigFromFile) {
-			if params.Host.Value() != "cliHost" {
-				t.Fatalf("Host mismatch: got %s, want %s", params.Host.Value(), "cliHost")
+	CmdT[AppConfigFromFile]{
+		Use: "root",
+		PreValidateFunc: func(params *AppConfigFromFile, cmd *cobra.Command, args []string) error {
+			if params.File != "" {
+				return LoadConfigFile(params.File, params, nil)
 			}
-			if params.Port.Value() != origCfg.Port.Value() {
-				t.Fatalf("Port mismatch: got %d, want %d", params.Port.Value(), origCfg.Port.Value())
+			return nil
+		},
+		RunFunc: func(params *AppConfigFromFile, cmd *cobra.Command, args []string) {
+			if params.Host != "cliHost" {
+				t.Fatalf("Host mismatch: got %s, want %s", params.Host, "cliHost")
 			}
-		}).
-		RunArgs([]string{"-f", file.Name(), "--host", "cliHost"})
+			if params.Port != origCfg.Port {
+				t.Fatalf("Port mismatch: got %d, want %d", params.Port, origCfg.Port)
+			}
+		},
+	}.RunArgs([]string{"-f", file.Name(), "--host", "cliHost"})
 
 }

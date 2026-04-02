@@ -97,12 +97,12 @@ func TestRequiredWrapperUnaffectedByDefaultOptional(t *testing.T) {
 	defer resetGlobalConfig()
 
 	type Params struct {
-		Name Required[string] `descr:"a name"`
+		Name required[string] `descr:"a name"`
 	}
 
 	Init(WithDefaultOptional())
 
-	// Required[T] wrapper should still be required regardless of defaultOptional
+	// required[T] wrapper should still be required regardless of defaultOptional
 	err := CmdT[Params]{
 		Use:   "test",
 		Short: "test command",
@@ -111,7 +111,7 @@ func TestRequiredWrapperUnaffectedByDefaultOptional(t *testing.T) {
 		},
 	}.RunArgsE([]string{})
 	if err == nil {
-		t.Fatal("expected error for Required[T] field even with defaultOptional")
+		t.Fatal("expected error for required[T] field even with defaultOptional")
 	}
 }
 
@@ -119,10 +119,10 @@ func TestOptionalWrapperUnaffectedByDefault(t *testing.T) {
 	defer resetGlobalConfig()
 
 	type Params struct {
-		Name Optional[string] `descr:"a name"`
+		Name optional[string] `descr:"a name"`
 	}
 
-	// No Init - default is required, but Optional[T] should still be optional
+	// No Init - default is required, but optional[T] should still be optional
 	err := CmdT[Params]{
 		Use:   "test",
 		Short: "test command",
@@ -130,6 +130,6 @@ func TestOptionalWrapperUnaffectedByDefault(t *testing.T) {
 		},
 	}.RunArgsE([]string{})
 	if err != nil {
-		t.Fatalf("expected no error for Optional[T] field, got: %v", err)
+		t.Fatalf("expected no error for optional[T] field, got: %v", err)
 	}
 }

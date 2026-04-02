@@ -105,7 +105,7 @@ func main() {
 }
 ```
 
-Without `Init`, the default behavior is unchanged (fields are required). Explicit struct tags (`required`, `req`, `optional`, `opt`) and `Required[T]`/`Optional[T]` wrappers always take precedence.
+Without `Init`, the default behavior is unchanged (fields are required). Explicit struct tags (`required`, `req`, `optional`, `opt`) always take precedence.
 
 See [Global Configuration](https://gigurra.github.io/boa/global-config/) for details.
 
@@ -404,15 +404,12 @@ type ConfigFromFile struct {
 func main() {
 	boa.CmdT[ConfigFromFile]{
 		Use: "my-app",
-		PreValidateFuncCtx: func(ctx *boa.HookContext, params *ConfigFromFile, cmd *cobra.Command, args []string) error {
+		PreValidateFunc: func(params *ConfigFromFile, cmd *cobra.Command, args []string) error {
 			// Load configuration from file if provided
-			// boa.UnMarshalFromFileParam is a helper to unmarshal from a file
 			// CLI and env var values take precedence over file values
-			fileParam := ctx.GetParam(&params.File)
-			return boa.UnMarshalFromFileParam(fileParam, &params.AppConfig, nil)
+			return boa.LoadConfigFile(params.File, &params.AppConfig, nil)
 		},
 		RunFunc: func(params *ConfigFromFile, cmd *cobra.Command, args []string) {
-			// Use parameters loaded from the file
 			fmt.Printf("Host: %s, Port: %d\n",
 				params.Host,
 				params.Port,
@@ -461,10 +458,10 @@ type CfgStructInit interface {
 	Init() error
 }
 
-// Example implementation
-func (i *MyConfigStruct) Init() error {
+// Example implementation using CfgStructInitCtx for programmatic configuration
+func (i *MyConfigStruct) InitCtx(ctx *boa.HookContext) error {
 	// Initialize defaults, set up validators, etc.
-	i.SomeParam.Default = boa.Default("default value")
+	ctx.GetParam(&i.SomeParam).SetDefault(boa.Default("default value"))
 	return nil
 }
 
@@ -834,109 +831,6 @@ This includes all error types:
   - Write testable command logic
   - Integrate with frameworks that expect error returns
   - Build commands that are called from other Go code
-
-## Builder API (Alternative)
-
-BOA also provides a fluent builder API as an alternative to the direct struct style. The builder API may be deprecated in a future release, so the direct API (shown throughout this README) is recommended for new projects.
-
-```go
-package main
-
-import (
-	"fmt"
-	"github.com/GiGurra/boa/pkg/boa"
-)
-
-type Params struct {
-	Name string
-	Port int `optional:"true"`
-}
-
-func main() {
-	boa.NewCmdT[Params]("my-app").
-		WithShort("A CLI tool").
-		WithRunFunc(func(params *Params) {
-			fmt.Printf("Hello, %s!\n", params.Name)
-		}).
-		WithSubCmds(
-			boa.NewCmdT[Params]("sub").
-				WithRunFunc(func(params *Params) {
-					fmt.Println("Subcommand")
-				}),
-		).
-		Run()
-}
-```
-
-The builder API provides `With*` methods for all configuration options. Both APIs are functionally equivalent and produce identical CLI behavior.
-
-## Migration Guide
-
-If you're migrating from the deprecated `Required[T]`/`Optional[T]` wrapper types:
-
-### Before (Deprecated)
-```go
-type Params struct {
-	Name boa.Required[string] `descr:"User name"`
-	Port boa.Optional[int]    `descr:"Port number" default:"8080"`
-}
-
-// Accessing values
-fmt.Println(params.Name.Value())       // string
-fmt.Println(*params.Port.Value())      // int (via pointer)
-```
-
-### After (Recommended)
-```go
-type Params struct {
-	Name string `descr:"User name"`                           // required by default
-	Port int    `descr:"Port number" optional:"true"`
-}
-
-// Accessing values - direct access
-fmt.Println(params.Name)  // string
-fmt.Println(params.Port)  // int (direct value)
-```
-
-### Programmatic Configuration
-
-For programmatic configuration that was previously done directly on wrapper types:
-
-**Before:**
-```go
-params.Port.SetRequiredFn(func() bool { return params.Mode == "server" })
-```
-
-**After:**
-```go
-// Use HookContext in InitFuncCtx
-boa.CmdT[Params]{
-	Use: "app",
-	InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-		ctx.GetParam(&p.Port).SetRequiredFn(func() bool { return p.Mode == "server" })
-		return nil
-	},
-}
-```
-
-## Legacy API (Deprecated)
-
-The `Required[T]` and `Optional[T]` wrapper types are deprecated but still functional for backward compatibility.
-
-```go
-// DEPRECATED - prefer plain Go types instead
-type Params struct {
-	Name boa.Required[string]   // Use: Name string
-	Port boa.Optional[int]      // Use: Port int `optional:"true"`
-}
-
-// DEPRECATED factory functions
-name := boa.Req("default")    // Use: struct tag `default:"default"`
-port := boa.Opt(8080)         // Use: struct tag `default:"8080" optional:"true"`
-def := boa.Default(value)     // Use: struct tag `default:"value"`
-```
-
-The wrapper types require calling `.Value()` to access values, which adds verbosity compared to direct field access.
 
 ## Missing features
 

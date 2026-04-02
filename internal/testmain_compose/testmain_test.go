@@ -21,7 +21,7 @@ func TestRunMain(t *testing.T) {
 				"--foo24", "foo", "--bar24", "1", "--file24", "file",
 				"--baz", "baz",
 			},
-			Expected: "Hello world from subcommand1 with params: foo, 1, file, baz, <nil>, <nil>",
+			Expected: "Hello world from subcommand1 with params: foo, 1, file, baz, \"\", 0001-01-01",
 		},
 	})
 

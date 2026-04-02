@@ -17,59 +17,31 @@ BOA adds a declarative layer on top of [cobra](https://github.com/spf13/cobra), 
 
 ## Quick Example
 
-=== "Direct API"
+```go
+package main
 
-    ```go
-    package main
+import (
+    "fmt"
+    "github.com/GiGurra/boa/pkg/boa"
+    "github.com/spf13/cobra"
+)
 
-    import (
-        "fmt"
-        "github.com/GiGurra/boa/pkg/boa"
-        "github.com/spf13/cobra"
-    )
+type Params struct {
+    Name    string `descr:"User name"`
+    Port    int    `descr:"Port number" default:"8080" optional:"true"`
+    Verbose bool   `short:"v" optional:"true"`
+}
 
-    type Params struct {
-        Name    string `descr:"User name"`
-        Port    int    `descr:"Port number" default:"8080" optional:"true"`
-        Verbose bool   `short:"v" optional:"true"`
-    }
-
-    func main() {
-        boa.CmdT[Params]{
-            Use:   "myapp",
-            Short: "A simple CLI application",
-            RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
-                fmt.Printf("Hello %s on port %d\n", params.Name, params.Port)
-            },
-        }.Run()
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    package main
-
-    import (
-        "fmt"
-        "github.com/GiGurra/boa/pkg/boa"
-    )
-
-    type Params struct {
-        Name    string `descr:"User name"`
-        Port    int    `descr:"Port number" default:"8080" optional:"true"`
-        Verbose bool   `short:"v" optional:"true"`
-    }
-
-    func main() {
-        boa.NewCmdT[Params]("myapp").
-            WithShort("A simple CLI application").
-            WithRunFunc(func(params *Params) {
-                fmt.Printf("Hello %s on port %d\n", params.Name, params.Port)
-            }).
-            Run()
-    }
-    ```
+func main() {
+    boa.CmdT[Params]{
+        Use:   "myapp",
+        Short: "A simple CLI application",
+        RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
+            fmt.Printf("Hello %s on port %d\n", params.Name, params.Port)
+        },
+    }.Run()
+}
+```
 
 This generates:
 
@@ -100,4 +72,3 @@ go get github.com/GiGurra/boa@latest
 - [Lifecycle Hooks](hooks.md) - Customize behavior at different stages
 - [Error Handling](error-handling.md) - Run() vs RunE() and error propagation
 - [Cobra Interoperability](cobra-interop.md) - Access Cobra primitives and migrate incrementally
-- [Migration Guide](migration.md) - Migrating from deprecated wrapper types

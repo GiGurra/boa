@@ -32,41 +32,23 @@ func (c *MyConfig) InitCtx(ctx *boa.HookContext) error {
 
 ### Function-based
 
-=== "Direct API"
+```go
+boa.CmdT[Params]{
+    Use: "cmd",
+    InitFunc: func(params *Params, cmd *cobra.Command) error {
+        return nil
+    },
+}
 
-    ```go
-    boa.CmdT[Params]{
-        Use: "cmd",
-        InitFunc: func(params *Params, cmd *cobra.Command) error {
-            return nil
-        },
-    }
-
-    // With HookContext
-    boa.CmdT[Params]{
-        Use: "cmd",
-        InitFuncCtx: func(ctx *boa.HookContext, params *Params, cmd *cobra.Command) error {
-            ctx.GetParam(&params.Name).SetShort("n")
-            return nil
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("cmd").
-        WithInitFuncE(func(params *Params) error {
-            return nil
-        })
-
-    // With HookContext
-    boa.NewCmdT[Params]("cmd").
-        WithInitFuncCtx(func(ctx *boa.HookContext, params *Params, cmd *cobra.Command) error {
-            ctx.GetParam(&params.Name).SetShort("n")
-            return nil
-        })
-    ```
+// With HookContext
+boa.CmdT[Params]{
+    Use: "cmd",
+    InitFuncCtx: func(ctx *boa.HookContext, params *Params, cmd *cobra.Command) error {
+        ctx.GetParam(&params.Name).SetShort("n")
+        return nil
+    },
+}
+```
 
 ## PostCreate Hook
 
@@ -88,33 +70,18 @@ func (c *MyConfig) PostCreateCtx(ctx *boa.HookContext) error {
 
 ### Function-based
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "cmd",
-        PostCreateFuncCtx: func(ctx *boa.HookContext, params *Params, cmd *cobra.Command) error {
-            flag := cmd.Flags().Lookup("my-flag")
-            if flag != nil {
-                // Inspect or modify flag
-            }
-            return nil
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("cmd").
-        WithPostCreateFuncCtx(func(ctx *boa.HookContext, params *Params, cmd *cobra.Command) error {
-            flag := cmd.Flags().Lookup("my-flag")
-            if flag != nil {
-                // Inspect or modify flag
-            }
-            return nil
-        })
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "cmd",
+    PostCreateFuncCtx: func(ctx *boa.HookContext, params *Params, cmd *cobra.Command) error {
+        flag := cmd.Flags().Lookup("my-flag")
+        if flag != nil {
+            // Inspect or modify flag
+        }
+        return nil
+    },
+}
+```
 
 ## PreValidate Hook
 
@@ -136,25 +103,14 @@ func (c *MyConfig) PreValidateCtx(ctx *boa.HookContext) error {
 
 ### Function-based
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "cmd",
-        PreValidateFunc: func(params *Params, cmd *cobra.Command, args []string) error {
-            return nil
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("cmd").
-        WithPreValidateFuncE(func(params *Params, cmd *cobra.Command, args []string) error {
-            return nil
-        })
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "cmd",
+    PreValidateFunc: func(params *Params, cmd *cobra.Command, args []string) error {
+        return nil
+    },
+}
+```
 
 ## PreExecute Hook
 
@@ -171,25 +127,14 @@ func (c *MyConfig) PreExecute() error {
 
 ### Function-based
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "cmd",
-        PreExecuteFunc: func(params *Params, cmd *cobra.Command, args []string) error {
-            return nil
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("cmd").
-        WithPreExecuteFuncE(func(params *Params, cmd *cobra.Command, args []string) error {
-            return nil
-        })
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "cmd",
+    PreExecuteFunc: func(params *Params, cmd *cobra.Command, args []string) error {
+        return nil
+    },
+}
+```
 
 ## HookContext
 
@@ -266,48 +211,25 @@ func (c *ServerConfig) InitCtx(ctx *boa.HookContext) error {
 
 ### Example: Checking Parameter Sources at Runtime
 
-=== "Direct API"
+```go
+type Params struct {
+    Host string `default:"localhost"`
+    Port int    `optional:"true"`
+}
 
-    ```go
-    type Params struct {
-        Host string `default:"localhost"`
-        Port int    `optional:"true"`
-    }
-
-    func main() {
-        boa.CmdT[Params]{
-            Use: "server",
-            RunFuncCtx: func(ctx *boa.HookContext, params *Params, cmd *cobra.Command, args []string) {
-                if ctx.HasValue(&params.Port) {
-                    fmt.Printf("Starting on %s:%d\n", params.Host, params.Port)
-                } else {
-                    fmt.Printf("Starting on %s (no port)\n", params.Host)
-                }
-            },
-        }.Run()
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    type Params struct {
-        Host string `default:"localhost"`
-        Port int    `optional:"true"`
-    }
-
-    func main() {
-        boa.NewCmdT[Params]("server").
-            WithRunFuncCtx(func(ctx *boa.HookContext, params *Params) {
-                if ctx.HasValue(&params.Port) {
-                    fmt.Printf("Starting on %s:%d\n", params.Host, params.Port)
-                } else {
-                    fmt.Printf("Starting on %s (no port)\n", params.Host)
-                }
-            }).
-            Run()
-    }
-    ```
+func main() {
+    boa.CmdT[Params]{
+        Use: "server",
+        RunFuncCtx: func(ctx *boa.HookContext, params *Params, cmd *cobra.Command, args []string) {
+            if ctx.HasValue(&params.Port) {
+                fmt.Printf("Starting on %s:%d\n", params.Host, params.Port)
+            } else {
+                fmt.Printf("Starting on %s (no port)\n", params.Host)
+            }
+        },
+    }.Run()
+}
+```
 
 !!! note
     You can only use one run function variant per command: `RunFunc`, `RunFuncCtx`, `RunFuncE`, or `RunFuncCtxE`.
@@ -317,11 +239,12 @@ func (c *ServerConfig) InitCtx(ctx *boa.HookContext) error {
 All lifecycle hooks return errors. When using `Run()`, hook errors cause panics. When using `RunE()`, hook errors are returned for programmatic handling.
 
 ```go
-boa.NewCmdT[Params]("cmd").
-    WithInitFuncE(func(p *Params) error {
+err := boa.CmdT[Params]{
+    Use: "cmd",
+    InitFunc: func(p *Params, cmd *cobra.Command) error {
         return fmt.Errorf("init failed")
-    }).
-    RunE() // Returns error instead of panicking
+    },
+}.RunE() // Returns error instead of panicking
 ```
 
 For comprehensive coverage of error handling including `Run()` vs `RunE()`, error-returning run functions, and testing patterns, see [Error Handling](error-handling.md).

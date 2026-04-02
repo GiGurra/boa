@@ -38,8 +38,6 @@ Explicit annotations always take precedence over the global default:
 
 | Mechanism | Behavior |
 |-----------|----------|
-| `Required[T]` wrapper | Always required |
-| `Optional[T]` wrapper | Always optional |
 | `required:"true"` / `req:"true"` tag | Always required |
 | `optional:"true"` / `opt:"true"` tag | Always optional |
 | Plain Go type (no tag) | Follows global default |
@@ -50,13 +48,13 @@ Explicit annotations always take precedence over the global default:
 boa.Init(boa.WithDefaultOptional())
 
 type Params struct {
-    Name   string            `descr:"user name"`           // optional (global default)
-    Port   int               `descr:"port" required:"true"` // required (explicit tag)
-    Debug  boa.Optional[bool] `descr:"debug mode"`          // optional (wrapper)
-    Output boa.Required[string] `descr:"output file"`       // required (wrapper)
+    Name   string `descr:"user name"`                    // optional (global default)
+    Port   int    `descr:"port" required:"true"`         // required (explicit tag)
+    Debug  bool   `descr:"debug mode"`                   // optional (global default)
+    Output string `descr:"output file" required:"true"`  // required (explicit tag)
 }
 ```
 
 ## Without Init
 
-If you don't call `boa.Init()`, all behavior remains unchanged from previous versions. Plain Go type fields default to required, maintaining full backwards compatibility.
+If you don't call `boa.Init()`, all behavior remains unchanged from previous versions. Plain Go type fields default to required.

@@ -112,7 +112,7 @@ type Param interface {
 	SetName(string)
 	SetAlternatives([]string)
 	defaultValuePtr() any
-	descr() string
+	getDescr() string
 	IsRequired() bool
 	valuePtrF() any
 	parentCmd() *cobra.Command
@@ -146,13 +146,13 @@ type Param interface {
 
 type processingContext struct {
 	context.Context
-	RawAddrToMirror map[uintptr]Param
+	RawAddrToMirror map[unsafe.Pointer]Param
 	// We need to keep track of raw params, so we can
 	// override the raw values with cli values in case
 	// the user may have mapped config files to the params
 	// as well - since the config file deserialization will
 	// not be aware of the raw values, and just overwrite them.
-	RawAddresses []uintptr
+	RawAddresses []unsafe.Pointer
 }
 
 func parseEnv(ctx *processingContext, structPtr any) error {
@@ -360,7 +360,7 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param, ctx *processingContex
 
 	extraInfos := make([]string, 0)
 
-	descr := f.descr()
+	descr := f.getDescr()
 	if f.GetEnv() != "" {
 		extraInfos = append(extraInfos, fmt.Sprintf("env: %s", f.GetEnv()))
 	}
@@ -1183,7 +1183,7 @@ func traverse(
 			if isSupportedType(field.Type) {
 
 				// check if we already have a mirror for this field
-				addr := fieldAddr.Pointer()
+				addr := fieldAddr.UnsafePointer()
 				var ok bool
 				if param, ok = ctx.RawAddrToMirror[addr]; !ok {
 					param = newParam(&field, field.Type)
@@ -1229,8 +1229,8 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 
 	ctx := &processingContext{
 		Context:         context.Background(), // prepare to override later?
-		RawAddrToMirror: map[uintptr]Param{},
-		RawAddresses:    []uintptr{},
+		RawAddrToMirror: map[unsafe.Pointer]Param{},
+		RawAddresses:    []unsafe.Pointer{},
 	}
 
 	// build mirrors
@@ -1318,7 +1318,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			if tags.Get("positional") == "true" || tags.Get("pos") == "true" {
 				param.setPositional(true)
 			}
-			if param.descr() == "" {
+			if param.getDescr() == "" {
 				if descr, ok := tags.Lookup("help"); ok {
 					param.setDescription(descr)
 				} else if descr, ok := tags.Lookup("desc"); ok {
@@ -1735,11 +1735,8 @@ func syncMirrors(ctx *processingContext) {
 	for _, rawAddr := range ctx.RawAddresses {
 		mirror := ctx.RawAddrToMirror[rawAddr]
 
-		// Convert unsafe.Pointer to a reflect.Value of the appropriate pointer type
-		// without needing to create an unused ptrType variable
-		//goland:noinspection ALL
-		//nolint:govet // intentional: rawAddr is a valid uintptr from fieldAddr.Pointer()
-		ptrToRawValue := reflect.NewAt(mirror.GetType(), unsafe.Pointer(rawAddr))
+		// Create a reflect.Value pointing to the raw field via its stored address
+		ptrToRawValue := reflect.NewAt(mirror.GetType(), rawAddr)
 
 		if !mirror.wasSetOnCli() && !mirror.wasSetByEnv() && !ptrToRawValue.Elem().IsZero() {
 			mirror.injectValuePtr(ptrToRawValue.Interface())
@@ -1767,7 +1764,7 @@ func syncMirrors(ctx *processingContext) {
 	}
 }
 
-func runImpl(cmd *cobra.Command, handler ResultHandler) {
+func runImpl(cmd *cobra.Command, handler resultHandler) {
 
 	if handler.Panic != nil {
 		defer func() {
@@ -1878,13 +1875,13 @@ func isSupportedType(t reflect.Type) bool {
 
 func newParam(field *reflect.StructField, t reflect.Type) Param {
 
-	required := !cfg.defaultOptional
+	isRequired := !cfg.defaultOptional
 	if requiredTag, ok := field.Tag.Lookup("required"); ok {
 		switch requiredTag {
 		case "true":
-			required = true
+			isRequired = true
 		case "false":
-			required = false
+			isRequired = false
 		default:
 			panic(fmt.Errorf("invalid value for field %s's required tag: %s", field.Name, requiredTag))
 		}
@@ -1892,9 +1889,9 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 	if requiredTag, ok := field.Tag.Lookup("req"); ok {
 		switch requiredTag {
 		case "true":
-			required = true
+			isRequired = true
 		case "false":
-			required = false
+			isRequired = false
 		default:
 			panic(fmt.Errorf("invalid value for field %s's required tag: %s", field.Name, requiredTag))
 		}
@@ -1902,9 +1899,9 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 	if optionalTag, ok := field.Tag.Lookup("optional"); ok {
 		switch optionalTag {
 		case "true":
-			required = false
+			isRequired = false
 		case "false":
-			required = true
+			isRequired = true
 		default:
 			panic(fmt.Errorf("invalid value for field %s's optional tag: %s", field.Name, optionalTag))
 		}
@@ -1912,9 +1909,9 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 	if optionalTag, ok := field.Tag.Lookup("opt"); ok {
 		switch optionalTag {
 		case "true":
-			required = false
+			isRequired = false
 		case "false":
-			required = true
+			isRequired = true
 		default:
 			panic(fmt.Errorf("invalid value for field %s's optional tag: %s", field.Name, optionalTag))
 		}
@@ -1922,161 +1919,153 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 
 	switch t.Kind() {
 	case reflect.String:
-		if required {
-			return &Required[string]{}
+		if isRequired {
+			return &required[string]{}
 		} else {
-			return &Optional[string]{}
+			return &optional[string]{}
 		}
 	case reflect.Int:
-		if required {
-			return &Required[int]{}
+		if isRequired {
+			return &required[int]{}
 		} else {
-			return &Optional[int]{}
+			return &optional[int]{}
 		}
 	case reflect.Int32:
-		if required {
-			return &Required[int32]{}
+		if isRequired {
+			return &required[int32]{}
 		} else {
-			return &Optional[int32]{}
+			return &optional[int32]{}
 		}
 	case reflect.Int64:
-		// Check if this is time.Duration
 		if t == durationType {
-			if required {
-				return &Required[time.Duration]{}
+			if isRequired {
+				return &required[time.Duration]{}
 			} else {
-				return &Optional[time.Duration]{}
+				return &optional[time.Duration]{}
 			}
 		}
-		if required {
-			return &Required[int64]{}
+		if isRequired {
+			return &required[int64]{}
 		} else {
-			return &Optional[int64]{}
+			return &optional[int64]{}
 		}
 	case reflect.Float32:
-		if required {
-			return &Required[float32]{}
+		if isRequired {
+			return &required[float32]{}
 		} else {
-			return &Optional[float32]{}
+			return &optional[float32]{}
 		}
 	case reflect.Float64:
-		if required {
-			return &Required[float64]{}
+		if isRequired {
+			return &required[float64]{}
 		} else {
-			return &Optional[float64]{}
+			return &optional[float64]{}
 		}
 	case reflect.Bool:
-		if required {
-			return &Required[bool]{}
+		if isRequired {
+			return &required[bool]{}
 		} else {
-			return &Optional[bool]{}
+			return &optional[bool]{}
 		}
 	case reflect.Struct:
 		if t == timeType {
-			if required {
-				return &Required[time.Time]{}
+			if isRequired {
+				return &required[time.Time]{}
 			} else {
-				return &Optional[time.Time]{}
+				return &optional[time.Time]{}
 			}
 		} else {
 			panic(fmt.Errorf("unsupported type %s", t.String()))
 		}
 	case reflect.Slice:
-		// Check if this is net.IP (which is []byte)
 		if t == ipType {
-			if required {
-				return &Required[net.IP]{}
+			if isRequired {
+				return &required[net.IP]{}
 			} else {
-				return &Optional[net.IP]{}
+				return &optional[net.IP]{}
 			}
 		}
 		elem := t.Elem()
-		// Check for special slice types first
-		// []net.IP - pflag has IPSliceP
 		if elem == ipType {
-			if required {
-				return &Required[[]net.IP]{}
+			if isRequired {
+				return &required[[]net.IP]{}
 			} else {
-				return &Optional[[]net.IP]{}
+				return &optional[[]net.IP]{}
 			}
 		}
-		// []time.Duration - pflag has DurationSliceP
 		if elem == durationType {
-			if required {
-				return &Required[[]time.Duration]{}
+			if isRequired {
+				return &required[[]time.Duration]{}
 			} else {
-				return &Optional[[]time.Duration]{}
+				return &optional[[]time.Duration]{}
 			}
 		}
-		// []time.Time - stored as []string, converted during validation
 		if elem == timeType {
-			if required {
-				return &Required[[]time.Time]{}
+			if isRequired {
+				return &required[[]time.Time]{}
 			} else {
-				return &Optional[[]time.Time]{}
+				return &optional[[]time.Time]{}
 			}
 		}
-		// []*url.URL - stored as []string, converted during validation
 		if elem == urlPtrType {
-			if required {
-				return &Required[[]*url.URL]{}
+			if isRequired {
+				return &required[[]*url.URL]{}
 			} else {
-				return &Optional[[]*url.URL]{}
+				return &optional[[]*url.URL]{}
 			}
 		}
 		switch elem.Kind() {
 		case reflect.String:
-			if required {
-				return &Required[[]string]{}
+			if isRequired {
+				return &required[[]string]{}
 			} else {
-				return &Optional[[]string]{}
+				return &optional[[]string]{}
 			}
 		case reflect.Int:
-			if required {
-				return &Required[[]int]{}
+			if isRequired {
+				return &required[[]int]{}
 			} else {
-				return &Optional[[]int]{}
+				return &optional[[]int]{}
 			}
 		case reflect.Int32:
-			if required {
-				return &Required[[]int32]{}
+			if isRequired {
+				return &required[[]int32]{}
 			} else {
-				return &Optional[[]int32]{}
+				return &optional[[]int32]{}
 			}
 		case reflect.Int64:
-			if required {
-				return &Required[[]int64]{}
+			if isRequired {
+				return &required[[]int64]{}
 			} else {
-				return &Optional[[]int64]{}
+				return &optional[[]int64]{}
 			}
 		case reflect.Float32:
-			if required {
-				return &Required[[]float32]{}
+			if isRequired {
+				return &required[[]float32]{}
 			} else {
-				return &Optional[[]float32]{}
+				return &optional[[]float32]{}
 			}
 		case reflect.Float64:
-			if required {
-				return &Required[[]float64]{}
+			if isRequired {
+				return &required[[]float64]{}
 			} else {
-				return &Optional[[]float64]{}
+				return &optional[[]float64]{}
 			}
 		case reflect.Bool:
-			if required {
-				return &Required[[]bool]{}
+			if isRequired {
+				return &required[[]bool]{}
 			} else {
-				return &Optional[[]bool]{}
+				return &optional[[]bool]{}
 			}
 		default:
 			panic(fmt.Errorf("unsupported slice type %s", t.String()))
 		}
 	case reflect.Pointer:
-		// Check if this is *url.URL
 		if t == urlPtrType {
-			if required {
-				return &Required[*url.URL]{}
+			if isRequired {
+				return &required[*url.URL]{}
 			} else {
-				return &Optional[*url.URL]{}
+				return &optional[*url.URL]{}
 			}
 		}
 		panic(fmt.Errorf("unsupported pointer type %s", t.String()))

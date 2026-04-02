@@ -6,22 +6,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type disabledParamParams struct {
+	Foo string `optional:"true"`
+	Bar int    `optional:"true"`
+	Baz string `optional:"true"`
+}
+
 func main() {
 
-	var params = struct {
-		Foo boa.Optional[string]
-		Bar boa.Optional[int]
-		Baz boa.Optional[string]
-	}{}
+	var params disabledParamParams
 
-	params.Bar.SetIsEnabledFn(func() bool {
-		return params.Foo.HasValue()
-	})
-	params.Baz.SetRequiredFn(func() bool {
-		return params.Foo.HasValue()
-	})
-
-	boa.Cmd{
+	if err := (boa.CmdT[disabledParamParams]{
 		Use:   "hello-world",
 		Short: "a generic cli tool",
 		Long:  `A generic cli tool that has a longer description. See the README.MD for more information`,
@@ -30,12 +25,19 @@ func main() {
 			boa.ParamEnricherShort,
 		),
 		Params: &params,
-		RunFunc: func(cmd *cobra.Command, args []string) {
+		InitFuncCtx: func(ctx *boa.HookContext, p *disabledParamParams, cmd *cobra.Command) error {
+			ctx.GetParam(&p.Bar).SetIsEnabledFn(func() bool {
+				return ctx.HasValue(&p.Foo)
+			})
+			ctx.GetParam(&p.Baz).SetRequiredFn(func() bool {
+				return ctx.HasValue(&p.Foo)
+			})
+			return nil
+		},
+		RunFunc: func(p *disabledParamParams, cmd *cobra.Command, args []string) {
 			fmt.Printf("Hello World!\n")
 		},
-	}.RunH(boa.ResultHandler{
-		Failure: func(err error) {
-			fmt.Printf("Error: %v\n", err)
-		},
-	})
+	}.RunE()); err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
 }

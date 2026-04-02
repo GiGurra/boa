@@ -10,15 +10,15 @@ import (
 func main() {
 
 	var params = struct {
-		Foo  boa.Required[string]
-		Bar  boa.Required[int]
-		File boa.Required[string]
-		Baz  boa.Required[string]
-		FB   boa.Optional[string]
-		Time boa.Optional[time.Time]
+		Foo  string
+		Bar  int
+		File string
+		Baz  string
+		FB   string    `optional:"true"`
+		Time time.Time `optional:"true"`
 	}{}
 
-	boa.Cmd{
+	if err := (boa.Cmd{
 		Use:   "hello-world",
 		Short: "a generic cli tool",
 		Long:  `A generic cli tool that has a longer description. See the README.MD for more information`,
@@ -29,17 +29,15 @@ func main() {
 		Params: &params,
 		RunFunc: func(cmd *cobra.Command, args []string) {
 			fmt.Printf(
-				"Hello world from subcommand1 with params: %s, %d, %s, %s, %v\n",
-				params.Foo.Value(),  // string
-				params.Bar.Value(),  // int
-				params.File.Value(), // string
-				params.Baz.Value(),  // string
-				params.FB.Value(),   // *string
+				"Hello world from subcommand1 with params: %s, %d, %s, %s, %q\n",
+				params.Foo,  // string
+				params.Bar,  // int
+				params.File, // string
+				params.Baz,  // string
+				params.FB,   // string
 			)
 		},
-	}.RunH(boa.ResultHandler{
-		Failure: func(err error) {
-			fmt.Printf("Error: %v\n", err)
-		},
-	})
+	}.RunE()); err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
 }

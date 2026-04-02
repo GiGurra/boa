@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"github.com/GiGurra/boa/pkg/boa"
+	"github.com/spf13/cobra"
 )
 
 type SubParams struct {
@@ -20,21 +21,26 @@ type OtherParams struct {
 }
 
 func main() {
-	boa.NewCmdT[boa.NoParams]("hello-world").
-		WithShort("a generic cli tool").
-		WithLong("A generic cli tool that has a longer description").
-		WithSubCmds(
-			boa.NewCmdT[SubParams]("subcommand1").
-				WithShort("a subcommand").
-				WithRunFunc(func(params *SubParams) {
+	boa.CmdT[boa.NoParams]{
+		Use:   "hello-world",
+		Short: "a generic cli tool",
+		Long:  "A generic cli tool that has a longer description",
+		SubCmds: boa.SubCmds(
+			boa.CmdT[SubParams]{
+				Use:   "subcommand1",
+				Short: "a subcommand",
+				RunFunc: func(params *SubParams, cmd *cobra.Command, args []string) {
 					fmt.Printf("Hello world from subcommand1 with params: %s, %d, %s, %s\n",
 						params.Foo, params.Bar, params.Path, params.Baz)
-				}),
-			boa.NewCmdT[OtherParams]("subcommand2").
-				WithShort("a subcommand").
-				WithRunFunc(func(params *OtherParams) {
+				},
+			},
+			boa.CmdT[OtherParams]{
+				Use:   "subcommand2",
+				Short: "a subcommand",
+				RunFunc: func(params *OtherParams, cmd *cobra.Command, args []string) {
 					fmt.Println("Hello world from subcommand2")
-				}),
-		).
-		Run()
+				},
+			},
+		),
+	}.Run()
 }

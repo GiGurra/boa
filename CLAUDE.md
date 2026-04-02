@@ -1,16 +1,18 @@
 # BOA - Declarative Go CLI Framework
 
-BOA is a declarative abstraction layer on top of `github.com/spf13/cobra` that uses struct-based parameter definitions with Go generics (`Required[T]` and `Optional[T]`) to automatically generate CLI flags, environment variable bindings, validation, and help text.
+BOA is a declarative abstraction layer on top of `github.com/spf13/cobra` that uses struct-based parameter definitions with plain Go types and struct tags to automatically generate CLI flags, environment variable bindings, validation, and help text.
 
 ## Project Structure
 
 ```
 pkg/boa/           # Main (and only) package
-  api_base.go      # Base Cmd struct, ParamEnricher definitions
-  api_required.go  # Required[T] generic type
-  api_optional.go  # Optional[T] generic type
-  api_typed_base.go # CmdT[T] typed command builder (primary API)
+  api_base.go      # Cmd struct, ParamEnricher, HookContext, LoadConfigFile
+  api_required.go  # required[T] internal type (unexported)
+  api_optional.go  # optional[T] internal type (unexported)
+  api_typed_base.go # CmdT[T] typed command (primary API)
+  api_typed_param.go # ParamT[T] typed parameter view
   internal.go      # Core processing: reflection, parsing, validation
+  defaults.go      # Global configuration (Init, WithDefaultOptional)
   *_test.go        # Unit tests
 
 internal/          # Example programs and integration tests
@@ -22,21 +24,22 @@ internal/          # Example programs and integration tests
 
 ### Primary API
 ```go
-cmd := boa.NewCmdT[MyParams]("command-name").
-    WithShort("description").
-    WithRunFunc(func(params *MyParams) {
-        // use params.Field.Value()
-    }).
-    WithSubCmds(subCmd1, subCmd2)
-cmd.Run()
+boa.CmdT[MyParams]{
+    Use:   "command-name",
+    Short: "description",
+    SubCmds: boa.SubCmds(subCmd1, subCmd2),
+    RunFunc: func(params *MyParams, cmd *cobra.Command, args []string) {
+        // use params.Field directly
+    },
+}.Run()
 ```
 
 ### Parameter Definition
 ```go
 type Params struct {
-    Name    boa.Required[string] `descr:"User name" env:"USER_NAME"`
-    Port    boa.Optional[int]    `descr:"Port number" default:"8080"`
-    Verbose boa.Optional[bool]   `short:"v"`
+    Name    string `descr:"User name" env:"USER_NAME"`
+    Port    int    `descr:"Port number" default:"8080" optional:"true"`
+    Verbose bool   `short:"v" optional:"true"`
 }
 ```
 
@@ -46,13 +49,16 @@ type Params struct {
 - `env` - Environment variable name
 - `short` - Short flag (single char)
 - `positional` - Marks positional argument
+- `required` / `req` - Marks as required (default for plain types)
+- `optional` / `opt` - Marks as optional
 - `alts` - Allowed values (enum validation)
+- `strict` - Validate against alts
 
 ## Conventions
 
 - **Naming**: PascalCase for exported types/funcs, camelCase for unexported
-- **Builder pattern**: Fluent API with `With*` methods returning self
-- **Generics**: Heavy use of generics for type safety
+- **Struct literals**: Direct struct initialization for command configuration
+- **Generics**: Used internally for type safety (required[T]/optional[T] are unexported)
 - **Reflection**: Used for struct traversal and dynamic value setting
 - **Error handling**: Return errors, don't panic
 
@@ -69,7 +75,7 @@ go test ./...
 
 Tests use:
 - `os.Args` injection for CLI simulation
-- `cmd.RunArgs([]string{...})` for argument testing
+- `cmd.RunArgsE([]string{...})` for argument testing with error handling
 - Integration tests in `internal/testmain*/` that call `main()`
 
 ## CI/CD

@@ -3,27 +3,29 @@ package boa
 import (
 	"net/url"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 // Tests for *url.URL support
 
 func TestURL_Required(t *testing.T) {
 	type Params struct {
-		Endpoint Required[*url.URL] `descr:"API endpoint"`
+		Endpoint *url.URL `descr:"API endpoint"`
 	}
 
-	params := Params{}
 	wasRun := false
 
-	NewCmdT2("test", &params).
-		WithRunFunc(func(p *Params) {
+	CmdT[Params]{
+		Use: "test",
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
 			wasRun = true
 			expected, _ := url.Parse("https://api.example.com/v1")
-			if p.Endpoint.Value().String() != expected.String() {
-				t.Errorf("expected %v, got %v", expected, p.Endpoint.Value())
+			if p.Endpoint.String() != expected.String() {
+				t.Errorf("expected %v, got %v", expected, p.Endpoint)
 			}
-		}).
-		RunArgs([]string{"--endpoint", "https://api.example.com/v1"})
+		},
+	}.RunArgs([]string{"--endpoint", "https://api.example.com/v1"})
 
 	if !wasRun {
 		t.Fatal("run func was not called")
@@ -32,24 +34,24 @@ func TestURL_Required(t *testing.T) {
 
 func TestURL_Optional(t *testing.T) {
 	type Params struct {
-		Endpoint Optional[*url.URL] `descr:"API endpoint"`
+		Endpoint *url.URL `descr:"API endpoint" optional:"true"`
 	}
 
-	params := Params{}
 	wasRun := false
 
-	NewCmdT2("test", &params).
-		WithRunFunc(func(p *Params) {
+	CmdT[Params]{
+		Use: "test",
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
 			wasRun = true
-			if !p.Endpoint.HasValue() {
+			if !ctx.HasValue(&p.Endpoint) {
 				t.Error("expected endpoint to have value")
 			}
 			expected, _ := url.Parse("http://localhost:8080")
-			if (*p.Endpoint.Value()).String() != expected.String() {
-				t.Errorf("expected %v, got %v", expected, *p.Endpoint.Value())
+			if p.Endpoint.String() != expected.String() {
+				t.Errorf("expected %v, got %v", expected, p.Endpoint)
 			}
-		}).
-		RunArgs([]string{"--endpoint", "http://localhost:8080"})
+		},
+	}.RunArgs([]string{"--endpoint", "http://localhost:8080"})
 
 	if !wasRun {
 		t.Fatal("run func was not called")
@@ -58,16 +60,16 @@ func TestURL_Optional(t *testing.T) {
 
 func TestURL_WithPath(t *testing.T) {
 	type Params struct {
-		Endpoint Required[*url.URL] `descr:"API endpoint"`
+		Endpoint *url.URL `descr:"API endpoint"`
 	}
 
-	params := Params{}
 	wasRun := false
 
-	NewCmdT2("test", &params).
-		WithRunFunc(func(p *Params) {
+	CmdT[Params]{
+		Use: "test",
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
 			wasRun = true
-			u := p.Endpoint.Value()
+			u := p.Endpoint
 			if u.Scheme != "https" {
 				t.Errorf("expected scheme https, got %s", u.Scheme)
 			}
@@ -77,8 +79,8 @@ func TestURL_WithPath(t *testing.T) {
 			if u.Path != "/api/v2/users" {
 				t.Errorf("expected path /api/v2/users, got %s", u.Path)
 			}
-		}).
-		RunArgs([]string{"--endpoint", "https://api.example.com/api/v2/users"})
+		},
+	}.RunArgs([]string{"--endpoint", "https://api.example.com/api/v2/users"})
 
 	if !wasRun {
 		t.Fatal("run func was not called")
@@ -87,24 +89,24 @@ func TestURL_WithPath(t *testing.T) {
 
 func TestURL_WithQueryParams(t *testing.T) {
 	type Params struct {
-		Endpoint Required[*url.URL] `descr:"API endpoint"`
+		Endpoint *url.URL `descr:"API endpoint"`
 	}
 
-	params := Params{}
 	wasRun := false
 
-	NewCmdT2("test", &params).
-		WithRunFunc(func(p *Params) {
+	CmdT[Params]{
+		Use: "test",
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
 			wasRun = true
-			u := p.Endpoint.Value()
+			u := p.Endpoint
 			if u.Query().Get("page") != "1" {
 				t.Errorf("expected query param page=1, got %s", u.Query().Get("page"))
 			}
 			if u.Query().Get("limit") != "10" {
 				t.Errorf("expected query param limit=10, got %s", u.Query().Get("limit"))
 			}
-		}).
-		RunArgs([]string{"--endpoint", "https://api.example.com/items?page=1&limit=10"})
+		},
+	}.RunArgs([]string{"--endpoint", "https://api.example.com/items?page=1&limit=10"})
 
 	if !wasRun {
 		t.Fatal("run func was not called")
@@ -116,18 +118,18 @@ func TestURL_Raw(t *testing.T) {
 		Endpoint *url.URL `descr:"API endpoint" optional:"true"`
 	}
 
-	params := Params{}
 	wasRun := false
 
-	NewCmdT2("test", &params).
-		WithRunFunc(func(p *Params) {
+	CmdT[Params]{
+		Use: "test",
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
 			wasRun = true
 			expected, _ := url.Parse("https://raw.example.com")
 			if p.Endpoint.String() != expected.String() {
 				t.Errorf("expected %v, got %v", expected, p.Endpoint)
 			}
-		}).
-		RunArgs([]string{"--endpoint", "https://raw.example.com"})
+		},
+	}.RunArgs([]string{"--endpoint", "https://raw.example.com"})
 
 	if !wasRun {
 		t.Fatal("run func was not called")
@@ -136,23 +138,23 @@ func TestURL_Raw(t *testing.T) {
 
 func TestURL_EnvVar(t *testing.T) {
 	type Params struct {
-		Endpoint Required[*url.URL] `descr:"API endpoint" env:"TEST_API_URL"`
+		Endpoint *url.URL `descr:"API endpoint" env:"TEST_API_URL"`
 	}
 
 	t.Setenv("TEST_API_URL", "https://env.example.com/api")
 
-	params := Params{}
 	wasRun := false
 
-	NewCmdT2("test", &params).
-		WithRunFunc(func(p *Params) {
+	CmdT[Params]{
+		Use: "test",
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
 			wasRun = true
 			expected, _ := url.Parse("https://env.example.com/api")
-			if p.Endpoint.Value().String() != expected.String() {
-				t.Errorf("expected %v, got %v", expected, p.Endpoint.Value())
+			if p.Endpoint.String() != expected.String() {
+				t.Errorf("expected %v, got %v", expected, p.Endpoint)
 			}
-		}).
-		RunArgs([]string{})
+		},
+	}.RunArgs([]string{})
 
 	if !wasRun {
 		t.Fatal("run func was not called")
@@ -161,15 +163,15 @@ func TestURL_EnvVar(t *testing.T) {
 
 func TestURL_ParseFormats(t *testing.T) {
 	type Params struct {
-		Addr Required[*url.URL] `descr:"URL address"`
+		Addr *url.URL `descr:"URL address"`
 	}
 
 	testCases := []struct {
-		name     string
-		input    string
-		scheme   string
-		host     string
-		path     string
+		name   string
+		input  string
+		scheme string
+		host   string
+		path   string
 	}{
 		{"https", "https://example.com", "https", "example.com", ""},
 		{"http with port", "http://localhost:8080", "http", "localhost:8080", ""},
@@ -180,13 +182,13 @@ func TestURL_ParseFormats(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			params := Params{}
 			wasRun := false
 
-			NewCmdT2("test", &params).
-				WithRunFunc(func(p *Params) {
+			CmdT[Params]{
+				Use: "test",
+				RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
 					wasRun = true
-					u := p.Addr.Value()
+					u := p.Addr
 					if u.Scheme != tc.scheme {
 						t.Errorf("expected scheme %s, got %s", tc.scheme, u.Scheme)
 					}
@@ -196,8 +198,8 @@ func TestURL_ParseFormats(t *testing.T) {
 					if u.Path != tc.path {
 						t.Errorf("expected path %s, got %s", tc.path, u.Path)
 					}
-				}).
-				RunArgs([]string{"--addr", tc.input})
+				},
+			}.RunArgs([]string{"--addr", tc.input})
 
 			if !wasRun {
 				t.Fatal("run func was not called")

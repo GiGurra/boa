@@ -4,18 +4,20 @@
 package boa
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/url"
+	"os"
 	"reflect"
 	"time"
+	"unsafe"
 
 	"github.com/spf13/cobra"
 )
 
-// SupportedTypes defines the Go types that can be used as parameter values.
-// These types are supported for both Required and Optional parameter wrappers.
+// SupportedTypes defines the Go types that can be used as parameter values in struct fields.
 // Note: time.Duration is supported via the ~int64 constraint and handled specially for parsing.
 // net.IP and *url.URL are explicitly supported for network-related CLI tools.
 type SupportedTypes interface {
@@ -159,10 +161,9 @@ var (
 	// if another parameter already uses that character.
 	ParamEnricherShort ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) error {
 		if param.GetShort() == "" && param.GetName() != "" {
-			// check that no other param has the same short name
 			wantShort := string(param.GetName()[0])
 			if wantShort == "h" {
-				return nil // don't override help h
+				return nil
 			}
 			shortAvailable := true
 			for _, other := range alreadyProcessed {
@@ -214,114 +215,34 @@ func ParamEnricherEnvPrefix(prefix string) ParamEnricher {
 	}
 }
 
-// WithAliases sets alternative names for this command and returns the modified Cmd.
-func (b Cmd) WithAliases(aliases ...string) Cmd {
-	b.Aliases = aliases
-	return b
-}
-
-// WithGroupID sets the group ID for this command (for help categorization) and returns the modified Cmd.
-func (b Cmd) WithGroupID(groupID string) Cmd {
-	b.GroupID = groupID
-	return b
-}
-
-// WithGroups sets command groups for organizing subcommands in help output.
-// This is optional - any GroupIDs used by subcommands that don't have a corresponding
-// group defined here will be auto-generated with Title = ID + ":".
-func (b Cmd) WithGroups(groups ...*cobra.Group) Cmd {
-	b.Groups = groups
-	return b
-}
-
-// WithCobraSubCmds adds sub-commands to a Cmd and returns the modified Cmd.
-// This method allows for fluent chaining of command configuration.
-func (b Cmd) WithCobraSubCmds(cmd ...*cobra.Command) Cmd {
-	b.SubCmds = append(b.SubCmds, cmd...)
-	return b
-}
-
-// WithSubCmds adds sub-commands to a Cmd and returns the modified Cmd.
-// This method allows for fluent chaining of command configuration.
-func (b Cmd) WithSubCmds(cmd ...CmdIfc) Cmd {
-	for _, c := range cmd {
-		b.SubCmds = append(b.SubCmds, c.ToCobra())
-	}
-	return b
-}
-
 // ToCobra converts a Cmd to a cobra.Command by setting up flags, parameter binding,
-// and other command properties. This is used when you want to create a Cobra command
-// to use with an existing Cobra command structure.
+// and other command properties.
 func (b Cmd) ToCobra() *cobra.Command {
 	return b.toCobraImpl()
 }
 
-// ResultHandler defines handlers for different execution outcomes of a command.
-// This allows custom handling of success, failure, and panic conditions.
-//
-// Deprecated: Use RunE() or RunArgsE() instead for proper error handling.
-// ResultHandler will be removed in a future version.
-type ResultHandler struct {
-	// Panic is called when the command execution panics
-	Panic func(any)
-	// Failure is called when the command execution returns an error
+// resultHandler defines handlers for different execution outcomes of a command.
+// Used internally by Run() and Validate().
+type resultHandler struct {
+	Panic   func(any)
 	Failure func(error)
-	// Success is called when the command execution completes successfully
 	Success func()
 }
 
-// RunH executes a cobra.Command with the specified ResultHandler for
-// custom error and panic handling.
-//
-// Deprecated: Use cmd.Execute() directly or wrap with error handling.
-// RunH will be removed in a future version.
-func RunH(cmd *cobra.Command, handler ResultHandler) {
+// runH executes a cobra.Command with the specified resultHandler.
+func runH(cmd *cobra.Command, handler resultHandler) {
 	runImpl(cmd, handler)
 }
 
-// Run executes a cobra.Command with default error handling.
-// This is a convenience wrapper around RunH with an empty ResultHandler.
-//
-//goland:noinspection GoUnusedExportedFunction
-func Run(cmd *cobra.Command) {
-	RunH(cmd, ResultHandler{})
-}
-
 // Run executes the command with default error handling.
-// This is a convenience method that creates a Cobra command from the Cmd
-// and runs it with the default ResultHandler.
 func (b Cmd) Run() {
-	b.RunH(ResultHandler{})
+	runH(b.ToCobra(), resultHandler{})
 }
 
-// RunH executes the command with the specified ResultHandler for
-// custom error and panic handling.
-//
-// Deprecated: Use RunE() instead for proper error handling.
-// RunH will be removed in a future version.
-func (b Cmd) RunH(handler ResultHandler) {
-	RunH(b.ToCobra(), handler)
-}
-
-// RunArgs executes the command with default error handling.
-// This is a convenience method that creates a Cobra command from the Cmd
-// and runs it with the default ResultHandler. It also allows you to
-// inject command line arguments directly instead of using os.Args.
+// RunArgs executes the command with the provided arguments and default error handling.
 func (b Cmd) RunArgs(rawArgs []string) {
 	b.RawArgs = rawArgs
-	b.RunH(ResultHandler{})
-}
-
-// RunHArgs executes the command with the specified ResultHandler for
-// custom error and panic handling. It also allows you to
-// inject command line arguments directly instead of using os.Args.
-//
-// Deprecated: Use RunArgsE() instead for proper error handling.
-// RunHArgs will be removed in a future version.
-func (b Cmd) RunHArgs(handler ResultHandler, rawArgs []string) {
-	b.RawArgs = rawArgs
-	RunH(b.ToCobra(), handler)
+	runH(b.ToCobra(), resultHandler{})
 }
 
 // Validate validates parameter values without executing the command's RunFunc.
@@ -330,7 +251,7 @@ func (b Cmd) Validate() error {
 	b.RunFunc = func(cmd *cobra.Command, args []string) {}
 	b.UseCobraErrLog = false
 	var err error
-	handler := ResultHandler{
+	handler := resultHandler{
 		Panic: func(a any) {
 			err = fmt.Errorf("panic: %v", a)
 		},
@@ -341,23 +262,19 @@ func (b Cmd) Validate() error {
 	cobraCmd := b.ToCobra()
 	cobraCmd.SilenceErrors = true
 	cobraCmd.SilenceUsage = true
-	RunH(cobraCmd, handler)
+	runH(cobraCmd, handler)
 	return err
 }
 
 // ToCobraE converts a Cmd to a cobra.Command that uses RunE for error handling.
-// This is used when you want errors to propagate instead of using ResultHandler.
 // Returns an error if command setup fails (e.g., invalid configuration, hook errors).
 func (b Cmd) ToCobraE() (*cobra.Command, error) {
 	return b.toCobraImplE()
 }
 
 // RunE executes the command and returns any error that occurred.
-// This is useful when you want proper error propagation instead of os.Exit behavior.
 // All errors (from hooks like InitFunc, PreValidate, PreExecute, and RunFuncE) are
 // returned as errors rather than causing panics.
-// Output is silenced by default since the caller is expected to handle errors programmatically.
-// To show usage/errors, set cmd.SilenceUsage = false in a PreValidate or PreExecute hook.
 func (b Cmd) RunE() error {
 	cmd, err := b.ToCobraE()
 	if err != nil {
@@ -369,16 +286,14 @@ func (b Cmd) RunE() error {
 }
 
 // RunArgsE executes the command with the provided arguments and returns any error.
-// This is useful for testing and programmatic execution with error handling.
 func (b Cmd) RunArgsE(rawArgs []string) error {
 	b.RawArgs = rawArgs
 	return b.RunE()
 }
 
 // Default creates a pointer to a value of a supported type.
-// This is used to define default values for parameters in a type-safe way.
-//
-// Example: `Name string `default:"value"“ instead of using Default() with wrapper types.
+// This is used to define default values for parameters programmatically
+// via HookContext.GetParam().SetDefault().
 func Default[T SupportedTypes](val T) *T {
 	return &val
 }
@@ -386,127 +301,92 @@ func Default[T SupportedTypes](val T) *T {
 // CfgStructInit is an interface that parameter structs can implement
 // to perform initialization logic during command setup.
 type CfgStructInit interface {
-	// Init is called during initialization before any flags are parsed
 	Init() error
 }
 
 // CfgStructPreExecute is an interface that parameter structs can implement
 // to perform logic after validation but before command execution.
 type CfgStructPreExecute interface {
-	// PreExecute is called after validation but before command execution
 	PreExecute() error
 }
 
 // CfgStructPreValidate is an interface that parameter structs can implement
 // to perform logic after flags are parsed but before validation.
 type CfgStructPreValidate interface {
-	// PreValidate is called after flags are parsed but before validation
 	PreValidate() error
 }
 
 // CfgStructInitCtx is an interface that parameter structs can implement
 // to perform initialization logic with access to the HookContext.
-// This allows accessing parameter mirrors for raw fields.
 type CfgStructInitCtx interface {
-	// InitCtx is called during initialization before any flags are parsed
 	InitCtx(ctx *HookContext) error
 }
 
 // CfgStructPreValidateCtx is an interface that parameter structs can implement
 // to perform logic after flags are parsed but before validation with access to HookContext.
 type CfgStructPreValidateCtx interface {
-	// PreValidateCtx is called after flags are parsed but before validation
 	PreValidateCtx(ctx *HookContext) error
 }
 
 // CfgStructPreExecuteCtx is an interface that parameter structs can implement
 // to perform logic after validation but before command execution with access to HookContext.
 type CfgStructPreExecuteCtx interface {
-	// PreExecuteCtx is called after validation but before command execution
 	PreExecuteCtx(ctx *HookContext) error
 }
 
 // CfgStructPostCreate is an interface that parameter structs can implement
 // to perform logic after cobra flags are created but before parsing.
 type CfgStructPostCreate interface {
-	// PostCreate is called after cobra flags are created but before parsing
 	PostCreate() error
 }
 
 // CfgStructPostCreateCtx is an interface that parameter structs can implement
 // to perform logic after cobra flags are created but before parsing with access to HookContext.
 type CfgStructPostCreateCtx interface {
-	// PostCreateCtx is called after cobra flags are created but before parsing
 	PostCreateCtx(ctx *HookContext) error
 }
 
-// CmdIfc common interface between Cmd and CmdT for reusing code
+// CmdIfc common interface between Cmd and CmdT for reusing code.
 type CmdIfc interface {
 	ToCobra() *cobra.Command
 }
 
 // HookContext provides access to parameter mirrors and advanced configuration APIs
-// within startup hooks. This allows hooks to access and modify parameters for raw
-// fields that don't use the Required[T]/Optional[T] wrappers.
+// within startup hooks. This allows hooks to access and modify parameters
+// programmatically (SetDefault, SetAlternatives, SetRequiredFn, etc.).
 type HookContext struct {
-	rawAddrToMirror map[uintptr]Param
+	rawAddrToMirror map[unsafe.Pointer]Param
 }
 
-// GetParam returns the Param for any field pointer, whether it's a raw field
-// or a wrapped field (Required[T]/Optional[T]).
-//
-// For raw fields (string, int, etc.), it returns the auto-generated mirror.
-// For wrapped fields, it returns the field itself (which implements Param).
-//
-// This provides a unified API for accessing parameter configuration regardless
-// of whether the field uses the wrapper types or not.
+// GetParam returns the Param for any field pointer.
+// This provides a unified API for accessing parameter configuration.
 //
 // Usage:
 //
 //	type Params struct {
-//	    Name    string              // raw field
-//	    Age     boa.Required[int]   // wrapped field
+//	    Name string
+//	    Age  int
 //	}
-//	cmd := boa.NewCmdT[Params]("cmd").
-//	    WithInitFuncCtx(func(ctx *boa.HookContext, params *Params, cmd *cobra.Command) error {
-//	        // Works for raw fields
+//	boa.CmdT[Params]{
+//	    Use: "cmd",
+//	    InitFuncCtx: func(ctx *boa.HookContext, params *Params, cmd *cobra.Command) error {
 //	        nameParam := ctx.GetParam(&params.Name)
 //	        nameParam.SetDefault(boa.Default("default-name"))
-//
-//	        // Also works for wrapped fields
-//	        ageParam := ctx.GetParam(&params.Age)
-//	        ageParam.SetAlternatives([]string{"18", "21", "65"})
 //	        return nil
-//	    })
+//	    },
+//	}
 func (c *HookContext) GetParam(fieldPtr any) Param {
-	// First, check if the field itself implements Param (wrapped fields)
 	if param, ok := fieldPtr.(Param); ok {
 		return param
 	}
-
-	// Otherwise, look up the mirror for raw fields
 	if c.rawAddrToMirror == nil {
 		return nil
 	}
-	addr := reflect.ValueOf(fieldPtr).Pointer()
-	return c.rawAddrToMirror[addr]
-}
-
-// GetMirror returns the Param mirror for a raw field pointer.
-// This allows accessing advanced Param APIs (SetDefault, SetAlternatives, etc.)
-// for fields that are not wrapped in Required[T] or Optional[T].
-//
-// Deprecated: Use GetParam instead, which works for both raw and wrapped fields.
-func (c *HookContext) GetMirror(fieldPtr any) Param {
-	if c.rawAddrToMirror == nil {
-		return nil
-	}
-	addr := reflect.ValueOf(fieldPtr).Pointer()
+	addr := reflect.ValueOf(fieldPtr).UnsafePointer()
 	return c.rawAddrToMirror[addr]
 }
 
 // AllMirrors returns all parameter mirrors in the context.
-// This can be used to iterate over all raw field mirrors.
 func (c *HookContext) AllMirrors() []Param {
 	if c.rawAddrToMirror == nil {
 		return nil
@@ -519,17 +399,17 @@ func (c *HookContext) AllMirrors() []Param {
 }
 
 // HasValue returns true if the parameter has a value from any source.
-// Returns true if the parameter was set by environment variable, command line,
-// default value, or programmatic injection.
 //
 // Usage:
 //
-//	cmd := boa.NewCmdT[Params]("cmd").
-//	    WithRunFuncCtx(func(ctx *boa.HookContext, params *Params, cmd *cobra.Command, args []string) {
+//	boa.CmdT[Params]{
+//	    Use: "cmd",
+//	    RunFuncCtx: func(ctx *boa.HookContext, params *Params, cmd *cobra.Command, args []string) {
 //	        if ctx.HasValue(&params.Port) {
 //	            fmt.Println("Port has a value:", params.Port)
 //	        }
-//	    })
+//	    },
+//	}
 func (c *HookContext) HasValue(fieldPtr any) bool {
 	param := c.GetParam(fieldPtr)
 	if param == nil {
@@ -551,4 +431,51 @@ func CmdList(cmds ...CmdIfc) []*cobra.Command {
 // SubCmds converts a list of CmdIfc to a slice of cobra.Command.
 func SubCmds(cmds ...CmdIfc) []*cobra.Command {
 	return CmdList(cmds...)
+}
+
+// LoadConfigFile reads a config file and unmarshals it into the target struct.
+// If filePath is empty, it's a no-op (returns nil).
+// CLI and env var values still take precedence when used in PreValidateFunc.
+// If unmarshalFunc is nil, defaults to json.Unmarshal.
+func LoadConfigFile[T any](filePath string, target *T, unmarshalFunc func([]byte, any) error) error {
+	if filePath == "" {
+		return nil
+	}
+	fileContents, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read config file %s: %w", filePath, err)
+	}
+	if unmarshalFunc == nil {
+		unmarshalFunc = json.Unmarshal
+	}
+	if err := unmarshalFunc(fileContents, target); err != nil {
+		return fmt.Errorf("failed to unmarshal config file %s: %w", filePath, err)
+	}
+	return nil
+}
+
+// UnMarshalFromFileParam reads a file path from a parameter and unmarshals its contents into a target struct.
+//
+// Deprecated: Use LoadConfigFile instead for a simpler API.
+func UnMarshalFromFileParam[T any](
+	fileParam Param,
+	v *T,
+	unmarshalFunc func(data []byte, v any) error,
+) error {
+	if !fileParam.HasValue() {
+		return nil
+	} else {
+		valuePtrAny := fileParam.valuePtrF()
+		valuePtrStr, ok := valuePtrAny.(*string)
+		if !ok {
+			return fmt.Errorf("expected string value, got %T", valuePtrAny)
+		}
+		if valuePtrStr == nil {
+			return fmt.Errorf("expected string value, got nil")
+		}
+		if *valuePtrStr == "" {
+			return fmt.Errorf("expected string value, got empty string")
+		}
+		return LoadConfigFile(*valuePtrStr, v, unmarshalFunc)
+	}
 }

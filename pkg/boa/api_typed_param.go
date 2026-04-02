@@ -14,8 +14,9 @@ import (
 //
 // Usage:
 //
-//	cmd := boa.NewCmdT[Params]("cmd").
-//	    WithInitFuncCtx(func(ctx *boa.HookContext, params *Params, cmd *cobra.Command) error {
+//	boa.CmdT[Params]{
+//	    Use: "cmd",
+//	    InitFuncCtx: func(ctx *boa.HookContext, params *Params, cmd *cobra.Command) error {
 //	        // Get typed parameter view
 //	        nameParam := boa.GetParamT(ctx, &params.Name)
 //	        nameParam.SetDefaultT("default-value")
@@ -26,7 +27,8 @@ import (
 //	            return nil
 //	        })
 //	        return nil
-//	    })
+//	    },
+//	}
 type ParamT[T SupportedTypes] interface {
 	// Param returns the underlying untyped Param interface.
 	Param() Param
@@ -77,8 +79,9 @@ type ParamT[T SupportedTypes] interface {
 //	    Name string `descr:"User name"`
 //	    Port int    `descr:"Port number"`
 //	}
-//	cmd := boa.NewCmdT[Params]("cmd").
-//	    WithInitFuncCtx(func(ctx *boa.HookContext, params *Params, cmd *cobra.Command) error {
+//	boa.CmdT[Params]{
+//	    Use: "cmd",
+//	    InitFuncCtx: func(ctx *boa.HookContext, params *Params, cmd *cobra.Command) error {
 //	        nameParam := boa.GetParamT(ctx, &params.Name)
 //	        nameParam.SetDefaultT("default-name")
 //	        nameParam.SetCustomValidatorT(func(val string) error {
@@ -96,7 +99,8 @@ type ParamT[T SupportedTypes] interface {
 //	            return nil
 //	        })
 //	        return nil
-//	    })
+//	    },
+//	}
 func GetParamT[T SupportedTypes](ctx *HookContext, fieldPtr *T) ParamT[T] {
 	param := ctx.GetParam(fieldPtr)
 	if param == nil {

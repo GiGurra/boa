@@ -6,29 +6,16 @@ This page covers advanced BOA features for power users.
 
 Every parameter (whether using struct tags or programmatic configuration) implements the `Param` interface. Access it via `HookContext.GetParam()`:
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "cmd",
-        InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-            param := ctx.GetParam(&p.SomeField)
-            // Now use param methods...
-            return nil
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("cmd").
-        WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-            param := ctx.GetParam(&p.SomeField)
-            // Now use param methods...
-            return nil
-        })
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "cmd",
+    InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+        param := ctx.GetParam(&p.SomeField)
+        // Now use param methods...
+        return nil
+    },
+}
+```
 
 ### Param Methods
 
@@ -56,63 +43,33 @@ Every parameter (whether using struct tags or programmatic configuration) implem
 
 For type-safe parameter configuration, use `boa.GetParamT[T]()` instead of `GetParam()`. This returns a `ParamT[T]` interface with typed methods:
 
-=== "Direct API"
+```go
+type Params struct {
+    Port int    `descr:"Server port"`
+    Host string `descr:"Server host"`
+}
 
-    ```go
-    type Params struct {
-        Port int    `descr:"Server port"`
-        Host string `descr:"Server host"`
-    }
-
-    boa.CmdT[Params]{
-        Use: "server",
-        InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-            // Type-safe: compiler ensures correct types
-            portParam := boa.GetParamT(ctx, &p.Port)
-            portParam.SetDefaultT(8080)  // Takes int, not any
-            portParam.SetCustomValidatorT(func(port int) error {
-                if port < 1 || port > 65535 {
-                    return fmt.Errorf("port must be between 1 and 65535")
-                }
-                return nil
-            })
-
-            hostParam := boa.GetParamT(ctx, &p.Host)
-            hostParam.SetDefaultT("localhost")  // Takes string
-            hostParam.SetAlternatives([]string{"localhost", "0.0.0.0"})
-
-            return nil
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    type Params struct {
-        Port int    `descr:"Server port"`
-        Host string `descr:"Server host"`
-    }
-
-    boa.NewCmdT[Params]("server").
-        WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-            // Type-safe: compiler ensures correct types
-            portParam := boa.GetParamT(ctx, &p.Port)
-            portParam.SetDefaultT(8080)  // Takes int, not any
-            portParam.SetCustomValidatorT(func(port int) error {
-                if port < 1 || port > 65535 {
-                    return fmt.Errorf("port must be between 1 and 65535")
-                }
-                return nil
-            })
-
-            hostParam := boa.GetParamT(ctx, &p.Host)
-            hostParam.SetDefaultT("localhost")  // Takes string
-            hostParam.SetAlternatives([]string{"localhost", "0.0.0.0"})
-
+boa.CmdT[Params]{
+    Use: "server",
+    InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+        // Type-safe: compiler ensures correct types
+        portParam := boa.GetParamT(ctx, &p.Port)
+        portParam.SetDefaultT(8080)  // Takes int, not any
+        portParam.SetCustomValidatorT(func(port int) error {
+            if port < 1 || port > 65535 {
+                return fmt.Errorf("port must be between 1 and 65535")
+            }
             return nil
         })
-    ```
+
+        hostParam := boa.GetParamT(ctx, &p.Host)
+        hostParam.SetDefaultT("localhost")  // Takes string
+        hostParam.SetAlternatives([]string{"localhost", "0.0.0.0"})
+
+        return nil
+    },
+}
+```
 
 ### ParamT Methods
 
@@ -143,15 +100,17 @@ type DeployParams struct {
     ProdKey     string `descr:"Production API key" optional:"true"`
 }
 
-boa.NewCmdT[DeployParams]("deploy").
-    WithInitFuncCtx(func(ctx *boa.HookContext, p *DeployParams, cmd *cobra.Command) error {
+boa.CmdT[DeployParams]{
+    Use: "deploy",
+    InitFuncCtx: func(ctx *boa.HookContext, p *DeployParams, cmd *cobra.Command) error {
         // ProdKey is only required when deploying to production
         prodKeyParam := boa.GetParamT(ctx, &p.ProdKey)
         prodKeyParam.SetRequiredFn(func() bool {
             return p.Environment == "prod"
         })
         return nil
-    })
+    },
+}
 ```
 
 ## Dynamic Shell Completion
@@ -160,301 +119,160 @@ boa.NewCmdT[DeployParams]("deploy").
 
 For completion suggestions that depend on runtime state (like fetching from an API), use `SetAlternativesFunc` via `HookContext`:
 
-=== "Direct API"
+```go
+type Params struct {
+    Region string `descr:"AWS region"`
+}
 
-    ```go
-    type Params struct {
-        Region string `descr:"AWS region"`
-    }
-
-    func main() {
-        boa.CmdT[Params]{
-            Use: "app",
-            InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-                ctx.GetParam(&p.Region).SetAlternativesFunc(
-                    func(cmd *cobra.Command, args []string, toComplete string) []string {
-                        // Could fetch from API, read from file, etc.
-                        return []string{"us-east-1", "us-west-2", "eu-west-1"}
-                    },
-                )
-                return nil
-            },
-            RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
-                // ...
-            },
-        }.Run()
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    type Params struct {
-        Region string `descr:"AWS region"`
-    }
-
-    func main() {
-        boa.NewCmdT[Params]("app").
-            WithInitFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-                ctx.GetParam(&p.Region).SetAlternativesFunc(
-                    func(cmd *cobra.Command, args []string, toComplete string) []string {
-                        // Could fetch from API, read from file, etc.
-                        return []string{"us-east-1", "us-west-2", "eu-west-1"}
-                    },
-                )
-                return nil
-            }).
-            WithRunFunc(func(params *Params) {
-                // ...
-            }).
-            Run()
-    }
-    ```
+func main() {
+    boa.CmdT[Params]{
+        Use: "app",
+        InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+            ctx.GetParam(&p.Region).SetAlternativesFunc(
+                func(cmd *cobra.Command, args []string, toComplete string) []string {
+                    // Could fetch from API, read from file, etc.
+                    return []string{"us-east-1", "us-west-2", "eu-west-1"}
+                },
+            )
+            return nil
+        },
+        RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
+            // ...
+        },
+    }.Run()
+}
+```
 
 ### ValidArgsFunc
 
 For positional argument completion:
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "app",
-        ValidArgsFunc: func(p *Params, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-            // Return suggestions for positional args
-            return []string{"option1", "option2"}, cobra.ShellCompDirectiveDefault
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("app").
-        WithValidArgsFunc(func(p *Params, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-            // Return suggestions for positional args
-            return []string{"option1", "option2"}, cobra.ShellCompDirectiveDefault
-        })
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "app",
+    ValidArgsFunc: func(p *Params, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+        // Return suggestions for positional args
+        return []string{"option1", "option2"}, cobra.ShellCompDirectiveDefault
+    },
+}
+```
 
 ## Config File Loading
 
 Load configuration from files in the PreValidate hook:
 
-=== "Direct API"
+```go
+type AppConfig struct {
+    Host string
+    Port int
+}
 
-    ```go
-    type AppConfig struct {
-        Host string
-        Port int
-    }
+type Params struct {
+    ConfigFile string `descr:"Path to config file" optional:"true"`
+    AppConfig
+}
 
-    type Params struct {
-        ConfigFile string `descr:"Path to config file" optional:"true"`
-        AppConfig
-    }
-
-    func main() {
-        boa.CmdT[Params]{
-            Use: "app",
-            PreValidateFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command, args []string) error {
-                fileParam := ctx.GetParam(&p.ConfigFile)
-                return boa.UnMarshalFromFileParam(fileParam, &p.AppConfig, nil)
-            },
-            RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
-                fmt.Printf("Host: %s, Port: %d\n", p.Host, p.Port)
-            },
-        }.Run()
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    type AppConfig struct {
-        Host string
-        Port int
-    }
-
-    type Params struct {
-        ConfigFile string `descr:"Path to config file" optional:"true"`
-        AppConfig
-    }
-
-    func main() {
-        boa.NewCmdT[Params]("app").
-            WithPreValidateFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command, args []string) error {
-                fileParam := ctx.GetParam(&p.ConfigFile)
-                return boa.UnMarshalFromFileParam(fileParam, &p.AppConfig, nil)
-            }).
-            WithRunFunc(func(p *Params) {
-                fmt.Printf("Host: %s, Port: %d\n", p.Host, p.Port)
-            }).
-            Run()
-    }
-    ```
+func main() {
+    boa.CmdT[Params]{
+        Use: "app",
+        PreValidateFunc: func(p *Params, cmd *cobra.Command, args []string) error {
+            return boa.LoadConfigFile(p.ConfigFile, &p.AppConfig, nil)
+        },
+        RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+            fmt.Printf("Host: %s, Port: %d\n", p.Host, p.Port)
+        },
+    }.Run()
+}
+```
 
 Custom unmarshal functions (YAML, TOML, etc.):
 
 ```go
 import "gopkg.in/yaml.v3"
 
-boa.UnMarshalFromFileParam(fileParam, &p.AppConfig, yaml.Unmarshal)
+boa.LoadConfigFile(p.ConfigFile, &p.AppConfig, yaml.Unmarshal)
 ```
 
 ## Checking Value Sources
 
 Use `HookContext` in your run function to check how values were set:
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "app",
-        RunFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command, args []string) {
-            if ctx.HasValue(&p.Port) {
-                fmt.Printf("Port explicitly set to %d\n", p.Port)
-            } else {
-                fmt.Println("Using default port")
-            }
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("app").
-        WithRunFuncCtx(func(ctx *boa.HookContext, p *Params) {
-            if ctx.HasValue(&p.Port) {
-                fmt.Printf("Port explicitly set to %d\n", p.Port)
-            } else {
-                fmt.Println("Using default port")
-            }
-        })
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "app",
+    RunFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command, args []string) {
+        if ctx.HasValue(&p.Port) {
+            fmt.Printf("Port explicitly set to %d\n", p.Port)
+        } else {
+            fmt.Println("Using default port")
+        }
+    },
+}
+```
 
 ## Accessing Cobra Directly
 
 Access the underlying Cobra command for features BOA doesn't wrap:
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "app",
-        InitFunc: func(p *Params, cmd *cobra.Command) error {
-            cmd.Deprecated = "use 'new-app' instead"
-            cmd.Hidden = true
-            cmd.SilenceUsage = true
-            return nil
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("app").
-        WithInitFunc2E(func(p *Params, cmd *cobra.Command) error {
-            cmd.Deprecated = "use 'new-app' instead"
-            cmd.Hidden = true
-            cmd.SilenceUsage = true
-            return nil
-        })
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "app",
+    InitFunc: func(p *Params, cmd *cobra.Command) error {
+        cmd.Deprecated = "use 'new-app' instead"
+        cmd.Hidden = true
+        cmd.SilenceUsage = true
+        return nil
+    },
+}
+```
 
 Or after flags are created:
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[Params]{
-        Use: "app",
-        PostCreateFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-            flag := cmd.Flags().Lookup("verbose")
-            flag.NoOptDefVal = "true"  // --verbose without value means true
-            return nil
-        },
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[Params]("app").
-        WithPostCreateFuncCtx(func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-            flag := cmd.Flags().Lookup("verbose")
-            flag.NoOptDefVal = "true"  // --verbose without value means true
-            return nil
-        })
-    ```
+```go
+boa.CmdT[Params]{
+    Use: "app",
+    PostCreateFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+        flag := cmd.Flags().Lookup("verbose")
+        flag.NoOptDefVal = "true"  // --verbose without value means true
+        return nil
+    },
+}
+```
 
 ## Command Groups
 
 Organize subcommands into groups in help output:
 
-=== "Direct API"
-
-    ```go
-    boa.CmdT[boa.NoParams]{
-        Use: "app",
-        Groups: []*cobra.Group{
-            {ID: "core", Title: "Core Commands:"},
-            {ID: "util", Title: "Utility Commands:"},
-        },
-        SubCmds: boa.SubCmds(
-            boa.CmdT[Params]{Use: "init", GroupID: "core"},
-            boa.CmdT[Params]{Use: "run", GroupID: "core"},
-            boa.CmdT[Params]{Use: "version", GroupID: "util"},
-        ),
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    boa.NewCmdT[boa.NoParams]("app").
-        WithGroups(
-            &cobra.Group{ID: "core", Title: "Core Commands:"},
-            &cobra.Group{ID: "util", Title: "Utility Commands:"},
-        ).
-        WithSubCmds(
-            boa.NewCmdT[Params]("init").WithGroupID("core"),
-            boa.NewCmdT[Params]("run").WithGroupID("core"),
-            boa.NewCmdT[Params]("version").WithGroupID("util"),
-        )
-    ```
+```go
+boa.CmdT[boa.NoParams]{
+    Use: "app",
+    Groups: []*cobra.Group{
+        {ID: "core", Title: "Core Commands:"},
+        {ID: "util", Title: "Utility Commands:"},
+    },
+    SubCmds: boa.SubCmds(
+        boa.CmdT[Params]{Use: "init", GroupID: "core"},
+        boa.CmdT[Params]{Use: "run", GroupID: "core"},
+        boa.CmdT[Params]{Use: "version", GroupID: "util"},
+    ),
+}
+```
 
 ## Testing Commands
 
 ### Inject Arguments
 
-=== "Direct API"
+```go
+cmd := boa.CmdT[Params]{
+    Use: "app",
+    RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+        // ...
+    },
+}
 
-    ```go
-    cmd := boa.CmdT[Params]{
-        Use: "app",
-        RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
-            // ...
-        },
-    }
-
-    // Test with specific args
-    cmd.RunArgs([]string{"--name", "test", "--port", "8080"})
-    ```
-
-=== "Builder API"
-
-    ```go
-    cmd := boa.NewCmdT[Params]("app").
-        WithRunFunc(func(p *Params) {
-            // ...
-        })
-
-    // Test with specific args
-    cmd.RunArgs([]string{"--name", "test", "--port", "8080"})
-    ```
+// Test with specific args
+cmd.RunArgs([]string{"--name", "test", "--port", "8080"})
+```
 
 ### Testing with Error Returns
 
@@ -462,14 +280,15 @@ Use `RunFuncE` and `RunArgsE` for testable commands that return errors:
 
 ```go
 func TestMyCommand(t *testing.T) {
-    err := boa.NewCmdT[Params]("app").
-        WithRunFuncE(func(p *Params) error {
+    err := boa.CmdT[Params]{
+        Use: "app",
+        RunFuncE: func(p *Params, cmd *cobra.Command, args []string) error {
             if p.Port < 1024 {
                 return fmt.Errorf("port must be >= 1024")
             }
             return nil
-        }).
-        RunArgsE([]string{"--port", "80"})
+        },
+    }.RunArgsE([]string{"--port", "80"})
 
     if err == nil {
         t.Fatal("expected error for port < 1024")
@@ -481,11 +300,12 @@ Use `ToCobraE()` when you need the underlying cobra command with `RunE` set:
 
 ```go
 func TestMyCommand(t *testing.T) {
-    cmd, err := boa.NewCmdT[Params]("app").
-        WithRunFuncE(func(p *Params) error {
+    cmd, err := boa.CmdT[Params]{
+        Use: "app",
+        RunFuncE: func(p *Params, cmd *cobra.Command, args []string) error {
             return nil
-        }).
-        ToCobraE()
+        },
+    }.ToCobraE()
     if err != nil {
         t.Fatalf("setup failed: %v", err)
     }
@@ -498,35 +318,21 @@ func TestMyCommand(t *testing.T) {
 
 ### Validate Without Running
 
-=== "Direct API"
+```go
+cmd := boa.CmdT[Params]{
+    Use:     "app",
+    RawArgs: []string{"--name", "test"},
+}
 
-    ```go
-    cmd := boa.CmdT[Params]{
-        Use:     "app",
-        RawArgs: []string{"--name", "test"},
-    }
-
-    err := cmd.Validate()
-    if err != nil {
-        // Validation failed
-    }
-    ```
-
-=== "Builder API"
-
-    ```go
-    cmd := boa.NewCmdT[Params]("app").
-        WithRawArgs([]string{"--name", "test"})
-
-    err := cmd.Validate()
-    if err != nil {
-        // Validation failed
-    }
-    ```
+err := cmd.Validate()
+if err != nil {
+    // Validation failed
+}
+```
 
 ## Interface-Based Hooks
 
-Implement interfaces on your config struct instead of using `With*` methods:
+Implement interfaces on your config struct instead of using function fields:
 
 ```go
 type Config struct {
