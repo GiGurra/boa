@@ -432,6 +432,16 @@ func RegisterConfigFormat(ext string, unmarshalFunc func([]byte, any) error) {
 	configFormats[ext] = unmarshalFunc
 }
 
+// ConfigFormatExtensions returns the file extensions that have registered config format handlers.
+// Always includes ".json" (registered by default). Additional formats are added via RegisterConfigFormat.
+func ConfigFormatExtensions() []string {
+	exts := make([]string, 0, len(configFormats))
+	for ext := range configFormats {
+		exts = append(exts, ext)
+	}
+	return exts
+}
+
 // loadConfigFileInto is the non-generic implementation used internally.
 // Resolution order for unmarshal function:
 //  1. Explicit unmarshalFunc parameter (from Cmd.ConfigUnmarshal)
