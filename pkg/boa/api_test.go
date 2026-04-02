@@ -987,7 +987,7 @@ func TestSubcommandPositionalArgsError(t *testing.T) {
 			Use: "app",
 			SubCmds: SubCmds(
 				CmdT[CpParams]{
-					Use:         "cp <conv-id> <dest-path>",
+					Use:         "cp",
 					Short:       "Copy a conversation",
 					RunFunc:     func(p *CpParams, c *cobra.Command, args []string) {},
 					ParamEnrich: ParamEnricherName,
@@ -1026,7 +1026,7 @@ func TestSubcommandPositionalArgsError(t *testing.T) {
 			Use: "app",
 			SubCmds: SubCmds(
 				CmdT[CpParams]{
-					Use:         "cp <conv-id> <dest-path>",
+					Use:         "cp",
 					Short:       "Copy a conversation",
 					RunFunc:     func(p *CpParams, c *cobra.Command, args []string) {},
 					ParamEnrich: ParamEnricherName,
@@ -1088,6 +1088,91 @@ func TestSubcommandPositionalArgsError(t *testing.T) {
 			t.Errorf("Expected 'Error:' in output for unknown subcommand, got:\n%s", output)
 		}
 	})
+}
+
+// TestSubcommandMissingArgsShowsErrorMessage reproduces the issue where
+// "tclaude conv cp" (missing positional args) shows usage but no error message.
+func TestSubcommandMissingArgsShowsErrorMessage(t *testing.T) {
+	type CpParams struct {
+		ConvID   string `positional:"true" required:"true"`
+		DestPath string `positional:"true" required:"true"`
+	}
+	type ConvParams struct{}
+
+	var exitCalled bool
+	oldOsExit := osExit
+	osExit = func(code int) { exitCalled = true }
+	defer func() { osExit = oldOsExit }()
+
+	// Capture stderr
+	oldStderr := os.Stderr
+	rErr, wErr, _ := os.Pipe()
+	os.Stderr = wErr
+
+	// Capture stdout
+	oldStdout := os.Stdout
+	rOut, wOut, _ := os.Pipe()
+	os.Stdout = wOut
+
+	root := Cmd{
+		Use: "app",
+		SubCmds: SubCmds(
+			Cmd{
+				Use: "conv",
+				SubCmds: SubCmds(
+					CmdT[CpParams]{
+						Use:         "cp <conv-id> <dest-path>",
+						Short:       "Copy a conversation",
+						RunFunc:     func(p *CpParams, c *cobra.Command, args []string) {},
+						ParamEnrich: ParamEnricherName,
+					},
+				),
+			},
+		),
+	}
+	root.RunArgs([]string{"conv", "cp"})
+
+	wErr.Close()
+	wOut.Close()
+	os.Stderr = oldStderr
+	os.Stdout = oldStdout
+
+	stderrBuf := make([]byte, 8192)
+	nErr, _ := rErr.Read(stderrBuf)
+	rErr.Close()
+	stderrOutput := string(stderrBuf[:nErr])
+
+	stdoutBuf := make([]byte, 8192)
+	nOut, _ := rOut.Read(stdoutBuf)
+	rOut.Close()
+	stdoutOutput := string(stdoutBuf[:nOut])
+
+	t.Logf("=== STDOUT ===\n%s", stdoutOutput)
+	t.Logf("=== STDERR ===\n%s", stderrOutput)
+
+	if !exitCalled {
+		t.Error("Expected osExit to be called")
+	}
+
+	// The error message must appear somewhere the user can see it
+	combined := stdoutOutput + stderrOutput
+	if !strings.Contains(combined, "Error:") {
+		t.Errorf("Expected 'Error:' in combined output, got:\nSTDOUT: %s\nSTDERR: %s", stdoutOutput, stderrOutput)
+	}
+	if !strings.Contains(combined, "Usage:") {
+		t.Errorf("Expected 'Usage:' in combined output")
+	}
+
+	// Verify both error and usage are present and visible together
+	if !strings.Contains(stderrOutput, "Error:") {
+		t.Errorf("Expected 'Error:' in stderr:\n%s", stderrOutput)
+	}
+	if !strings.Contains(stderrOutput, "Usage:") {
+		// Usage may go to stdout
+		if !strings.Contains(stdoutOutput, "Usage:") {
+			t.Errorf("Expected 'Usage:' somewhere in output")
+		}
+	}
 }
 
 // TestSubcommandOnlyUnknownCommand verifies that commands with subcommands but

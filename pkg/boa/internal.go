@@ -98,6 +98,20 @@ type runFuncError struct{ Err error }
 func (e *runFuncError) Error() string { return e.Err.Error() }
 func (e *runFuncError) Unwrap() error { return e.Err }
 
+// Execute runs a cobra command with boa's error handling convention:
+// usage is printed first, then the error message, both to stderr.
+// Use this instead of cmd.Execute() when working with commands from ToCobra().
+func Execute(cmd *cobra.Command) error {
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	executedCmd, err := cmd.ExecuteC()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, executedCmd.UsageString())
+		fmt.Fprintln(os.Stderr, "Error:", err.Error())
+	}
+	return err
+}
+
 // wrapArgsValidator wraps a cobra.PositionalArgs validator to return UserInputError
 func wrapArgsValidator(validator cobra.PositionalArgs) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
@@ -911,7 +925,8 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 		Short:         b.Short,
 		Long:          b.Long,
 		Args:          b.Args,
-		SilenceErrors: !b.UseCobraErrLog,
+		SilenceErrors: true,
+		SilenceUsage:  true,
 		ValidArgs:     b.ValidArgs,
 	}
 
@@ -1628,7 +1643,7 @@ func runImpl(cmd *cobra.Command, handler resultHandler) {
 		}()
 	}
 
-	err := cmd.Execute()
+	err := Execute(cmd)
 	if err != nil {
 		if handler.Failure != nil {
 			handler.Failure(err)
@@ -1639,9 +1654,7 @@ func runImpl(cmd *cobra.Command, handler resultHandler) {
 			if errors.As(err, &rfe) {
 				panic(rfe.Unwrap())
 			}
-			// Everything else (cobra errors like unknown command/flag, args
-			// validation, missing required params, hooks) — print and exit cleanly.
-			fmt.Fprintln(os.Stderr, "Error:", err.Error())
+			// Everything else: Execute() already printed usage + error.
 			osExit(1)
 			return // osExit may be mocked in tests, so we need to return explicitly
 		}
