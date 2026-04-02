@@ -10,12 +10,12 @@ func TestRunMain(t *testing.T) {
 		{
 			Name:     "no args",
 			Args:     []string{},
-			Expected: "missing required param 'foo'",
+			Expected: "missing required param 'base-foo'",
 		},
 		{
 			Name: "with args",
 			Args: []string{
-				"--foo", "foo", "--bar", "1", "--file", "file",
+				"--base-foo", "foo", "--base-bar", "1", "--base-file", "file",
 				"--foo2", "foo", "--bar2", "1", "--file2", "file",
 				"--foo3", "foo", "--bar3", "1", "--file3", "file",
 				"--foo24", "foo", "--bar24", "1", "--file24", "file",

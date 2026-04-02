@@ -397,3 +397,79 @@ Available interfaces:
 - `CfgStructPreValidateCtx` - `PreValidateCtx(ctx *HookContext) error`
 - `CfgStructPreExecute` - `PreExecute() error`
 - `CfgStructPreExecuteCtx` - `PreExecuteCtx(ctx *HookContext) error`
+
+## JSON Fallback for Complex Types
+
+Any field type that doesn't have native pflag support (e.g., nested slices, complex maps) automatically falls back to JSON parsing. BOA registers the flag as a `StringP` and uses `json.Unmarshal` to parse the value.
+
+This means you can use arbitrarily complex types in your params struct:
+
+```go
+type Params struct {
+    Matrix  [][]int              `descr:"nested matrix" optional:"true"`
+    Meta    map[string][]string  `descr:"metadata" optional:"true"`
+    Config  map[string]any       `descr:"arbitrary config" optional:"true"`
+}
+
+// CLI usage:
+//   --matrix '[[1,2],[3,4]]'
+//   --meta '{"tags":["a","b"],"owners":["alice"]}'
+//   --config '{"debug":true,"retries":3}'
+```
+
+The same JSON syntax works for environment variables. Config files work natively since they are already unmarshaled from JSON/YAML/etc.
+
+### Simple Maps
+
+Simple map types like `map[string]string` and `map[string]int` use the more ergonomic `key=val,key=val` syntax on the CLI, and only fall back to JSON for complex value types:
+
+```go
+type Params struct {
+    Labels map[string]string   `descr:"simple key=val syntax"`
+    Deep   map[string][]string `descr:"JSON syntax required"`
+}
+// --labels env=prod,team=backend
+// --deep '{"groups":["admin","users"]}'
+```
+
+## Config-File-Only Fields with `boa:"ignore"`
+
+Fields tagged with `boa:"ignore"` are excluded from CLI flag and environment variable registration. They won't appear in `--help` and can't be set via the command line.
+
+However, config file loading uses `json.Unmarshal` (or your configured unmarshal function) which writes directly to struct fields, bypassing the CLI layer entirely. This means `boa:"ignore"` fields are still populated from config files.
+
+This pattern is useful for fields that only make sense in a config file:
+
+```go
+type Params struct {
+    ConfigFile string            `configfile:"true" optional:"true" default:"config.json"`
+    Host       string            `descr:"server host"`
+    Port       int               `descr:"server port"`
+    InternalID string            `boa:"ignore"` // only from config file
+    Metadata   map[string]string `boa:"ignore"` // complex config, not a CLI concern
+}
+```
+
+With `config.json`:
+```json
+{
+    "Host": "example.com",
+    "Port": 8080,
+    "InternalID": "abc-123",
+    "Metadata": {"version": "2", "region": "us-east-1"}
+}
+```
+
+`Host` and `Port` can be overridden via CLI flags; `InternalID` and `Metadata` are only loaded from the config file.
+
+## Type Handler Registry (Architecture)
+
+Internally, BOA uses a type handler registry (`type_handler.go`) instead of scattered type switches. Each handler provides:
+
+- **`bindFlag`** -- how to create a cobra/pflag flag for this type
+- **`parse`** -- how to convert a string value into the target type
+- **`convert`** -- optional post-parse conversion (e.g., for types stored as strings in cobra)
+
+Handlers are registered by exact type (for special types like `time.Time`, `net.IP`) or by `reflect.Kind` (for basic types like `string`, `int`). Map types use composed handlers that delegate value parsing to the appropriate scalar handler for their value type.
+
+Types without a registered handler fall back to `StringP` + `json.Unmarshal`, which is how nested slices and complex maps are supported automatically.

@@ -49,8 +49,8 @@ Usage:
   hello-world <path> <baz> [f-b] [flags]
 
 Flags:
-      --bar int      a bar (env: BAR_X) (default 4)
-  -f, --foo string   a foo (env: FOO, required)
+  -b, --bar int      a bar (env: BAR_X)
+  -f, --foo string   a foo (required)
   -h, --help         help for hello-world
 ```
 
@@ -134,6 +134,51 @@ type Params struct {
     Tags    []string `descr:"tags" default:"[a,b,c]"`
     Ports   []int64  `descr:"ports" default:"[8080,8081,8082]"`
 }
+```
+
+## Pointer Fields
+
+Use pointer types for truly optional parameters where you need to distinguish "not set" from "zero value":
+
+```go
+type Params struct {
+    Name    *string `descr:"user name"`   // nil if not provided
+    Retries *int    `descr:"retry count"` // nil if not provided
+    Verbose *bool   `descr:"verbose mode"`
+}
+
+func main() {
+    boa.CmdT[Params]{
+        Use: "app",
+        RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+            if p.Name != nil {
+                fmt.Println("Name:", *p.Name)
+            } else {
+                fmt.Println("No name provided")
+            }
+        },
+    }.Run()
+}
+```
+
+Pointer fields are always optional by default, even without `boa.WithDefaultOptional()`. Use `required:"true"` to override.
+
+## Map Fields
+
+Maps are supported as CLI flags with `key=val,key=val` syntax:
+
+```go
+type Params struct {
+    Labels map[string]string `descr:"key=value labels"`
+    Limits map[string]int    `descr:"resource limits"`
+}
+// Usage: myapp --labels env=prod,team=backend --limits cpu=4,memory=8192
+```
+
+Maps default to optional. For complex map types like `map[string][]string`, pass JSON on the CLI:
+
+```
+myapp --meta '{"tags":["a","b"],"owners":["alice"]}'
 ```
 
 ## Value Priority

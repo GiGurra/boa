@@ -627,11 +627,20 @@ func parsePtr(
 
 func camelToKebabCase(in string) string {
 	var result strings.Builder
+	runes := []rune(in)
 
-	for _, char := range in {
+	for i, char := range runes {
 		if unicode.IsUpper(char) {
-			if result.Len() > 0 {
-				result.WriteRune('-')
+			if i > 0 {
+				prev := runes[i-1]
+				// Insert dash before uppercase if previous was lowercase,
+				// or if previous was uppercase but next is lowercase (end of acronym).
+				// e.g., "DBHost" → "db-host", "myParam" → "my-param"
+				if unicode.IsLower(prev) {
+					result.WriteRune('-')
+				} else if unicode.IsUpper(prev) && i+1 < len(runes) && unicode.IsLower(runes[i+1]) {
+					result.WriteRune('-')
+				}
 			}
 			result.WriteRune(unicode.ToLower(char))
 		} else {
@@ -680,7 +689,9 @@ func traverse(
 	structPtr any,
 	fParam func(param Param, paramFieldName string, tags reflect.StructTag) error,
 	fStruct func(structPtr any) error,
+	prefixParts ...string,
 ) error {
+	prefix := strings.Join(prefixParts, "")
 
 	if reflect.TypeOf(structPtr).Kind() != reflect.Ptr {
 		return fmt.Errorf("expected pointer to struct")
@@ -710,12 +721,10 @@ func traverse(
 		fieldAddr := rootValue.Field(i).Addr()
 		// check if field is a param
 		param, isParam := fieldAddr.Interface().(Param)
+		prefixedName := prefix + field.Name
 		if isParam {
-			//if !param.IsEnabled() { // cant do here, because it is not known yet
-			//	continue // this parameter is not enabled
-			//}
 			if fParam != nil {
-				err := fParam(param, field.Name, field.Tag)
+				err := fParam(param, prefixedName, field.Tag)
 				if err != nil {
 					return err
 				}
@@ -724,7 +733,12 @@ func traverse(
 
 			// check if it is a struct (but not time.Time which is a supported param type)
 			if field.Type.Kind() == reflect.Struct && field.Type != timeType {
-				if err := traverse(ctx, fieldAddr.Interface(), fParam, fStruct); err != nil {
+				// Named (non-anonymous) struct fields get auto-prefixed
+				childPrefix := prefix
+				if !field.Anonymous {
+					childPrefix = prefix + field.Name
+				}
+				if err := traverse(ctx, fieldAddr.Interface(), fParam, fStruct, childPrefix); err != nil {
 					return err
 				}
 				continue
@@ -733,7 +747,11 @@ func traverse(
 			// check if it is a pointer to a struct (but not *url.URL or pointer-to-supported-type)
 			if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct && !isSupportedType(field.Type) {
 				if !fieldAddr.IsNil() && !fieldAddr.Elem().IsNil() {
-					if err := traverse(ctx, fieldAddr.Elem().Interface(), fParam, fStruct); err != nil {
+					childPrefix := prefix
+					if !field.Anonymous {
+						childPrefix = prefix + field.Name
+					}
+					if err := traverse(ctx, fieldAddr.Elem().Interface(), fParam, fStruct, childPrefix); err != nil {
 						return err
 					}
 				}
@@ -753,7 +771,7 @@ func traverse(
 				}
 
 				if fParam != nil {
-					err := fParam(param, field.Name, field.Tag)
+					err := fParam(param, prefixedName, field.Tag)
 					if err != nil {
 						return err
 					}

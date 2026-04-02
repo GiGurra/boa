@@ -112,14 +112,15 @@ func TestSubStruct_NotFlattenedWhenIgnored(t *testing.T) {
 }
 
 func TestSubStruct_FlattenedByDefault(t *testing.T) {
-	// Without boa:"ignore", sub-struct fields ARE flattened into CLI flags
-	type DBConfig struct {
+	// Without boa:"ignore", named sub-struct fields ARE flattened into CLI flags
+	// with the parent field name as prefix: DB.Host → --db-host
+	type DBCfg struct {
 		Host string `descr:"database host"`
 		Port int    `descr:"database port" default:"5432"`
 	}
 	type Params struct {
-		Name string   `descr:"app name"`
-		DB   DBConfig // no boa tag — fields become CLI flags
+		Name string `descr:"app name"`
+		DB   DBCfg  // named field — children become --db-host, --db-port
 	}
 
 	var gotHost string
@@ -131,7 +132,7 @@ func TestSubStruct_FlattenedByDefault(t *testing.T) {
 			gotHost = p.DB.Host
 			gotPort = p.DB.Port
 		},
-	}).RunArgsE([]string{"--name", "myapp", "--host", "db.example.com"})
+	}).RunArgsE([]string{"--name", "myapp", "--db-host", "db.example.com"})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

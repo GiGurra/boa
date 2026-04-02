@@ -17,6 +17,62 @@ Quick reference for all BOA struct tags.
 | `alts` | `alternatives` | Allowed values | `alts:"a,b,c"` |
 | `strict-alts` | `strict` | Validate alts | `strict:"true"` |
 | `configfile` | | Auto-load config file | `configfile:"true"` |
+| `boa` | | Special directives | `boa:"ignore"` |
+
+## Special Field Types
+
+### Pointer Fields
+
+Pointer types (`*string`, `*int`, `*bool`, etc.) are always optional by default, regardless of the global configuration. A `nil` value means the flag was not provided. Use `required:"true"` to override.
+
+```go
+type Params struct {
+    Name  *string `descr:"user name"`              // optional, nil if not set
+    Count *int    `descr:"item count"`              // optional, nil if not set
+    Force *bool   `required:"true" descr:"force"`   // required even though it's a pointer
+}
+```
+
+### The `boa:"ignore"` Tag
+
+Fields tagged `boa:"ignore"` are skipped during CLI flag and environment variable registration. They do not appear in `--help` output and cannot be set via the command line or env vars.
+
+However, these fields **still receive values from config file loading**, since config files are loaded via `json.Unmarshal` (or the configured unmarshal function) which writes directly to struct fields. This makes `boa:"ignore"` useful for config-file-only fields:
+
+```go
+type Params struct {
+    ConfigFile string `configfile:"true" optional:"true" default:"config.json"`
+    Host       string `descr:"server host"`
+    Port       int    `descr:"server port"`
+    InternalID string `boa:"ignore"` // only loaded from config file, not exposed as CLI flag
+}
+```
+
+### Map Fields
+
+Map types with string keys (`map[string]string`, `map[string]int`, `map[string]int64`) use `key=val,key=val` syntax on the CLI. Maps default to optional.
+
+```go
+type Params struct {
+    Labels map[string]string `descr:"key=value labels"`
+    Limits map[string]int    `descr:"resource limits"`
+}
+// Usage: myapp --labels env=prod,team=backend --limits cpu=4,memory=8192
+```
+
+For complex map value types (e.g., `map[string][]string`), the CLI uses JSON syntax. See [Advanced](advanced.md#json-fallback-for-complex-types).
+
+### Complex Types (JSON Fallback)
+
+Any field type without native pflag support (nested slices, complex maps, etc.) automatically falls back to JSON parsing on the CLI:
+
+```go
+type Params struct {
+    Matrix [][]int             `descr:"nested matrix" optional:"true"`
+    Meta   map[string][]string `descr:"metadata" optional:"true"`
+}
+// Usage: --matrix '[[1,2],[3,4]]' --meta '{"tags":["a","b"]}'
+```
 
 ## Examples
 
@@ -104,13 +160,27 @@ type Params struct {
 
 ## Auto-Generated Values
 
-Without explicit tags, BOA derives:
+Without explicit tags, BOA derives flag names and short flags automatically. Environment variables are **not** auto-derived by default -- add `ParamEnricherEnv` to your enricher chain or use `env` struct tags.
 
-| Field | Flag | Env Var | Short |
-|-------|------|---------|-------|
-| `ServerHost` | `--server-host` | `SERVER_HOST` | `-s` |
-| `MaxRetries` | `--max-retries` | `MAX_RETRIES` | `-m` |
-| `V` | `--v` | `V` | (none - too short) |
+| Field | Flag | Short | Env Var |
+|-------|------|-------|---------|
+| `ServerHost` | `--server-host` | `-s` | (none by default) |
+| `MaxRetries` | `--max-retries` | `-m` | (none by default) |
+| `V` | `--v` | (none - too short) | (none by default) |
+
+To auto-derive env vars, set `ParamEnrich`:
+
+```go
+boa.CmdT[Params]{
+    Use: "app",
+    ParamEnrich: boa.ParamEnricherCombine(
+        boa.ParamEnricherName,
+        boa.ParamEnricherShort,
+        boa.ParamEnricherEnv,   // adds SERVER_HOST, MAX_RETRIES, etc.
+        boa.ParamEnricherBool,
+    ),
+}
+```
 
 See [Enrichers](enrichers.md) to customize this behavior.
 

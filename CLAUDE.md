@@ -7,11 +7,11 @@ BOA is a declarative abstraction layer on top of `github.com/spf13/cobra` that u
 ```
 pkg/boa/           # Main (and only) package
   api_base.go      # Cmd struct, ParamEnricher, HookContext, LoadConfigFile
-  api_required.go  # required[T] internal type (unexported)
-  api_optional.go  # optional[T] internal type (unexported)
   api_typed_base.go # CmdT[T] typed command (primary API)
   api_typed_param.go # ParamT[T] typed parameter view
-  internal.go      # Core processing: reflection, parsing, validation
+  param_meta.go    # paramMeta: non-generic Param implementation
+  type_handler.go  # Type handler registry for cobra binding/parsing
+  internal.go      # Core processing: reflection, traversal, validation
   defaults.go      # Global configuration (Init, WithDefaultOptional)
   *_test.go        # Unit tests
 
@@ -37,11 +37,22 @@ boa.CmdT[MyParams]{
 ### Parameter Definition
 ```go
 type Params struct {
-    Name    string `descr:"User name" env:"USER_NAME"`
-    Port    int    `descr:"Port number" default:"8080" optional:"true"`
-    Verbose bool   `short:"v" optional:"true"`
+    Name    string            `descr:"User name" env:"USER_NAME"`
+    Port    int               `descr:"Port number" default:"8080" optional:"true"`
+    Verbose *bool             `short:"v"`           // pointer = optional, nil = not set
+    Labels  map[string]string `descr:"Key-value labels"` // maps default optional
+    Matrix  [][]int           `descr:"Data matrix" boa:"ignore"` // config-file only
 }
 ```
+
+### Supported Field Types
+- **Primitives**: `string`, `int`, `int32`, `int64`, `float32`, `float64`, `bool`
+- **Pointer types**: `*string`, `*int`, `*bool`, etc. — optional by default, nil = not set
+- **Special types**: `time.Time`, `time.Duration`, `net.IP`, `*url.URL`
+- **Slices**: `[]string`, `[]int`, etc. — all basic slice types
+- **Maps**: `map[string]string`, `map[string]int` — CLI syntax: `key=val,key=val`
+- **Complex types**: `[][]string`, `map[string][]int`, etc. — CLI syntax: JSON strings
+- **Type aliases**: `type MyString string` works transparently
 
 ### Struct Tags
 - `descr` / `desc` - Description text
@@ -53,12 +64,31 @@ type Params struct {
 - `optional` / `opt` - Marks as optional
 - `alts` - Allowed values (enum validation)
 - `strict` - Validate against alts
+- `configfile` - Auto-load config file from this field's path
+- `boa:"ignore"` - Skip CLI/env registration (still loaded from config files)
+
+## Architecture
+
+### Type Handler Registry (`type_handler.go`)
+Types are handled via a registry instead of scattered type switches. Each handler provides:
+- `bindFlag` — how to create a cobra flag for this type
+- `parse` — how to parse a string value into this type
+- `convert` — optional post-parse conversion (for types stored as strings in cobra)
+
+Handlers are registered by exact type (special types) or reflect.Kind (basic types).
+Maps use composed handlers that delegate value parsing to scalar handlers.
+Complex types without native pflag support fall back to `StringP` + `json.Unmarshal`.
+
+### Parameter Mirror (`param_meta.go`)
+A single non-generic `paramMeta` struct implements the `Param` interface, replacing the old `required[T]`/`optional[T]` generic types. It uses `reflect.Value` for typed storage and tracks metadata, state, and validation.
+
+### Value Priority
+CLI args > Environment vars > Config file > Default > Zero value
 
 ## Conventions
 
 - **Naming**: PascalCase for exported types/funcs, camelCase for unexported
 - **Struct literals**: Direct struct initialization for command configuration
-- **Generics**: Used internally for type safety (required[T]/optional[T] are unexported)
 - **Reflection**: Used for struct traversal and dynamic value setting
 - **Error handling**: Return errors, don't panic
 
@@ -85,13 +115,9 @@ Tests use:
 - **Manual release**: Supports patch/minor/major via workflow dispatch
 - **Dependencies**: Managed by Renovate (auto-updates)
 
-## Value Priority
+## Adding New Types
 
-CLI args > Environment vars > Config file > Default > Zero value
-
-## Adding New Features
-
-1. Define in appropriate `api_*.go` file
-2. Processing logic goes in `internal.go`
-3. Add unit tests in corresponding `*_test.go`
-4. Consider adding example in `internal/` if non-trivial
+Register a handler in `type_handler.go`:
+1. Add to `exactTypeHandlers` (for specific types) or `kindHandlers` (for kind-based)
+2. Provide `bindFlag`, `parse`, and optionally `convert` functions
+3. No changes needed elsewhere — the handler registry is the single point of extension

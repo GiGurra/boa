@@ -10,9 +10,12 @@ BOA adds a declarative layer on top of [cobra](https://github.com/spf13/cobra), 
 ## Features
 
 - **Declarative parameters** - Define CLI flags as struct fields with tags
+- **Plain Go types** - No wrapper types; use `string`, `int`, `*string`, `map[string]string`, etc.
 - **Automatic flag generation** - Field names become kebab-case flags
-- **Environment variable binding** - Auto-generated or custom env var names
+- **Environment variable binding** - Via struct tags or auto-generated with enrichers
 - **Built-in validation** - Required fields, alternatives, custom validators
+- **Config file support** - Automatic loading via `configfile` tag with value priority
+- **JSON fallback** - Complex types (nested slices, maps) parsed as JSON on CLI
 - **Cobra compatible** - Access underlying Cobra commands when needed
 
 ## Quick Example
@@ -52,9 +55,9 @@ Usage:
   myapp [flags]
 
 Flags:
-  -n, --name string   User name (env: NAME, required)
-  -p, --port int      Port number (env: PORT) (default 8080)
-  -v, --verbose       (env: VERBOSE)
+  -n, --name string   User name (required)
+  -p, --port int      Port number (default 8080)
+  -v, --verbose
   -h, --help          help for myapp
 ```
 
@@ -69,6 +72,11 @@ go get github.com/GiGurra/boa@latest
 - [Quickstart](quickstart.md) - Get a CLI running in 60 seconds with Claude Code
 - [Getting Started](getting-started.md) - Installation and basic usage
 - [Struct Tags](struct-tags.md) - Complete reference for all struct tags
+- [Validation](validation.md) - Required/optional, alternatives, conditional requirements
 - [Lifecycle Hooks](hooks.md) - Customize behavior at different stages
+- [Enrichers](enrichers.md) - Auto-derivation of flag names, env vars, and short flags
 - [Error Handling](error-handling.md) - Run() vs RunE() and error propagation
+- [Advanced](advanced.md) - Config files, JSON fallback, ParamT, testing
+- [Global Config](global-config.md) - Init() and WithDefaultOptional()
 - [Cobra Interoperability](cobra-interop.md) - Access Cobra primitives and migrate incrementally
+- [Migration](migration.md) - Migrating from old BOA or Cobra
