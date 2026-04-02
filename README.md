@@ -399,9 +399,30 @@ Deep nesting chains prefixes: `Infra.Primary.Host` becomes `--infra-primary-host
 
 Explicit `name:"..."` and `env:"..."` tags also get prefixed inside named fields.
 
-## Roadmap
+## Viper-like Config Discovery (Optional)
 
-- **Viper compatibility package** — optional `boa-viper-compat` addon for automatic config file search paths (`~/.config/app/`, `/etc/app/`, `.`)
+The `boaviper` subpackage provides opt-in Viper-like automatic config file discovery:
+
+```go
+import "github.com/GiGurra/boa/pkg/boaviper"
+
+boa.CmdT[Params]{
+    Use:      "myapp",
+    InitFunc: boaviper.AutoConfig[Params]("myapp"),
+    ParamEnrich: boa.ParamEnricherCombine(
+        boa.ParamEnricherDefault,
+        boaviper.SetEnvPrefix("MYAPP"),  // MYAPP_PORT, MYAPP_HOST, etc.
+    ),
+    RunFunc: func(p *Params, cmd *cobra.Command, args []string) { ... },
+}.Run()
+```
+
+Automatically searches for config files in:
+1. `./myapp.json` (current directory)
+2. `~/.config/myapp/config.json`
+3. `/etc/myapp/config.json`
+
+Tries all registered config format extensions. CLI flags override auto-discovered configs.
 
 ## Further Reading
 
