@@ -237,6 +237,43 @@ type Params struct {
 
 Embedded (anonymous) fields remain unprefixed as before. If you rely on the old unprefixed behavior for named fields, either embed the struct anonymously or use explicit `name:"..."` tags (noting that explicit tags are also prefixed inside named fields).
 
+#### Custom Type Registration
+
+Register user-defined types as CLI parameters:
+
+```go
+boa.RegisterType[SemVer](boa.TypeDef[SemVer]{
+    Parse:  func(s string) (SemVer, error) { return parseSemVer(s) },
+    Format: func(v SemVer) string { return v.String() },
+})
+```
+
+#### Min/Max/Pattern Validation Tags
+
+```go
+type Params struct {
+    Port int    `min:"1" max:"65535"`
+    Name string `min:"3" max:"20" pattern:"^[a-z][a-z0-9-]*$"`
+}
+```
+
+#### Viper-like Config Discovery (boaviper)
+
+Optional subpackage for automatic config file discovery:
+
+```go
+import "github.com/GiGurra/boa/pkg/boaviper"
+
+boa.CmdT[Params]{
+    Use:      "myapp",
+    InitFunc: boaviper.AutoConfig[Params]("myapp"),
+    ParamEnrich: boa.ParamEnricherCombine(
+        boa.ParamEnricherDefault,
+        boaviper.SetEnvPrefix("MYAPP"),
+    ),
+}
+```
+
 #### Global Default Optional
 
 ```go

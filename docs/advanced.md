@@ -481,11 +481,11 @@ type Params struct {
 // --deep '{"groups":["admin","users"]}'
 ```
 
-## Config-File-Only Fields with `boa:"ignore"`
+## Config-File-Only Fields with `boa:"ignore"` / `boa:"configonly"`
 
-Fields tagged with `boa:"ignore"` are excluded from CLI flag and environment variable registration. They won't appear in `--help` and can't be set via the command line.
+Fields tagged with `boa:"ignore"` (or its alias `boa:"configonly"`) are excluded from CLI flag and environment variable registration. They won't appear in `--help` and can't be set via the command line.
 
-However, config file loading uses `json.Unmarshal` (or your configured unmarshal function) which writes directly to struct fields, bypassing the CLI layer entirely. This means `boa:"ignore"` fields are still populated from config files.
+However, config file loading uses `json.Unmarshal` (or your configured unmarshal function) which writes directly to struct fields, bypassing the CLI layer entirely. This means ignored fields are still populated from config files.
 
 This pattern is useful for fields that only make sense in a config file:
 
@@ -494,10 +494,12 @@ type Params struct {
     ConfigFile string            `configfile:"true" optional:"true" default:"config.json"`
     Host       string            `descr:"server host"`
     Port       int               `descr:"server port"`
-    InternalID string            `boa:"ignore"` // only from config file
-    Metadata   map[string]string `boa:"ignore"` // complex config, not a CLI concern
+    InternalID string            `boa:"configonly"` // only from config file
+    Metadata   map[string]string `boa:"configonly"` // complex config, not a CLI concern
 }
 ```
+
+`boa:"configonly"` is functionally identical to `boa:"ignore"` but communicates intent more clearly.
 
 With `config.json`:
 ```json
@@ -575,6 +577,48 @@ type Params struct {
     API ServerConfig  // flag: --api-host, env: API_SERVER_HOST
     Web ServerConfig  // flag: --web-host, env: WEB_SERVER_HOST
 }
+```
+
+## Custom Type Registration
+
+Register user-defined types as CLI parameters with `RegisterType`. The type is stored as a string flag in cobra and converted via your provided `Parse`/`Format` functions:
+
+```go
+type SemVer struct {
+    Major, Minor, Patch int
+}
+
+func init() {
+    boa.RegisterType[SemVer](boa.TypeDef[SemVer]{
+        Parse: func(s string) (SemVer, error) {
+            var v SemVer
+            _, err := fmt.Sscanf(s, "%d.%d.%d", &v.Major, &v.Minor, &v.Patch)
+            return v, err
+        },
+        Format: func(v SemVer) string {
+            return fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
+        },
+    })
+}
+
+type Params struct {
+    Version SemVer `descr:"app version" default:"1.0.0"`
+}
+```
+
+`TypeDef[T]` fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Parse` | `func(string) (T, error)` | Converts a CLI string into the typed value (required) |
+| `Format` | `func(T) string` | Converts the typed value back to a string for default display. If nil, `fmt.Sprintf("%v", val)` is used |
+
+## ConfigFormatExtensions
+
+`boa.ConfigFormatExtensions()` returns the file extensions that have registered config format handlers. Always includes `.json` (registered by default). This is used by the `boaviper` subpackage for auto-discovery:
+
+```go
+exts := boa.ConfigFormatExtensions() // e.g., [".json", ".yaml"]
 ```
 
 ## Type Handler Registry (Architecture)

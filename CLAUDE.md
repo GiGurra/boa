@@ -5,15 +5,18 @@ BOA is a declarative abstraction layer on top of `github.com/spf13/cobra` that u
 ## Project Structure
 
 ```
-pkg/boa/           # Main (and only) package
-  api_base.go      # Cmd struct, ParamEnricher, HookContext, LoadConfigFile
+pkg/boa/           # Main package
+  api_base.go      # Cmd struct, ParamEnricher, HookContext, LoadConfigFile, ConfigFormatExtensions
   api_typed_base.go # CmdT[T] typed command (primary API)
   api_typed_param.go # ParamT[T] typed parameter view
   param_meta.go    # paramMeta: non-generic Param implementation
-  type_handler.go  # Type handler registry for cobra binding/parsing
-  internal.go      # Core processing: reflection, traversal, validation
+  type_handler.go  # Type handler registry, RegisterType[T], TypeDef[T]
+  internal.go      # Core processing: reflection, traversal, validation (incl. min/max/pattern)
   defaults.go      # Global configuration (Init, WithDefaultOptional)
   *_test.go        # Unit tests
+
+pkg/boaviper/      # Optional subpackage for Viper-like config discovery
+  boaviper.go      # AutoConfig, FindConfig, SetEnvPrefix
 
 internal/          # Example programs and integration tests
   example*/        # Various usage examples
@@ -64,14 +67,30 @@ type Params struct {
 - `optional` / `opt` - Marks as optional
 - `alts` - Allowed values (enum validation)
 - `strict` - Validate against alts
+- `min` - Minimum value (numeric) or minimum length (string)
+- `max` - Maximum value (numeric) or maximum length (string)
+- `pattern` - Regex pattern for string validation
 - `configfile` - Auto-load config file from this field's path (works in root and nested structs)
 - `boa:"ignore"` - Skip CLI/env registration (still loaded from config files)
+- `boa:"configonly"` - Alias for `boa:"ignore"` (clearer intent for config-file-only fields)
 
 ### Config Format Registry
 - `boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)` registers custom config formats by file extension
 - JSON is the only format shipped by default
+- `boa.ConfigFormatExtensions()` returns all registered file extensions (used by `boaviper`)
 - Resolution: explicit `Cmd.ConfigUnmarshal` > file extension registry > `json.Unmarshal` fallback
 - Substruct `configfile:"true"` fields load their own config files; priority: CLI > env > root config > substruct config > defaults
+
+### Custom Type Registration
+- `boa.RegisterType[T](TypeDef[T]{Parse, Format})` registers user-defined types as CLI parameters
+- Registered types are stored as string flags in cobra and converted via Parse/Format functions
+- See `type_handler.go` for the registry and `custom_type_test.go` for examples
+
+### Boaviper Subpackage (`pkg/boaviper/`)
+- `boaviper.AutoConfig[T]("appname")` - InitFunc for auto-discovering config files in standard paths
+- `boaviper.FindConfig("appname")` - Searches standard paths (`./<app>.json`, `~/.config/<app>/config.json`, `/etc/<app>/config.json`)
+- `boaviper.SetEnvPrefix("PREFIX")` - Enricher that combines `ParamEnricherEnv` + `ParamEnricherEnvPrefix`
+- Uses `boa.ConfigFormatExtensions()` to try all registered formats
 
 ## Architecture
 

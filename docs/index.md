@@ -18,6 +18,9 @@ BOA adds a declarative layer on top of [cobra](https://github.com/spf13/cobra), 
 - **Config file support** - Automatic loading via `configfile` tag with value priority, substruct config files, and pluggable format registry
 - **JSON fallback** - Complex types (nested slices, maps) parsed as JSON on CLI
 - **Pointer fields** - `*string`, `*int` etc. for truly optional params (nil = not set)
+- **Validation tags** - `min`/`max` for range checks, `pattern` for regex matching
+- **Custom types** - `RegisterType[T]` for user-defined CLI parameter types
+- **Viper-like config discovery** - Optional `boaviper` subpackage for auto-locating config files
 - **Cobra compatible** - Access underlying Cobra commands when needed
 
 ## Quick Example

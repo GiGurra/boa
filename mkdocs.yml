@@ -44,6 +44,11 @@ nav:
   - Validation: validation.md
   - Lifecycle Hooks: hooks.md
   - Error Handling: error-handling.md
+  - Examples:
+    - Basic Examples: examples-basic.md
+    - Config File Examples: examples-config.md
+    - Advanced Examples: examples-advanced.md
   - Advanced: advanced.md
+  - Global Config: global-config.md
   - Cobra Interoperability: cobra-interop.md
   - Migration Guide: migration.md

@@ -44,6 +44,35 @@ type Params struct {
 }
 ```
 
+## Min/Max Validation
+
+Use `min` and `max` tags to constrain values. For numeric types, they validate the value. For strings, they validate the string length:
+
+```go
+type Params struct {
+    Port    int     `descr:"port" min:"1" max:"65535"`
+    Rate    float64 `descr:"rate" min:"0.0" max:"1.0"`
+    Name    string  `descr:"name" min:"3" max:"20"`
+    Retries int     `descr:"retries" max:"10"`
+    Count   int     `descr:"count" min:"0"`
+}
+```
+
+When a pointer field has `min`/`max` tags, validation only triggers when a value is actually provided (nil = no validation).
+
+## Pattern Validation
+
+Use `pattern` to validate string fields against a regular expression:
+
+```go
+type Params struct {
+    Name string `descr:"app name" pattern:"^[a-z][a-z0-9-]*$"`
+    Tag  string `descr:"version tag" pattern:"^v[0-9]+\\.[0-9]+\\.[0-9]+$"`
+}
+```
+
+Like `min`/`max`, pattern validation is skipped for optional pointer fields that are not set.
+
 ## Conditional Requirements
 
 Make parameters conditionally required based on other values using `HookContext`:

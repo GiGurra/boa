@@ -129,8 +129,11 @@ type Params struct {
 | `optional` / `opt` | Marks as optional | `optional:"true"` |
 | `alts` / `alternatives` | Allowed values (enum) | `alts:"debug,info,warn,error"` |
 | `strict-alts` / `strict` | Validate against alts | `strict:"true"` |
+| `min` | Min value (numeric) or min length (string) | `min:"1"` |
+| `max` | Max value (numeric) or max length (string) | `max:"65535"` |
+| `pattern` | Regex pattern (strings only) | `pattern:"^[a-z]+$"` |
 | `configfile` | Auto-load config from this field's path | `configfile:"true"` |
-| `boa` | Special directives | `boa:"ignore"` |
+| `boa` | Special directives | `boa:"ignore"`, `boa:"configonly"` |
 
 ### Auto-generated names
 
@@ -161,7 +164,7 @@ func main() {
 ```
 
 - CLI and env var values always take precedence over config file values.
-- Use `boa:"ignore"` to mark fields that should only be loaded from the config file (no CLI flag, no env var).
+- Use `boa:"ignore"` (or `boa:"configonly"`) to mark fields that should only be loaded from the config file (no CLI flag, no env var).
 - For manual control, use `boa.LoadConfigFile` in a `PreValidateFunc` hook.
 
 ### Substruct Config Files
@@ -195,6 +198,28 @@ boa.RegisterConfigFormat(".toml", toml.Unmarshal)
 ```
 
 Resolution order for unmarshal function: explicit `ConfigUnmarshal` on the command > registered format by file extension > `json.Unmarshal` fallback.
+
+Use `boa.ConfigFormatExtensions()` to list all registered extensions (used internally by `boaviper`).
+
+## Custom Types
+
+Register user-defined types as CLI parameters with `RegisterType`:
+
+```go
+type SemVer struct{ Major, Minor, Patch int }
+
+boa.RegisterType[SemVer](boa.TypeDef[SemVer]{
+    Parse: func(s string) (SemVer, error) {
+        // parse "1.2.3" into SemVer
+        return parseSemVer(s)
+    },
+    Format: func(v SemVer) string {
+        return fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
+    },
+})
+```
+
+Registered types are stored as string flags in cobra and converted via the provided `Parse`/`Format` functions. If `Format` is nil, `fmt.Sprintf("%v", val)` is used.
 
 ## Value Priority
 

@@ -16,8 +16,11 @@ Quick reference for all BOA struct tags.
 | `positional` | `pos` | Positional argument | `positional:"true"` |
 | `alts` | `alternatives` | Allowed values | `alts:"a,b,c"` |
 | `strict-alts` | `strict` | Validate alts | `strict:"true"` |
+| `min` | | Min value (numeric) or min length (string) | `min:"1"` |
+| `max` | | Max value (numeric) or max length (string) | `max:"65535"` |
+| `pattern` | | Regex pattern (strings only) | `pattern:"^[a-z]+$"` |
 | `configfile` | | Auto-load config file (root or substruct) | `configfile:"true"` |
-| `boa` | | Special directives | `boa:"ignore"` |
+| `boa` | | Special directives | `boa:"ignore"`, `boa:"configonly"` |
 
 ## Special Field Types
 
@@ -33,20 +36,23 @@ type Params struct {
 }
 ```
 
-### The `boa:"ignore"` Tag
+### The `boa:"ignore"` and `boa:"configonly"` Tags
 
-Fields tagged `boa:"ignore"` are skipped during CLI flag and environment variable registration. They do not appear in `--help` output and cannot be set via the command line or env vars.
+Fields tagged `boa:"ignore"` (or its alias `boa:"configonly"`) are skipped during CLI flag and environment variable registration. They do not appear in `--help` output and cannot be set via the command line or env vars.
 
-However, these fields **still receive values from config file loading**, since config files are loaded via `json.Unmarshal` (or the configured unmarshal function) which writes directly to struct fields. This makes `boa:"ignore"` useful for config-file-only fields:
+However, these fields **still receive values from config file loading**, since config files are loaded via `json.Unmarshal` (or the configured unmarshal function) which writes directly to struct fields. This makes these tags useful for config-file-only fields:
 
 ```go
 type Params struct {
     ConfigFile string `configfile:"true" optional:"true" default:"config.json"`
     Host       string `descr:"server host"`
     Port       int    `descr:"server port"`
-    InternalID string `boa:"ignore"` // only loaded from config file, not exposed as CLI flag
+    InternalID string `boa:"ignore"`     // only loaded from config file
+    Metadata   map[string]string `boa:"configonly"` // clearer intent: config-file-only
 }
 ```
+
+`boa:"configonly"` is functionally identical to `boa:"ignore"` but communicates intent more clearly.
 
 ### Map Fields
 
@@ -122,6 +128,34 @@ type Params struct {
     Level  string `alts:"debug,info,warn,error" strict:"true"`
 }
 ```
+
+### Min/Max Validation
+
+For numeric types, `min` and `max` validate the value itself. For strings, they validate the string length:
+
+```go
+type Params struct {
+    Port    int     `descr:"port" min:"1" max:"65535"`
+    Rate    float64 `descr:"rate" min:"0.0" max:"1.0"`
+    Name    string  `descr:"name" min:"3" max:"20"`
+    Retries int     `descr:"retries" max:"10"`
+}
+```
+
+Optional (pointer) fields are only validated when a value is actually provided.
+
+### Pattern Validation
+
+Use `pattern` to validate string fields against a regular expression:
+
+```go
+type Params struct {
+    Name string `descr:"name" pattern:"^[a-z][a-z0-9-]*$"`
+    Tag  string `descr:"tag" pattern:"^v[0-9]+\\.[0-9]+\\.[0-9]+$"`
+}
+```
+
+Optional (pointer) fields are only validated when a value is actually provided.
 
 ### Config File
 
