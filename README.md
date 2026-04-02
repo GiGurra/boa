@@ -401,7 +401,6 @@ Explicit `name:"..."` and `env:"..."` tags also get prefixed inside named fields
 
 ## Roadmap
 
-- **Custom type registration** — `RegisterType[T]()` for user-defined types with custom parsing
 - **Viper compatibility package** — optional `boa-viper-compat` addon for automatic config file search paths (`~/.config/app/`, `/etc/app/`, `.`)
 
 ## Further Reading
