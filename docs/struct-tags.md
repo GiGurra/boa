@@ -162,11 +162,15 @@ type Params struct {
 
 Without explicit tags, BOA derives flag names and short flags automatically. Environment variables are **not** auto-derived by default -- add `ParamEnricherEnv` to your enricher chain or use `env` struct tags.
 
+The `camelToKebabCase` conversion handles acronyms correctly:
+
 | Field | Flag | Short | Env Var |
 |-------|------|-------|---------|
 | `ServerHost` | `--server-host` | `-s` | (none by default) |
+| `DBHost` | `--db-host` | `-d` | (none by default) |
+| `HTTPPort` | `--http-port` | `-h` (skipped, reserved) | (none by default) |
 | `MaxRetries` | `--max-retries` | `-m` | (none by default) |
-| `V` | `--v` | (none - too short) | (none by default) |
+| `FB` | `--fb` | `-f` | (none by default) |
 
 To auto-derive env vars, set `ParamEnrich`:
 
@@ -183,6 +187,44 @@ boa.CmdT[Params]{
 ```
 
 See [Enrichers](enrichers.md) to customize this behavior.
+
+## Named Struct Auto-Prefixing
+
+Named (non-anonymous) struct fields auto-prefix their children's flag names and env var names. This prevents collisions when the same struct type is used in multiple fields.
+
+```go
+type DBConfig struct {
+    Host string `descr:"database host" default:"localhost"`
+    Port int    `descr:"database port" default:"5432"`
+}
+
+type Params struct {
+    Primary DBConfig  // named → --primary-host, --primary-port
+    Replica DBConfig  // named → --replica-host, --replica-port
+}
+```
+
+### Rules
+
+- **Embedded (anonymous) fields** are not prefixed: `CommonFlags` → `--verbose`
+- **Named fields** auto-prefix: `DB DBConfig` → `--db-host`
+- **Deep nesting chains**: `Infra.Primary.Host` → `--infra-primary-host`
+- **Env vars also prefixed**: `DB.Host` with `ParamEnricherEnv` → `DB_HOST`
+- **Explicit tags also prefixed**: `name:"host"` inside named field `API` → `--api-host`
+- **Explicit env tags also prefixed**: `env:"HOST"` inside named field `API` → `API_HOST`
+
+### Example with Env Vars
+
+```go
+type ServerConfig struct {
+    Host string `env:"SERVER_HOST" default:"localhost"`
+    Port int    `env:"SERVER_PORT" default:"8080"`
+}
+
+type Params struct {
+    API ServerConfig  // env vars become API_SERVER_HOST, API_SERVER_PORT
+}
+```
 
 ## Beyond Struct Tags
 

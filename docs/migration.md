@@ -191,6 +191,24 @@ type Params struct {
 // Usage: --matrix '[[1,2],[3,4]]' --meta '{"tags":["a","b"]}'
 ```
 
+#### Named Struct Auto-Prefixing
+
+Named (non-anonymous) struct fields now auto-prefix their children's flag names and env var names. This is a behavioral change from pre-v1.0 where all nested struct fields were unprefixed.
+
+```go
+type DBConfig struct {
+    Host string `default:"localhost"`
+    Port int    `default:"5432"`
+}
+
+type Params struct {
+    DB DBConfig  // v1.0: --db-host, --db-port (auto-prefixed)
+                 // pre-v1.0: --host, --port (no prefix)
+}
+```
+
+Embedded (anonymous) fields remain unprefixed as before. If you rely on the old unprefixed behavior for named fields, either embed the struct anonymously or use explicit `name:"..."` tags (noting that explicit tags are also prefixed inside named fields).
+
 #### Global Default Optional
 
 ```go

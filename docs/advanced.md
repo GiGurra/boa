@@ -462,6 +462,72 @@ With `config.json`:
 
 `Host` and `Port` can be overridden via CLI flags; `InternalID` and `Metadata` are only loaded from the config file.
 
+## Named Struct Auto-Prefixing
+
+Named (non-anonymous) struct fields automatically prefix their children's flag names and env var names with the field name in kebab-case. This is the primary mechanism for avoiding flag name collisions when reusing struct types.
+
+### How It Works
+
+```go
+type DBConfig struct {
+    Host string `descr:"database host" default:"localhost"`
+    Port int    `descr:"database port" default:"5432"`
+}
+
+type Params struct {
+    Primary DBConfig  // --primary-host, --primary-port, env: PRIMARY_HOST, PRIMARY_PORT
+    Replica DBConfig  // --replica-host, --replica-port, env: REPLICA_HOST, REPLICA_PORT
+}
+```
+
+### Prefixing Rules
+
+| Scenario | Flag Name | Env Var |
+|----------|-----------|---------|
+| Embedded `DBConfig` with `Host` | `--host` | `HOST` |
+| Named `DB DBConfig` with `Host` | `--db-host` | `DB_HOST` |
+| Deep `Infra.Primary.Host` | `--infra-primary-host` | `INFRA_PRIMARY_HOST` |
+| Named field + explicit `name:"host"` | `--db-host` (prefixed) | N/A |
+| Named field + explicit `env:"SERVER_HOST"` | N/A | `DB_SERVER_HOST` (prefixed) |
+| Embedded + explicit `env:"MY_HOST"` | N/A | `MY_HOST` (not prefixed) |
+
+### Deep Nesting
+
+Prefixes chain at every named (non-anonymous) level:
+
+```go
+type ConnectionConfig struct {
+    Host string `default:"localhost"`
+    Port int    `default:"5432"`
+}
+
+type ClusterConfig struct {
+    Primary ConnectionConfig
+    Replica ConnectionConfig
+}
+
+type Params struct {
+    Infra ClusterConfig
+}
+// Flags: --infra-primary-host, --infra-primary-port, --infra-replica-host, --infra-replica-port
+// Env vars: INFRA_PRIMARY_HOST, INFRA_PRIMARY_PORT, etc.
+```
+
+### Explicit Tags Are Also Prefixed
+
+Inside a named struct field, both auto-generated and explicit tag values get the parent prefix. This is intentional -- it avoids collisions when the same struct type appears multiple times:
+
+```go
+type ServerConfig struct {
+    Host string `name:"host" env:"SERVER_HOST" default:"localhost"`
+}
+
+type Params struct {
+    API ServerConfig  // flag: --api-host, env: API_SERVER_HOST
+    Web ServerConfig  // flag: --web-host, env: WEB_SERVER_HOST
+}
+```
+
 ## Type Handler Registry (Architecture)
 
 Internally, BOA uses a type handler registry (`type_handler.go`) instead of scattered type switches. Each handler provides:

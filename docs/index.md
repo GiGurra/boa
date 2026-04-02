@@ -11,11 +11,13 @@ BOA adds a declarative layer on top of [cobra](https://github.com/spf13/cobra), 
 
 - **Declarative parameters** - Define CLI flags as struct fields with tags
 - **Plain Go types** - No wrapper types; use `string`, `int`, `*string`, `map[string]string`, etc.
-- **Automatic flag generation** - Field names become kebab-case flags
+- **Automatic flag generation** - Field names become kebab-case flags (acronym-aware: `DBHost` → `--db-host`)
+- **Struct composition** - Named struct fields auto-prefix children (`DB.Host` → `--db-host`), embedded fields stay flat
 - **Environment variable binding** - Via struct tags or auto-generated with enrichers
 - **Built-in validation** - Required fields, alternatives, custom validators
 - **Config file support** - Automatic loading via `configfile` tag with value priority
 - **JSON fallback** - Complex types (nested slices, maps) parsed as JSON on CLI
+- **Pointer fields** - `*string`, `*int` etc. for truly optional params (nil = not set)
 - **Cobra compatible** - Access underlying Cobra commands when needed
 
 ## Quick Example

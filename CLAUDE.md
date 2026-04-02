@@ -94,7 +94,16 @@ CLI args > Environment vars > Config file > Default > Zero value
 
 ### Auto-generated Names
 - Field `MyParam` becomes flag `--my-param` (kebab-case)
+- Acronyms handled correctly: `DBHost` → `db-host`, `HTTPPort` → `http-port`, `FB` → `fb`
 - Environment variable: `MY_PARAM` (UPPER_SNAKE_CASE)
+
+### Named Struct Auto-Prefixing
+- Named (non-anonymous) struct fields auto-prefix their children's flag names and env var names
+- `DB DBConfig` where DBConfig has `Host string` → flag `--db-host`, env `DB_HOST`
+- Embedded (anonymous) `DBConfig` → flag `--host`, no prefix
+- 3+ levels work: `Infra.Primary.Host` → `--infra-primary-host`, env `INFRA_PRIMARY_HOST`
+- Explicit `name:"..."` and `env:"..."` tags also get prefixed inside named fields
+- This prevents collisions when the same struct is used in multiple named fields
 
 ## Testing
 

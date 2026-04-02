@@ -46,8 +46,8 @@ Usage:
 
 Flags:
   -h, --help          help for my-app
-  -n, --name string   your name (env: NAME, required)
-  -p, --port int      port number (env: PORT) (default 8080)
+  -n, --name string   your name (required)
+  -p, --port int      port number (default 8080)
 ```
 
 ## Parameter Types
@@ -135,6 +135,7 @@ type Params struct {
 ### Auto-generated names
 
 - Field `MyParam` becomes flag `--my-param` (kebab-case)
+- Acronyms handled correctly: `DBHost` becomes `--db-host`, `HTTPPort` becomes `--http-port`
 - Environment variable: `MY_PARAM` (UPPER_SNAKE_CASE)
 
 ## Config Files
@@ -288,10 +289,10 @@ boa.CmdT[Params]{
 
 | Method | Behavior |
 |--------|----------|
-| `Run()` | Panics on any error |
+| `Run()` | User input errors exit(1), other errors panic |
 | `RunE()` | Returns errors for programmatic handling |
-| `RunArgs(args)` | Runs with custom args, panics on error |
-| `RunArgsE(args)` | Runs with custom args, returns error |
+| `RunArgs(args)` | Like `Run()` with custom args |
+| `RunArgsE(args)` | Like `RunE()` with custom args |
 | `ToCobra()` | Returns `*cobra.Command` (panics on setup error) |
 | `ToCobraE()` | Returns `(*cobra.Command, error)` |
 
@@ -334,13 +335,37 @@ type CommonFlags struct {
     Output  string `default:"stdout"`
 }
 
+type DBConfig struct {
+    Host string `default:"localhost"`
+    Port int    `default:"5432"`
+}
+
 type Params struct {
-    CommonFlags           // embedded: --verbose, --output
+    CommonFlags           // embedded (anonymous): --verbose, --output (no prefix)
+    DB          DBConfig  // named field: --db-host, --db-port (auto-prefixed)
     File        string
 }
 ```
 
-Nested struct fields use their own field names as flags, not prefixed with the parent struct name.
+**Embedded (anonymous) fields** are not prefixed -- `CommonFlags.Verbose` becomes `--verbose`.
+
+**Named struct fields** auto-prefix their children with the field name in kebab-case:
+
+- `DB.Host` becomes `--db-host`, env var `DB_HOST`
+- `DB.Port` becomes `--db-port`, env var `DB_PORT`
+
+This prevents collisions when the same struct type is used in multiple fields:
+
+```go
+type Params struct {
+    Primary DBConfig  // --primary-host, --primary-port
+    Replica DBConfig  // --replica-host, --replica-port
+}
+```
+
+Deep nesting chains prefixes: `Infra.Primary.Host` becomes `--infra-primary-host`.
+
+Explicit `name:"..."` and `env:"..."` tags also get prefixed inside named fields.
 
 ## Further Reading
 

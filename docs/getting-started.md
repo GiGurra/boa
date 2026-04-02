@@ -113,16 +113,31 @@ type Base struct {
     File string
 }
 
+type DBConfig struct {
+    Host string `default:"localhost"`
+    Port int    `default:"5432"`
+}
+
 type Combined struct {
-    Base
-    Baz  string
-    Time time.Time `optional:"true"`
+    Base               // embedded (anonymous): --foo, --bar, --file (no prefix)
+    DB     DBConfig    // named field: --db-host, --db-port (auto-prefixed)
+    Baz    string
+    Time   time.Time `optional:"true"`
 }
 ```
 
-!!! note
-    Nested struct fields use their own field names as flags, not prefixed with the parent struct name.
-    For example, `Base.Foo` becomes `--foo`, not `--base-foo`.
+**Embedded (anonymous) fields** are not prefixed. `Base.Foo` becomes `--foo`, not `--base-foo`.
+
+**Named struct fields** auto-prefix their children with the field name in kebab-case. `DB.Host` becomes `--db-host`. This prevents collisions when the same struct type is used in multiple fields:
+
+```go
+type Params struct {
+    Primary DBConfig  // --primary-host, --primary-port
+    Replica DBConfig  // --replica-host, --replica-port
+}
+```
+
+Deep nesting chains prefixes: `Infra.Primary.Host` becomes `--infra-primary-host`. Explicit `name:"..."` and `env:"..."` tags also get prefixed inside named fields. See [Struct Tags](struct-tags.md#named-struct-auto-prefixing) for full details.
 
 ## Array/Slice Parameters
 
