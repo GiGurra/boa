@@ -51,6 +51,57 @@ func TestBoaIgnore_StillLoadedFromConfigFile(t *testing.T) {
 	}
 }
 
+func TestBoaConfigOnly_LoadedFromConfigFile(t *testing.T) {
+	// boa:"configonly" is an explicit alias for config-file-only fields
+	type Params struct {
+		ConfigFile string            `configfile:"true" default:"" optional:"true"`
+		Name       string            `descr:"name"`
+		Metadata   map[string]string `boa:"configonly"`
+	}
+
+	cfgData, _ := json.Marshal(map[string]any{
+		"Name":     "from-config",
+		"Metadata": map[string]string{"env": "prod"},
+	})
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	os.WriteFile(cfgPath, cfgData, 0644)
+
+	var gotMeta map[string]string
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotMeta = p.Metadata
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotMeta == nil || gotMeta["env"] != "prod" {
+		t.Errorf("expected metadata loaded from config, got %v", gotMeta)
+	}
+}
+
+func TestBoaConfigOnly_NoCLIFlag(t *testing.T) {
+	// boa:"configonly" should not create CLI flags
+	type Params struct {
+		Name     string            `descr:"name"`
+		Metadata map[string]string `boa:"configonly"`
+	}
+
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--name", "alice", "--metadata", "key=val"})
+
+	if err == nil {
+		t.Fatal("expected error for unknown flag --metadata")
+	}
+}
+
 func TestBoaIgnore_NoCLIFlag(t *testing.T) {
 	// boa:"ignore" fields should NOT create CLI flags
 	type Params struct {

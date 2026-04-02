@@ -748,6 +748,7 @@ func isBoaIgnored(field reflect.StructField) bool {
 	boaTags := getBoaTags(field)
 	return slices.Contains(boaTags, "ignore") ||
 		slices.Contains(boaTags, "ignored") ||
+		slices.Contains(boaTags, "configonly") ||
 		slices.Contains(boaTags, "-")
 }
 
