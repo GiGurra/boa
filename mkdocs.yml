@@ -37,7 +37,6 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Quickstart: quickstart.md
   - Getting Started: getting-started.md
   - Struct Tags: struct-tags.md
   - Enrichers: enrichers.md

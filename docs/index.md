@@ -99,8 +99,7 @@ go get github.com/GiGurra/boa@latest
 
 ## Next Steps
 
-- [Quickstart](quickstart.md) - Get a CLI running in 60 seconds with Claude Code
-- [Getting Started](getting-started.md) - Installation and basic usage
+- [Getting Started](getting-started.md) - Installation, basic usage, and all parameter types
 - [Struct Tags](struct-tags.md) - Complete reference for all struct tags
 - [Validation](validation.md) - Required/optional, alternatives, conditional requirements
 - [Lifecycle Hooks](hooks.md) - Customize behavior at different stages
