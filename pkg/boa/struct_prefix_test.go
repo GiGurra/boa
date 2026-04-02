@@ -1,6 +1,7 @@
 package boa
 
 import (
+	"os"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -201,6 +202,97 @@ func TestNamedStruct_MixedEmbeddedAndNamed(t *testing.T) {
 	}
 	if gotHost != "myhost" {
 		t.Errorf("expected host='myhost', got %q", gotHost)
+	}
+}
+
+func TestNamedStruct_EnvVarAutoPrefix(t *testing.T) {
+	// Env var names should also be prefixed: DB.Host → DB_HOST
+	type Params struct {
+		DB DBConfig
+	}
+
+	os.Setenv("DB_HOST", "env-host")
+	os.Setenv("DB_PORT", "9999")
+	defer os.Unsetenv("DB_HOST")
+	defer os.Unsetenv("DB_PORT")
+
+	var gotHost string
+	var gotPort int
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherCombine(ParamEnricherDefault, ParamEnricherEnv),
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotHost = p.DB.Host
+			gotPort = p.DB.Port
+		},
+	}).RunArgsE([]string{})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotHost != "env-host" {
+		t.Errorf("expected host='env-host', got %q", gotHost)
+	}
+	if gotPort != 9999 {
+		t.Errorf("expected port=9999, got %d", gotPort)
+	}
+}
+
+func TestEmbeddedStruct_EnvVarNoPrefix(t *testing.T) {
+	// Embedded struct env vars should NOT be prefixed
+	type Params struct {
+		CommonOpts // embedded
+	}
+
+	os.Setenv("VERBOSE", "true")
+	defer os.Unsetenv("VERBOSE")
+
+	var gotVerbose bool
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherCombine(ParamEnricherDefault, ParamEnricherEnv),
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotVerbose = p.Verbose
+		},
+	}).RunArgsE([]string{})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !gotVerbose {
+		t.Error("expected verbose=true from env var")
+	}
+}
+
+func TestNamedStruct_DeepNesting_EnvVar(t *testing.T) {
+	// 3 levels deep: Infra.Primary.Host → INFRA_PRIMARY_HOST
+	type ConnectionConfig struct {
+		Host string `descr:"host" default:"localhost"`
+	}
+	type ClusterConfig struct {
+		Primary ConnectionConfig
+	}
+	type Params struct {
+		Infra ClusterConfig
+	}
+
+	os.Setenv("INFRA_PRIMARY_HOST", "deep-env-host")
+	defer os.Unsetenv("INFRA_PRIMARY_HOST")
+
+	var gotHost string
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherCombine(ParamEnricherDefault, ParamEnricherEnv),
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotHost = p.Infra.Primary.Host
+		},
+	}).RunArgsE([]string{})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotHost != "deep-env-host" {
+		t.Errorf("expected host='deep-env-host', got %q", gotHost)
 	}
 }
 
