@@ -1,13 +1,175 @@
 package boa
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 )
+
+// iniUnmarshal is a minimal INI-style deserializer (key=value per line).
+// Supports string, int, and bool fields. For testing config format registry.
+func iniUnmarshal(data []byte, target any) error {
+	v := reflect.ValueOf(target)
+	if v.Kind() != reflect.Ptr || v.Elem().Kind() != reflect.Struct {
+		return fmt.Errorf("ini: target must be a pointer to struct")
+	}
+	v = v.Elem()
+	t := v.Type()
+
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+
+		for i := 0; i < t.NumField(); i++ {
+			field := t.Field(i)
+			if strings.EqualFold(field.Name, key) {
+				fv := v.Field(i)
+				switch fv.Kind() {
+				case reflect.String:
+					fv.SetString(val)
+				case reflect.Int, reflect.Int64:
+					n, err := strconv.ParseInt(val, 10, 64)
+					if err != nil {
+						return fmt.Errorf("ini: invalid int for %s: %w", key, err)
+					}
+					fv.SetInt(n)
+				case reflect.Bool:
+					b, err := strconv.ParseBool(val)
+					if err != nil {
+						return fmt.Errorf("ini: invalid bool for %s: %w", key, err)
+					}
+					fv.SetBool(b)
+				}
+				break
+			}
+		}
+	}
+	return scanner.Err()
+}
+
+func TestMixedConfigFormats_JSONRoot_INISubstruct(t *testing.T) {
+	// Root config is JSON, substruct config is INI.
+	// Tests that RegisterConfigFormat + file extension detection works.
+	RegisterConfigFormat(".ini", iniUnmarshal)
+	defer delete(configFormats, ".ini") // clean up
+
+	type DBConfig struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Host       string `descr:"host" default:"localhost"`
+		Port       int    `descr:"port" default:"5432"`
+	}
+	type Params struct {
+		ConfigFile string   `configfile:"true" optional:"true"`
+		Name       string   `descr:"app name" default:"unnamed"`
+		DB         DBConfig
+	}
+
+	tmpDir := t.TempDir()
+
+	// INI file for DB substruct
+	iniData := "Host = ini-db-host\nPort = 3307\n"
+	iniPath := filepath.Join(tmpDir, "db.ini")
+	os.WriteFile(iniPath, []byte(iniData), 0644)
+
+	// JSON file for root (overrides DB.Host but not DB.Port)
+	rootCfg, _ := json.Marshal(map[string]any{
+		"Name": "from-json",
+		"DB":   map[string]any{"Host": "json-override-host"},
+	})
+	jsonPath := filepath.Join(tmpDir, "app.json")
+	os.WriteFile(jsonPath, rootCfg, 0644)
+
+	var gotName, gotHost string
+	var gotPort int
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotName = p.Name
+			gotHost = p.DB.Host
+			gotPort = p.DB.Port
+		},
+	}).RunArgsE([]string{"--config-file", jsonPath, "--db-config-file", iniPath})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotName != "from-json" {
+		t.Errorf("expected name='from-json', got %q", gotName)
+	}
+	if gotHost != "json-override-host" {
+		t.Errorf("expected host='json-override-host' (root JSON overrides INI), got %q", gotHost)
+	}
+	if gotPort != 3307 {
+		t.Errorf("expected port=3307 (from INI, not overridden by root), got %d", gotPort)
+	}
+}
+
+func TestMixedConfigFormats_INIOnly(t *testing.T) {
+	// Just INI, no root config — verify the format registry works standalone
+	RegisterConfigFormat(".ini", iniUnmarshal)
+	defer delete(configFormats, ".ini")
+
+	type DBConfig struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Host       string `descr:"host" default:"localhost"`
+		Port       int    `descr:"port" default:"5432"`
+		Debug      bool   `descr:"debug" default:"false" optional:"true"`
+	}
+	type Params struct {
+		Name string   `descr:"name"`
+		DB   DBConfig
+	}
+
+	iniData := "# DB configuration\nHost = ini-host\nPort = 9999\nDebug = true\n"
+	tmpDir := t.TempDir()
+	iniPath := filepath.Join(tmpDir, "db.ini")
+	os.WriteFile(iniPath, []byte(iniData), 0644)
+
+	var gotHost string
+	var gotPort int
+	var gotDebug bool
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotHost = p.DB.Host
+			gotPort = p.DB.Port
+			gotDebug = p.DB.Debug
+		},
+	}).RunArgsE([]string{"--name", "myapp", "--db-config-file", iniPath})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotHost != "ini-host" {
+		t.Errorf("expected host='ini-host', got %q", gotHost)
+	}
+	if gotPort != 9999 {
+		t.Errorf("expected port=9999, got %d", gotPort)
+	}
+	if !gotDebug {
+		t.Error("expected debug=true from INI")
+	}
+}
 
 func TestSubStructConfigFile_Basic(t *testing.T) {
 	// A substruct with its own configfile:"true" field loads from its own file

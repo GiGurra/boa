@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"reflect"
 	"unsafe"
 
@@ -414,7 +415,28 @@ func LoadConfigFile[T any](filePath string, target *T, unmarshalFunc func([]byte
 	return loadConfigFileInto(filePath, target, unmarshalFunc)
 }
 
+// configFormats maps file extensions to unmarshal functions.
+// JSON is registered by default. Users can register additional formats
+// (e.g., YAML, TOML) via RegisterConfigFormat.
+var configFormats = map[string]func([]byte, any) error{
+	".json": json.Unmarshal,
+}
+
+// RegisterConfigFormat registers an unmarshal function for a config file extension.
+// The extension should include the dot (e.g., ".yaml", ".toml").
+// Example:
+//
+//	boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
+//	boa.RegisterConfigFormat(".toml", toml.Unmarshal)
+func RegisterConfigFormat(ext string, unmarshalFunc func([]byte, any) error) {
+	configFormats[ext] = unmarshalFunc
+}
+
 // loadConfigFileInto is the non-generic implementation used internally.
+// Resolution order for unmarshal function:
+//  1. Explicit unmarshalFunc parameter (from Cmd.ConfigUnmarshal)
+//  2. Registered format based on file extension
+//  3. json.Unmarshal (default fallback)
 func loadConfigFileInto(filePath string, target any, unmarshalFunc func([]byte, any) error) error {
 	if filePath == "" {
 		return nil
@@ -424,7 +446,13 @@ func loadConfigFileInto(filePath string, target any, unmarshalFunc func([]byte, 
 		return fmt.Errorf("failed to read config file %s: %w", filePath, err)
 	}
 	if unmarshalFunc == nil {
-		unmarshalFunc = json.Unmarshal
+		// Look up by file extension
+		ext := filepath.Ext(filePath)
+		if fn, ok := configFormats[ext]; ok {
+			unmarshalFunc = fn
+		} else {
+			unmarshalFunc = json.Unmarshal // ultimate fallback
+		}
 	}
 	if err := unmarshalFunc(fileContents, target); err != nil {
 		return fmt.Errorf("failed to unmarshal config file %s: %w", filePath, err)
