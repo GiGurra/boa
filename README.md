@@ -70,7 +70,8 @@ Flags:
 Error: required flag "name" not set
 ```
 
-## Parameter Types
+<details>
+<summary><b>Parameter Types</b></summary>
 
 All standard Go types work out of the box:
 
@@ -86,8 +87,10 @@ type Params struct {
     Matrix  [][]int           `descr:"matrix" optional:"true"`         // complex types use JSON: '[[1,2],[3,4]]'
 }
 ```
+</details>
 
-## Subcommands
+<details>
+<summary><b>Subcommands</b></summary>
 
 ```go
 boa.CmdT[boa.NoParams]{
@@ -105,8 +108,10 @@ boa.CmdT[boa.NoParams]{
     ),
 }.Run()
 ```
+</details>
 
-## Config Files
+<details>
+<summary><b>Config Files</b></summary>
 
 Tag a field with `configfile` and boa loads it automatically. CLI and env vars always win:
 
@@ -120,8 +125,10 @@ type Params struct {
 ```
 
 JSON is built in. Register other formats with `boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)`.
+</details>
 
-## Struct Composition
+<details>
+<summary><b>Struct Composition</b></summary>
 
 Named fields auto-prefix their children. Embedded fields stay flat:
 
@@ -137,8 +144,10 @@ type Params struct {
     Replica DBConfig      // --replica-host, --replica-port
 }
 ```
+</details>
 
-## Validation
+<details>
+<summary><b>Validation</b></summary>
 
 ```go
 type Params struct {
@@ -147,8 +156,20 @@ type Params struct {
     Name     string `descr:"name" pattern:"^[a-z]+$"`
 }
 ```
+</details>
 
-## Struct Tags Reference
+<details>
+<summary><b>Error Handling</b></summary>
+
+| Method | Behavior |
+|--------|----------|
+| `Run()` | Shows usage + error on bad input, exits 1 |
+| `RunE()` | Returns errors silently for programmatic use |
+| `ToCobra()` | Returns `*cobra.Command` for custom execution |
+</details>
+
+<details>
+<summary><b>Struct Tags Reference</b></summary>
 
 | Tag | Description | Example |
 |-----|-------------|---------|
@@ -167,6 +188,7 @@ type Params struct {
 | `pattern` | Regex pattern | `pattern:"^[a-z]+$"` |
 | `configfile` | Auto-load config from path | `configfile:"true"` |
 | `boa` | Special directives | `boa:"ignore"`, `boa:"configonly"` |
+</details>
 
 ## Further Reading
 
