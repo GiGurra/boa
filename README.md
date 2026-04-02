@@ -3,6 +3,8 @@
 [![CI Status](https://github.com/GiGurra/boa/actions/workflows/ci.yml/badge.svg)](https://github.com/GiGurra/boa/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/GiGurra/boa)](https://goreportcard.com/report/github.com/GiGurra/boa)
 
+Like if [kong](https://github.com/alecthomas/kong) and [urfave/cli](https://github.com/urfave/cli) had a baby and made it [cobra](https://github.com/spf13/cobra) compatible.
+
 Self-documenting CLIs from Go structs. Define your parameters once and get flags, env vars, validation, config file loading, and help text — all generated automatically. The result is a CLI that's easy to write, easy for humans to use, and easy for LLMs to invoke — because the full parameter schema is right there in `--help`.
 
 Built on top of [cobra](https://github.com/spf13/cobra), not replacing it. Full cobra interop when you need it.
