@@ -191,14 +191,16 @@ func validate(ctx *processingContext, structPtr any) error {
 			return fmt.Errorf("missing required param '%s'%s", param.GetName(), envHint)
 		}
 
-		// Post-parse conversion for types stored as strings in cobra (time.Time, *url.URL, etc.)
+		// Post-parse conversion for types stored as strings in cobra (time.Time, *url.URL, JSON fallback, etc.)
 		if HasValue(param) {
+			converted := false
 			if handler, _ := lookupHandler(param.GetType()); handler != nil && handler.convert != nil {
 				res, err := handler.convert(param.GetName(), param.valuePtrF())
 				if err != nil {
 					return err
 				}
 				param.setValuePtr(res)
+				converted = true
 			} else if param.GetKind() == reflect.Slice {
 				if sliceHandler := lookupSliceHandler(param.GetType().Elem()); sliceHandler != nil && sliceHandler.convert != nil {
 					res, err := sliceHandler.convert(param.GetName(), param.valuePtrF())
@@ -206,6 +208,28 @@ func validate(ctx *processingContext, structPtr any) error {
 						return err
 					}
 					param.setValuePtr(res)
+					converted = true
+				}
+			}
+
+			// JSON fallback conversion: if value is still a *string but the target type
+			// is a complex type (map, nested slice, etc.) without a native handler, try JSON unmarshal
+			if !converted {
+				needsJsonFallback := false
+				if param.GetKind() == reflect.Map {
+					needsJsonFallback = lookupMapHandler(param.GetType()) == nil
+				} else if param.GetKind() == reflect.Slice && lookupSliceHandler(param.GetType().Elem()) == nil {
+					needsJsonFallback = true
+				}
+				if needsJsonFallback {
+					if strPtr, ok := param.valuePtrF().(*string); ok && strPtr != nil && *strPtr != "" {
+						fallback := jsonFallbackHandler(param.GetType())
+						res, err := fallback.convert(param.GetName(), param.valuePtrF())
+						if err != nil {
+							return err
+						}
+						param.setValuePtr(res)
+					}
 				}
 			}
 			if alts := param.GetAlternatives(); alts != nil && param.GetStrictAlts() {
@@ -460,24 +484,26 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param, ctx *processingContex
 		return nil
 	}
 
-	// Map types
+	// Map types — try native handler first, then JSON fallback
 	if f.GetKind() == reflect.Map {
-		if mapHandler := lookupMapHandler(f.GetType()); mapHandler != nil {
-			var defVal any
-			if f.hasDefaultValue() {
-				defVal = f.defaultValuePtr()
-			}
-			f.setValuePtr(mapHandler.bindFlag(cmd, f.GetName(), f.GetShort(), descr, defVal))
-			return nil
+		mapHandler := lookupMapHandler(f.GetType())
+		if mapHandler == nil {
+			mapHandler = jsonFallbackHandler(f.GetType())
 		}
-		return fmt.Errorf("unsupported map type '%v'. Check parameter '%s'", f.GetType(), f.GetName())
+		var defVal any
+		if f.hasDefaultValue() {
+			defVal = f.defaultValuePtr()
+		}
+		f.setValuePtr(mapHandler.bindFlag(cmd, f.GetName(), f.GetShort(), descr, defVal))
+		return nil
 	}
 
-	// Slice types — look up by element type
+	// Slice types — try native handler first, then JSON fallback
 	if f.GetKind() == reflect.Slice {
 		elemType := f.GetType().Elem()
+		sliceHandler := lookupSliceHandler(elemType)
 
-		if sliceHandler := lookupSliceHandler(elemType); sliceHandler != nil {
+		if sliceHandler != nil {
 			var defVal any
 			if f.hasDefaultValue() {
 				defValRef := reflect.ValueOf(f.defaultValuePtr()).Elem()
@@ -495,7 +521,14 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param, ctx *processingContex
 			return nil
 		}
 
-		return fmt.Errorf("unsupported slice element type '%v'. Check parameter '%s'", elemType, f.GetName())
+		// JSON fallback for complex slice types (nested slices, etc.)
+		fallback := jsonFallbackHandler(f.GetType())
+		var defVal any
+		if f.hasDefaultValue() {
+			defVal = f.defaultValuePtr()
+		}
+		f.setValuePtr(fallback.bindFlag(cmd, f.GetName(), f.GetShort(), descr, defVal))
+		return nil
 	}
 
 	if f.GetKind() == reflect.Array {
@@ -568,21 +601,21 @@ func parsePtr(
 		return handler.parse(name, strVal)
 	}
 
-	// Map types
+	// Map types — native handler or JSON fallback
 	if kind == reflect.Map {
 		if mapHandler := lookupMapHandler(tpe); mapHandler != nil {
 			return mapHandler.parse(name, strVal)
 		}
-		return nil, fmt.Errorf("unsupported map type '%v' for param %s", tpe, name)
+		return jsonFallbackHandler(tpe).parse(name, strVal)
 	}
 
-	// Slice types
+	// Slice types — native handler or JSON fallback
 	if kind == reflect.Slice {
 		elemType := tpe.Elem()
 		if sliceHandler := lookupSliceHandler(elemType); sliceHandler != nil {
 			return sliceHandler.parse(name, strVal)
 		}
-		return nil, fmt.Errorf("unsupported slice element type '%v' for param %s", elemType, name)
+		return jsonFallbackHandler(tpe).parse(name, strVal)
 	}
 
 	if kind == reflect.Array {
@@ -1391,18 +1424,13 @@ func isSupportedType(t reflect.Type) bool {
 	if _, ok := kindHandlers[t.Kind()]; ok {
 		return true
 	}
-	// Map types (map[string]string, map[string]int, etc.)
-	if t.Kind() == reflect.Map {
-		return lookupMapHandler(t) != nil
+	// Map types — all map[string]V types are supported (native pflag or JSON fallback)
+	if t.Kind() == reflect.Map && t.Key().Kind() == reflect.String {
+		return true
 	}
-	// Slice types
+	// Slice types — all slices are supported (native pflag for basic elements, JSON fallback for complex)
 	if t.Kind() == reflect.Slice {
-		// net.IP is []byte but handled as a scalar via exactTypeHandlers
-		elem := t.Elem()
-		if lookupSliceHandler(elem) != nil {
-			return true
-		}
-		return false
+		return true
 	}
 	// Pointer-to-supported-type (e.g., *string, *int, *bool)
 	if t.Kind() == reflect.Pointer {
@@ -1458,9 +1486,13 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 	// required[int]{}, etc. regardless of whether the field was a type alias.
 	valueType = normalizeType(valueType)
 
-	// Pointer and map fields default to optional (nil = not set)
+	// Pointer, map, and nested slice fields default to optional (nil = not set)
 	isRequired := !cfg.defaultOptional
 	if isPtr || valueType.Kind() == reflect.Map {
+		isRequired = false
+	}
+	// Nested slices ([][]T) default to optional — flat slices keep the global default
+	if valueType.Kind() == reflect.Slice && valueType.Elem().Kind() == reflect.Slice {
 		isRequired = false
 	}
 

@@ -1,6 +1,7 @@
 package boa
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -507,6 +508,50 @@ func lookupSliceHandler(elemType reflect.Type) *typeHandler {
 		return h
 	}
 	return nil
+}
+
+// jsonFallbackHandler creates a handler for any type that uses StringP for cobra binding
+// and json.Unmarshal for parsing. This handles nested slices, complex maps, and any
+// other type that Go's JSON decoder can handle.
+func jsonFallbackHandler(t reflect.Type) *typeHandler {
+	return &typeHandler{
+		baseType: t,
+		bindFlag: func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+			def := ""
+			if defaultVal != nil {
+				// Marshal the default to JSON for display
+				v := reflect.ValueOf(defaultVal)
+				if v.Kind() == reflect.Ptr && !v.IsNil() {
+					b, err := json.Marshal(v.Elem().Interface())
+					if err == nil {
+						def = string(b)
+					}
+				}
+			}
+			return cmd.Flags().StringP(name, short, def, descr)
+		},
+		parse: func(name, strVal string) (any, error) {
+			ptr := reflect.New(t)
+			if err := json.Unmarshal([]byte(strVal), ptr.Interface()); err != nil {
+				return nil, fmt.Errorf("invalid JSON for param %s: %w", name, err)
+			}
+			return ptr.Interface(), nil
+		},
+		convert: func(name string, val any) (any, error) {
+			// val is *string from StringP — unmarshal it
+			if strPtr, ok := val.(*string); ok {
+				if *strPtr == "" {
+					return val, nil // no conversion needed for empty default
+				}
+				ptr := reflect.New(t)
+				if err := json.Unmarshal([]byte(*strPtr), ptr.Interface()); err != nil {
+					return nil, fmt.Errorf("invalid JSON for param '%s': %w", name, err)
+				}
+				return ptr.Interface(), nil
+			}
+			return val, nil // already converted
+		},
+	}
 }
 
 // lookupMapHandler dynamically builds a handler for map[string]V types by composing
