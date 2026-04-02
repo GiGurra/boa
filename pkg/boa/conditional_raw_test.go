@@ -169,7 +169,7 @@ func TestRawParamGetRequiredFn(t *testing.T) {
 		},
 		RunFunc: func(_ *Params, _ *cobra.Command, _ []string) {},
 		RawArgs: []string{"--name", "test"},
-	}.Validate()
+	}.Validate() //nolint:errcheck // test only cares about side effects
 }
 
 // TestRawParamMixedWithWrapped tests that GetParam works for both raw fields
@@ -200,7 +200,7 @@ func TestRawParamMixedWithWrapped(t *testing.T) {
 		},
 		RunFunc: func(_ *Params, _ *cobra.Command, _ []string) {},
 		RawArgs: []string{},
-	}.Validate()
+	}.Validate() //nolint:errcheck // test only cares about side effects
 }
 
 // TestRawParamConditionalWithDefault tests that conditional params with defaults work correctly

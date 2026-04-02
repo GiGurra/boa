@@ -124,8 +124,8 @@ func TestCustomType_EnvVar(t *testing.T) {
 		Version SemVer `descr:"app version" env:"APP_VERSION"`
 	}
 
-	os.Setenv("APP_VERSION", "2.0.0")
-	defer os.Unsetenv("APP_VERSION")
+	_ = os.Setenv("APP_VERSION", "2.0.0")
+	defer func() { _ = os.Unsetenv("APP_VERSION") }()
 
 	var got SemVer
 	err := (CmdT[Params]{

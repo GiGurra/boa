@@ -34,8 +34,8 @@ func TestMainWithEnvVar(t *testing.T) {
 	}()
 
 	// Test with BAR_X env var
-	os.Setenv("BAR_X", "100")
-	defer os.Unsetenv("BAR_X")
+	_ = os.Setenv("BAR_X", "100")
+	defer func() { _ = os.Unsetenv("BAR_X") }()
 
 	os.Args = []string{"hello-world", "--foo", "test-foo", "my-path", "my-baz"}
 	main()

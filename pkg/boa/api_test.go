@@ -511,8 +511,8 @@ func TestUserInputErrorInvalidEnvValue(t *testing.T) {
 	}
 
 	// Set an invalid env value
-	os.Setenv("TEST_PORT_INVALID", "not-a-number")
-	defer os.Unsetenv("TEST_PORT_INVALID")
+	_ = os.Setenv("TEST_PORT_INVALID", "not-a-number")
+	defer func() { _ = os.Unsetenv("TEST_PORT_INVALID") }()
 
 	err := (CmdT[Params]{Use: "test", RawArgs: []string{}}).Validate()
 	if err == nil {
@@ -776,11 +776,11 @@ func TestErrorHandlingTable(t *testing.T) {
 			}()
 
 			// Restore stderr and read output
-			w.Close()
+			_ = w.Close()
 			os.Stderr = oldStderr
 			captured := make([]byte, 8192)
 			n, _ := r.Read(captured)
-			r.Close()
+			_ = r.Close()
 			output := string(captured[:n])
 
 			// Verify behavior
@@ -920,11 +920,11 @@ func TestPositionalArgsErrorOutput(t *testing.T) {
 				returnedErr = cmd.RunArgsE(tc.args)
 			}
 
-			w.Close()
+			_ = w.Close()
 			os.Stderr = oldStderr
 			captured := make([]byte, 8192)
 			n, _ := r.Read(captured)
-			r.Close()
+			_ = r.Close()
 			output := string(captured[:n])
 
 			if tc.wantErr {
@@ -996,11 +996,11 @@ func TestSubcommandPositionalArgsError(t *testing.T) {
 		}
 		root.RunArgs([]string{"cp"})
 
-		w.Close()
+		_ = w.Close()
 		os.Stderr = oldStderr
 		captured := make([]byte, 8192)
 		n, _ := r.Read(captured)
-		r.Close()
+		_ = r.Close()
 		output := string(captured[:n])
 
 		if !exitCalled {
@@ -1035,11 +1035,11 @@ func TestSubcommandPositionalArgsError(t *testing.T) {
 		}
 		err := root.RunArgsE([]string{"cp"})
 
-		w.Close()
+		_ = w.Close()
 		os.Stderr = oldStderr
 		captured := make([]byte, 8192)
 		n, _ := r.Read(captured)
-		r.Close()
+		_ = r.Close()
 
 		if err == nil {
 			t.Fatal("Expected error to be returned")
@@ -1074,11 +1074,11 @@ func TestSubcommandPositionalArgsError(t *testing.T) {
 		}
 		root.RunArgs([]string{"bogus"})
 
-		w.Close()
+		_ = w.Close()
 		os.Stderr = oldStderr
 		captured := make([]byte, 8192)
 		n, _ := r.Read(captured)
-		r.Close()
+		_ = r.Close()
 		output := string(captured[:n])
 
 		if !exitCalled {
@@ -1097,7 +1097,6 @@ func TestSubcommandMissingArgsShowsErrorMessage(t *testing.T) {
 		ConvID   string `positional:"true" required:"true"`
 		DestPath string `positional:"true" required:"true"`
 	}
-	type ConvParams struct{}
 
 	var exitCalled bool
 	oldOsExit := osExit
@@ -1132,19 +1131,19 @@ func TestSubcommandMissingArgsShowsErrorMessage(t *testing.T) {
 	}
 	root.RunArgs([]string{"conv", "cp"})
 
-	wErr.Close()
-	wOut.Close()
+	_ = wErr.Close()
+	_ = wOut.Close()
 	os.Stderr = oldStderr
 	os.Stdout = oldStdout
 
 	stderrBuf := make([]byte, 8192)
 	nErr, _ := rErr.Read(stderrBuf)
-	rErr.Close()
+	_ = rErr.Close()
 	stderrOutput := string(stderrBuf[:nErr])
 
 	stdoutBuf := make([]byte, 8192)
 	nOut, _ := rOut.Read(stdoutBuf)
-	rOut.Close()
+	_ = rOut.Close()
 	stdoutOutput := string(stdoutBuf[:nOut])
 
 	t.Logf("=== STDOUT ===\n%s", stdoutOutput)
@@ -1208,11 +1207,11 @@ func TestSubcommandOnlyUnknownCommand(t *testing.T) {
 
 		makeRoot().RunArgs([]string{"bogus"})
 
-		w.Close()
+		_ = w.Close()
 		os.Stderr = oldStderr
 		captured := make([]byte, 8192)
 		n, _ := r.Read(captured)
-		r.Close()
+		_ = r.Close()
 		output := string(captured[:n])
 
 		if !exitCalled {
@@ -1336,11 +1335,11 @@ func TestSlicePositionalArgsErrorOutput(t *testing.T) {
 		}
 		cmd.RunArgs([]string{})
 
-		w.Close()
+		_ = w.Close()
 		os.Stderr = oldStderr
 		captured := make([]byte, 8192)
 		n, _ := r.Read(captured)
-		r.Close()
+		_ = r.Close()
 		output := string(captured[:n])
 
 		if !exitCalled {
@@ -1408,11 +1407,11 @@ func TestSlicePositionalArgsErrorOutput(t *testing.T) {
 		}
 		cmd.RunArgs([]string{})
 
-		w.Close()
+		_ = w.Close()
 		os.Stderr = oldStderr
 		captured := make([]byte, 8192)
 		n, _ := r.Read(captured)
-		r.Close()
+		_ = r.Close()
 		output := string(captured[:n])
 
 		if !exitCalled {

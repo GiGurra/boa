@@ -25,8 +25,8 @@ func TestParamEnricherEnvPrefix(t *testing.T) {
 	}
 
 	t.Run("prefixes env vars", func(t *testing.T) {
-		os.Setenv("MYAPP_HOST", "example.com")
-		defer os.Unsetenv("MYAPP_HOST")
+		_ = os.Setenv("MYAPP_HOST", "example.com")
+		defer func() { _ = os.Unsetenv("MYAPP_HOST") }()
 
 		var got Params
 		err := (CmdT[Params]{
@@ -93,9 +93,9 @@ func TestUnMarshalFromFileParam(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer os.Remove(tmpFile.Name())
-		tmpFile.WriteString(`{"host":"localhost","port":9090}`)
-		tmpFile.Close()
+		defer func() { _ = os.Remove(tmpFile.Name()) }()
+		_, _ = tmpFile.WriteString(`{"host":"localhost","port":9090}`)
+		_ = tmpFile.Close()
 
 		var cfg Config
 		var configPath string
@@ -246,9 +246,9 @@ func TestParamMetaUnmarshalJSON(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer os.Remove(tmpFile.Name())
-		tmpFile.WriteString(`{"host":"from-config","port":3000}`)
-		tmpFile.Close()
+		defer func() { _ = os.Remove(tmpFile.Name()) }()
+		_, _ = tmpFile.WriteString(`{"host":"from-config","port":3000}`)
+		_ = tmpFile.Close()
 
 		var got Params
 		err = (CmdT[Params]{
@@ -279,9 +279,9 @@ func TestParamMetaUnmarshalJSON(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer os.Remove(tmpFile.Name())
-		tmpFile.WriteString(`{"host":"from-config"}`)
-		tmpFile.Close()
+		defer func() { _ = os.Remove(tmpFile.Name()) }()
+		_, _ = tmpFile.WriteString(`{"host":"from-config"}`)
+		_ = tmpFile.Close()
 
 		var got Params
 		err = (CmdT[Params]{
@@ -742,8 +742,8 @@ func TestDoParsePositional_EnvFallback(t *testing.T) {
 		File string `positional:"true" required:"true" env:"TEST_FILE_POS"`
 	}
 
-	os.Setenv("TEST_FILE_POS", "from-env.txt")
-	defer os.Unsetenv("TEST_FILE_POS")
+	_ = os.Setenv("TEST_FILE_POS", "from-env.txt")
+	defer func() { _ = os.Unsetenv("TEST_FILE_POS") }()
 
 	var got string
 	err := (CmdT[Params]{
@@ -929,7 +929,7 @@ func TestParamMetaUnmarshalJSON_Direct(t *testing.T) {
 	t.Run("skipped when set on CLI", func(t *testing.T) {
 		cmd := &cobra.Command{Use: "test"}
 		cmd.Flags().String("name", "", "")
-		cmd.Flags().Set("name", "from-cli")
+		_ = cmd.Flags().Set("name", "from-cli")
 
 		pm := &paramMeta{
 			name:      "name",
@@ -1819,9 +1819,9 @@ func TestConfigFileTagCoverage(t *testing.T) {
 	}
 
 	tmpFile, _ := os.CreateTemp("", "boa-cfgtag-*.json")
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString(`{"host":"from-config","port":7777}`)
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString(`{"host":"from-config","port":7777}`)
+	_ = tmpFile.Close()
 
 	var got P
 	err := (CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = *p }}).RunArgsE([]string{"--config", tmpFile.Name()})
@@ -1865,9 +1865,9 @@ func TestLoadConfigFileExtensionLookup(t *testing.T) {
 	RegisterConfigFormat(".test-fmt", json.Unmarshal)
 
 	tmpFile, _ := os.CreateTemp("", "boa-ext-*.test-fmt")
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString(`{"host":"from-ext"}`)
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_, _ = tmpFile.WriteString(`{"host":"from-ext"}`)
+	_ = tmpFile.Close()
 
 	var cfg Config
 	err := loadConfigFileInto(tmpFile.Name(), &cfg, nil)

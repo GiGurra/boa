@@ -24,7 +24,7 @@ func TestBoaIgnore_StillLoadedFromConfigFile(t *testing.T) {
 	})
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
-	os.WriteFile(cfgPath, cfgData, 0644)
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
 
 	var gotName string
 	var gotMeta map[string]string
@@ -65,7 +65,7 @@ func TestBoaConfigOnly_LoadedFromConfigFile(t *testing.T) {
 	})
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
-	os.WriteFile(cfgPath, cfgData, 0644)
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
 
 	var gotMeta map[string]string
 	err := (CmdT[Params]{
@@ -140,7 +140,7 @@ func TestSubStruct_NotFlattenedWhenIgnored(t *testing.T) {
 	})
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
-	os.WriteFile(cfgPath, cfgData, 0644)
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
 
 	var gotDB DBConfig
 	err := (CmdT[Params]{

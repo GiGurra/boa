@@ -91,8 +91,8 @@ func TestMapField_EnvVar(t *testing.T) {
 		Labels map[string]string `descr:"labels" env:"TEST_MAP_LABELS"`
 	}
 
-	os.Setenv("TEST_MAP_LABELS", "env=staging,region=us-east")
-	defer os.Unsetenv("TEST_MAP_LABELS")
+	_ = os.Setenv("TEST_MAP_LABELS", "env=staging,region=us-east")
+	defer func() { _ = os.Unsetenv("TEST_MAP_LABELS") }()
 
 	var got map[string]string
 	err := (CmdT[Params]{
@@ -125,7 +125,7 @@ func TestMapField_ConfigFile(t *testing.T) {
 	})
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
-	os.WriteFile(cfgPath, cfgData, 0644)
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
 
 	var got map[string]string
 	err := (CmdT[Params]{

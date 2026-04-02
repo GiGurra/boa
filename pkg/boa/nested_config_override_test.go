@@ -27,7 +27,7 @@ func TestNestedConfigFile_WithCLIOverride(t *testing.T) {
 	})
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
-	os.WriteFile(cfgPath, cfgData, 0644)
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
 
 	var gotHost string
 	var gotPort int
@@ -68,7 +68,7 @@ func TestNestedConfigFile_NoCliOverride(t *testing.T) {
 	})
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
-	os.WriteFile(cfgPath, cfgData, 0644)
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
 
 	var gotHost string
 	var gotPort int
@@ -108,10 +108,10 @@ func TestNestedConfigFile_EnvOverridesConfig(t *testing.T) {
 	})
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
-	os.WriteFile(cfgPath, cfgData, 0644)
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
 
-	os.Setenv("DB_HOST", "env-host")
-	defer os.Unsetenv("DB_HOST")
+	_ = os.Setenv("DB_HOST", "env-host")
+	defer func() { _ = os.Unsetenv("DB_HOST") }()
 
 	var gotHost string
 	var gotPort int
@@ -155,7 +155,7 @@ func TestNestedConfigFile_DeepNesting(t *testing.T) {
 	})
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
-	os.WriteFile(cfgPath, cfgData, 0644)
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
 
 	var gotHost string
 	err := (CmdT[Params]{

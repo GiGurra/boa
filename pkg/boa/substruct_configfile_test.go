@@ -87,7 +87,7 @@ func TestMixedConfigFormats_JSONRoot_INISubstruct(t *testing.T) {
 	// INI file for DB substruct
 	iniData := "Host = ini-db-host\nPort = 3307\n"
 	iniPath := filepath.Join(tmpDir, "db.ini")
-	os.WriteFile(iniPath, []byte(iniData), 0644)
+	_ = os.WriteFile(iniPath, []byte(iniData), 0644)
 
 	// JSON file for root (overrides DB.Host but not DB.Port)
 	rootCfg, _ := json.Marshal(map[string]any{
@@ -95,7 +95,7 @@ func TestMixedConfigFormats_JSONRoot_INISubstruct(t *testing.T) {
 		"DB":   map[string]any{"Host": "json-override-host"},
 	})
 	jsonPath := filepath.Join(tmpDir, "app.json")
-	os.WriteFile(jsonPath, rootCfg, 0644)
+	_ = os.WriteFile(jsonPath, rootCfg, 0644)
 
 	var gotName, gotHost string
 	var gotPort int
@@ -142,7 +142,7 @@ func TestMixedConfigFormats_INIOnly(t *testing.T) {
 	iniData := "# DB configuration\nHost = ini-host\nPort = 9999\nDebug = true\n"
 	tmpDir := t.TempDir()
 	iniPath := filepath.Join(tmpDir, "db.ini")
-	os.WriteFile(iniPath, []byte(iniData), 0644)
+	_ = os.WriteFile(iniPath, []byte(iniData), 0644)
 
 	var gotHost string
 	var gotPort int
@@ -189,7 +189,7 @@ func TestSubStructConfigFile_Basic(t *testing.T) {
 	})
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "db.json")
-	os.WriteFile(cfgPath, cfgData, 0644)
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
 
 	var gotHost string
 	var gotPort int
@@ -235,7 +235,7 @@ func TestSubStructConfigFile_RootOverridesInner(t *testing.T) {
 		"Port": 3306,
 	})
 	dbCfgPath := filepath.Join(tmpDir, "db.json")
-	os.WriteFile(dbCfgPath, dbCfg, 0644)
+	_ = os.WriteFile(dbCfgPath, dbCfg, 0644)
 
 	// Root config: overrides Host but not Port
 	rootCfg, _ := json.Marshal(map[string]any{
@@ -243,7 +243,7 @@ func TestSubStructConfigFile_RootOverridesInner(t *testing.T) {
 		"DB":   map[string]any{"Host": "root-override-host"},
 	})
 	rootCfgPath := filepath.Join(tmpDir, "app.json")
-	os.WriteFile(rootCfgPath, rootCfg, 0644)
+	_ = os.WriteFile(rootCfgPath, rootCfg, 0644)
 
 	var gotName, gotHost string
 	var gotPort int
@@ -287,11 +287,11 @@ func TestSubStructConfigFile_CLIOverridesBothConfigs(t *testing.T) {
 
 	dbCfg, _ := json.Marshal(map[string]any{"Host": "inner-host", "Port": 3306})
 	dbPath := filepath.Join(tmpDir, "db.json")
-	os.WriteFile(dbPath, dbCfg, 0644)
+	_ = os.WriteFile(dbPath, dbCfg, 0644)
 
 	rootCfg, _ := json.Marshal(map[string]any{"DB": map[string]any{"Host": "root-host"}})
 	rootPath := filepath.Join(tmpDir, "app.json")
-	os.WriteFile(rootPath, rootCfg, 0644)
+	_ = os.WriteFile(rootPath, rootCfg, 0644)
 
 	var gotHost string
 	var gotPort int
@@ -334,7 +334,7 @@ func TestSubStructConfigFile_InnerOnly(t *testing.T) {
 	cfgData, _ := json.Marshal(map[string]any{"Host": "inner-only", "Port": 9999})
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "db.json")
-	os.WriteFile(cfgPath, cfgData, 0644)
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
 
 	var gotHost string
 	err := (CmdT[Params]{

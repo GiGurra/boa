@@ -165,8 +165,8 @@ func TestPointerField_EnvVar(t *testing.T) {
 		Name *string `descr:"optional name" env:"TEST_PTR_NAME"`
 	}
 
-	os.Setenv("TEST_PTR_NAME", "from-env")
-	defer os.Unsetenv("TEST_PTR_NAME")
+	_ = os.Setenv("TEST_PTR_NAME", "from-env")
+	defer func() { _ = os.Unsetenv("TEST_PTR_NAME") }()
 
 	var got *string
 	err := (CmdT[Params]{

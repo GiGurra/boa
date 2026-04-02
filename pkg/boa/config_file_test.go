@@ -242,7 +242,7 @@ func TestConfigFile_TagShorthand(t *testing.T) {
 		// Use a custom format: line-separated key=value
 		dir := t.TempDir()
 		cfgPath := filepath.Join(dir, "config.custom")
-		os.WriteFile(cfgPath, []byte(`{"Host":"custom-format","Port":1234}`), 0644)
+		_ = os.WriteFile(cfgPath, []byte(`{"Host":"custom-format","Port":1234}`), 0644)
 
 		type Params struct {
 			ConfigFile string `configfile:"true" optional:"true"`
@@ -276,8 +276,8 @@ func TestConfigFile_TagShorthand(t *testing.T) {
 			Port       int    `optional:"true"`
 		}
 
-		os.Setenv("TEST_CFG_HOST", "from-env")
-		defer os.Unsetenv("TEST_CFG_HOST")
+		_ = os.Setenv("TEST_CFG_HOST", "from-env")
+		defer func() { _ = os.Unsetenv("TEST_CFG_HOST") }()
 
 		ran := false
 		CmdT[Params]{

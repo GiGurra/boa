@@ -20,7 +20,7 @@ func TestNestedSlice_ConfigFile(t *testing.T) {
 	})
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
-	os.WriteFile(cfgPath, cfgData, 0644)
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
 
 	var got [][]string
 	err := (CmdT[Params]{
@@ -56,7 +56,7 @@ func TestNestedSlice_IntMatrix_ConfigFile(t *testing.T) {
 	})
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
-	os.WriteFile(cfgPath, cfgData, 0644)
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
 
 	var got [][]int
 	err := (CmdT[Params]{
@@ -136,8 +136,8 @@ func TestNestedSlice_EnvVar_JSON(t *testing.T) {
 		Matrix [][]string `descr:"matrix" env:"TEST_NESTED_MATRIX"`
 	}
 
-	os.Setenv("TEST_NESTED_MATRIX", `[["x","y"],["z","w"]]`)
-	defer os.Unsetenv("TEST_NESTED_MATRIX")
+	_ = os.Setenv("TEST_NESTED_MATRIX", `[["x","y"],["z","w"]]`)
+	defer func() { _ = os.Unsetenv("TEST_NESTED_MATRIX") }()
 
 	var got [][]string
 	err := (CmdT[Params]{

@@ -211,10 +211,10 @@ func TestNamedStruct_EnvVarAutoPrefix(t *testing.T) {
 		DB DBConfig
 	}
 
-	os.Setenv("DB_HOST", "env-host")
-	os.Setenv("DB_PORT", "9999")
-	defer os.Unsetenv("DB_HOST")
-	defer os.Unsetenv("DB_PORT")
+	_ = os.Setenv("DB_HOST", "env-host")
+	_ = os.Setenv("DB_PORT", "9999")
+	defer func() { _ = os.Unsetenv("DB_HOST") }()
+	defer func() { _ = os.Unsetenv("DB_PORT") }()
 
 	var gotHost string
 	var gotPort int
@@ -244,8 +244,8 @@ func TestEmbeddedStruct_EnvVarNoPrefix(t *testing.T) {
 		CommonOpts // embedded
 	}
 
-	os.Setenv("VERBOSE", "true")
-	defer os.Unsetenv("VERBOSE")
+	_ = os.Setenv("VERBOSE", "true")
+	defer func() { _ = os.Unsetenv("VERBOSE") }()
 
 	var gotVerbose bool
 	err := (CmdT[Params]{
@@ -276,8 +276,8 @@ func TestNamedStruct_DeepNesting_EnvVar(t *testing.T) {
 		Infra ClusterConfig
 	}
 
-	os.Setenv("INFRA_PRIMARY_HOST", "deep-env-host")
-	defer os.Unsetenv("INFRA_PRIMARY_HOST")
+	_ = os.Setenv("INFRA_PRIMARY_HOST", "deep-env-host")
+	defer func() { _ = os.Unsetenv("INFRA_PRIMARY_HOST") }()
 
 	var gotHost string
 	err := (CmdT[Params]{
@@ -307,10 +307,10 @@ func TestNamedStruct_ExplicitEnvTag(t *testing.T) {
 		API ServerConfig
 	}
 
-	os.Setenv("API_SERVER_HOST", "api.example.com")
-	os.Setenv("API_SERVER_PORT", "9090")
-	defer os.Unsetenv("API_SERVER_HOST")
-	defer os.Unsetenv("API_SERVER_PORT")
+	_ = os.Setenv("API_SERVER_HOST", "api.example.com")
+	_ = os.Setenv("API_SERVER_PORT", "9090")
+	defer func() { _ = os.Unsetenv("API_SERVER_HOST") }()
+	defer func() { _ = os.Unsetenv("API_SERVER_PORT") }()
 
 	var gotHost string
 	var gotPort int
@@ -379,10 +379,10 @@ func TestNamedStruct_ExplicitEnvGetsPrefixed(t *testing.T) {
 		Replica Config
 	}
 
-	os.Setenv("PRIMARY_HOST", "primary.db")
-	os.Setenv("REPLICA_HOST", "replica.db")
-	defer os.Unsetenv("PRIMARY_HOST")
-	defer os.Unsetenv("REPLICA_HOST")
+	_ = os.Setenv("PRIMARY_HOST", "primary.db")
+	_ = os.Setenv("REPLICA_HOST", "replica.db")
+	defer func() { _ = os.Unsetenv("PRIMARY_HOST") }()
+	defer func() { _ = os.Unsetenv("REPLICA_HOST") }()
 
 	var gotPrimary, gotReplica string
 	err := (CmdT[Params]{
@@ -414,8 +414,8 @@ func TestNamedStruct_ExplicitEnvNoPrefixWhenEmbedded(t *testing.T) {
 		Config // embedded — env stays MY_HOST
 	}
 
-	os.Setenv("MY_HOST", "embedded.host")
-	defer os.Unsetenv("MY_HOST")
+	_ = os.Setenv("MY_HOST", "embedded.host")
+	defer func() { _ = os.Unsetenv("MY_HOST") }()
 
 	var gotHost string
 	err := (CmdT[Params]{
