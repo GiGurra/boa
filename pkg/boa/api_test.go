@@ -790,6 +790,9 @@ func TestErrorHandlingTable(t *testing.T) {
 					t.Error("Expected panic but none occurred")
 				}
 			case expectExit1:
+				if panicValue != nil {
+					t.Errorf("Expected clean exit (no panic), but got panic: %v", panicValue)
+				}
 				if !exitCalled {
 					t.Error("Expected osExit to be called")
 				}
