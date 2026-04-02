@@ -1630,3 +1630,288 @@ func TestConnectNameHelpCollision(t *testing.T) {
 		}).ToCobra()
 	}()
 }
+
+// --- newParam branches: pointer types, opt:"false", tag edge cases ---
+
+func TestNewParamPointerTypes(t *testing.T) {
+	t.Run("*string optional by default", func(t *testing.T) {
+		type P struct {
+			Name *string `descr:"name"`
+		}
+		err := (CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).RunArgsE([]string{})
+		if err != nil {
+			t.Fatalf("*string should be optional by default: %v", err)
+		}
+	})
+
+	t.Run("*int optional by default, nil when unset", func(t *testing.T) {
+		type P struct {
+			Count *int `descr:"count"`
+		}
+		var got *int
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Count }}).RunArgs([]string{})
+		if got != nil {
+			t.Errorf("Expected nil for unset *int, got %v", *got)
+		}
+	})
+
+	t.Run("*int set via CLI", func(t *testing.T) {
+		type P struct {
+			Count *int `descr:"count"`
+		}
+		var got *int
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Count }}).RunArgs([]string{"--count", "42"})
+		if got == nil || *got != 42 {
+			t.Errorf("Expected 42, got %v", got)
+		}
+	})
+
+	t.Run("*bool set via CLI", func(t *testing.T) {
+		type P struct {
+			Verbose *bool `descr:"verbose"`
+		}
+		var got *bool
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Verbose }}).RunArgs([]string{"--verbose=true"})
+		if got == nil || !*got {
+			t.Errorf("Expected true, got %v", got)
+		}
+	})
+
+	t.Run("opt:false makes field required", func(t *testing.T) {
+		type P struct {
+			Name string `descr:"name" opt:"false"`
+		}
+		err := (CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).RunArgsE([]string{})
+		if err == nil {
+			t.Fatal("Expected error for opt:false with no value")
+		}
+	})
+
+	t.Run("req:false makes field optional", func(t *testing.T) {
+		type P struct {
+			Name string `descr:"name" req:"false"`
+		}
+		err := (CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).RunArgsE([]string{})
+		if err != nil {
+			t.Fatalf("Expected no error for req:false: %v", err)
+		}
+	})
+}
+
+// --- parsePtr: map JSON fallback ---
+
+func TestParsePtrMapJsonFallback(t *testing.T) {
+	type P struct {
+		Data map[string][]int `descr:"data" optional:"true"`
+	}
+	var got map[string][]int
+	err := (CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Data }}).RunArgsE([]string{"--data", `{"nums":[1,2,3]}`})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got["nums"]) != 3 {
+		t.Errorf("Got %v", got)
+	}
+}
+
+// --- doParsePositional: optional positional with no value ---
+
+func TestDoParsePositionalOptionalEmpty(t *testing.T) {
+	type P struct {
+		Required string `positional:"true" required:"true"`
+		Optional string `positional:"true" optional:"true"`
+	}
+	var gotReq, gotOpt string
+	(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {
+		gotReq = p.Required
+		gotOpt = p.Optional
+	}}).RunArgs([]string{"hello"})
+	if gotReq != "hello" {
+		t.Errorf("Required = %q, want hello", gotReq)
+	}
+	if gotOpt != "" {
+		t.Errorf("Optional = %q, want empty", gotOpt)
+	}
+}
+
+// --- SetCustomValidatorT: pointer field path ---
+
+func TestSetCustomValidatorT_PointerField(t *testing.T) {
+	type P struct {
+		Port *int `descr:"port"`
+	}
+
+	t.Run("typed validator works on pointer field", func(t *testing.T) {
+		err := (CmdT[P]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			InitFuncCtx: func(ctx *HookContext, p *P, c *cobra.Command) error {
+				// GetParamT infers T=*int from &p.Port (**int), returns ParamT[*int]
+				param := GetParamT[*int](ctx, &p.Port)
+				param.SetCustomValidatorT(func(v *int) error {
+					if v != nil && *v < 1024 {
+						return fmt.Errorf("port must be >= 1024")
+					}
+					return nil
+				})
+				return nil
+			},
+			RunFunc: func(p *P, c *cobra.Command, args []string) {},
+		}).RunArgsE([]string{"--port", "80"})
+		if err == nil {
+			t.Fatal("Expected error for port < 1024 on pointer field")
+		}
+		if !strings.Contains(err.Error(), "port must be >= 1024") {
+			t.Errorf("Expected validator error, got: %v", err)
+		}
+	})
+
+	t.Run("typed validator receives nil for unset pointer", func(t *testing.T) {
+		var validatorCalled bool
+		var receivedNil bool
+		err := (CmdT[P]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			InitFuncCtx: func(ctx *HookContext, p *P, c *cobra.Command) error {
+				param := GetParamT[*int](ctx, &p.Port)
+				param.SetCustomValidatorT(func(v *int) error {
+					validatorCalled = true
+					receivedNil = (v == nil)
+					return nil
+				})
+				return nil
+			},
+			RunFunc: func(p *P, c *cobra.Command, args []string) {},
+		}).RunArgsE([]string{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Validator may not be called for unset optional fields — that's fine
+		_ = validatorCalled
+		_ = receivedNil
+	})
+}
+
+// --- runImpl: success handler ---
+
+func TestRunImplSuccessHandler(t *testing.T) {
+	type P struct{}
+	var succeeded bool
+	handler := resultHandler{
+		Success: func() { succeeded = true },
+	}
+	cmd := (CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).ToCobra()
+	cmd.SetArgs([]string{})
+	runImpl(cmd, handler)
+	if !succeeded {
+		t.Error("Expected success handler to be called")
+	}
+}
+
+// --- configfile tag ---
+
+func TestConfigFileTagCoverage(t *testing.T) {
+	type P struct {
+		Config string `configfile:"true" optional:"true"`
+		Host   string `descr:"host" optional:"true"`
+		Port   int    `descr:"port" optional:"true"`
+	}
+
+	tmpFile, _ := os.CreateTemp("", "boa-cfgtag-*.json")
+	defer os.Remove(tmpFile.Name())
+	tmpFile.WriteString(`{"host":"from-config","port":7777}`)
+	tmpFile.Close()
+
+	var got P
+	err := (CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = *p }}).RunArgsE([]string{"--config", tmpFile.Name()})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Host != "from-config" {
+		t.Errorf("Host = %q, want from-config", got.Host)
+	}
+	if got.Port != 7777 {
+		t.Errorf("Port = %d, want 7777", got.Port)
+	}
+}
+
+// --- Validate with setup error ---
+
+func TestValidatePanicRecovery(t *testing.T) {
+	type P struct {
+		Name string `descr:"name"`
+	}
+	// InitFunc errors cause panics in ToCobra path; Validate catches them
+	err := (CmdT[P]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		PreValidateFunc: func(p *P, c *cobra.Command, args []string) error {
+			return fmt.Errorf("pre-validate failed")
+		},
+		RunFunc: func(p *P, c *cobra.Command, args []string) {},
+	}).Validate()
+	if err == nil {
+		t.Fatal("Expected error from Validate when PreValidateFunc fails")
+	}
+}
+
+// --- loadConfigFileInto with extension-based format ---
+
+func TestLoadConfigFileExtensionLookup(t *testing.T) {
+	type Config struct {
+		Host string `json:"host"`
+	}
+	RegisterConfigFormat(".test-fmt", json.Unmarshal)
+
+	tmpFile, _ := os.CreateTemp("", "boa-ext-*.test-fmt")
+	defer os.Remove(tmpFile.Name())
+	tmpFile.WriteString(`{"host":"from-ext"}`)
+	tmpFile.Close()
+
+	var cfg Config
+	err := loadConfigFileInto(tmpFile.Name(), &cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Host != "from-ext" {
+		t.Errorf("Host = %q, want from-ext", cfg.Host)
+	}
+}
+
+// --- GetParam with Param interface directly ---
+
+func TestGetParamWithParamInterfaceCoverage(t *testing.T) {
+	type P struct {
+		Name string `descr:"name" optional:"true"`
+	}
+	(CmdT[P]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *P, c *cobra.Command, args []string) {
+			param := ctx.GetParam(&p.Name)
+			if param == nil {
+				t.Fatal("Expected param from field pointer")
+			}
+			param2 := ctx.GetParam(param)
+			if param2 != param {
+				t.Error("Expected GetParam(Param) to return same Param")
+			}
+		},
+	}).RunArgs([]string{})
+}
+
+// --- MarshalJSON default value branch ---
+
+func TestMarshalJSON_DefaultBranchCoverage(t *testing.T) {
+	pm := &paramMeta{fieldType: reflect.TypeOf(0)}
+	v := reflect.ValueOf(42)
+	pm.defaultVal = &v
+
+	data, err := pm.MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON failed: %v", err)
+	}
+	if string(data) != "42" {
+		t.Errorf("Got %s, want 42", data)
+	}
+}

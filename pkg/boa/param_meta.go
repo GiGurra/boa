@@ -281,10 +281,14 @@ func (f *paramMeta) customValidatorOfPtr() func(any) error {
 		if f.customValidator == nil {
 			return nil
 		}
-		// val is a pointer (e.g., *int from valuePtrF()). Dereference it
-		// so the validator receives the value, not a pointer to it.
 		v := reflect.ValueOf(val)
 		if v.Kind() == reflect.Ptr && !v.IsNil() {
+			if f.isPointer {
+				// For pointer fields (*int, *string, etc.), pass the pointer value
+				// so the validator receives the same type the user declared.
+				return f.customValidator(v.Interface())
+			}
+			// For non-pointer fields, dereference so the validator receives the value.
 			return f.customValidator(v.Elem().Interface())
 		}
 		return f.customValidator(val)
