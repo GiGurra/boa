@@ -168,14 +168,6 @@ type Params struct {
 | `configfile` | Auto-load config from path | `configfile:"true"` |
 | `boa` | Special directives | `boa:"ignore"`, `boa:"configonly"` |
 
-## Error Handling
-
-| Method | Behavior |
-|--------|----------|
-| `Run()` | Shows usage + error on bad input, exits 1 |
-| `RunE()` | Returns errors silently for programmatic use |
-| `ToCobra()` | Returns `*cobra.Command` for custom execution |
-
 ## Further Reading
 
 - [Getting Started](https://gigurra.github.io/boa/getting-started/) — all parameter types, subcommands, config files
