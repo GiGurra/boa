@@ -162,16 +162,48 @@ func main() {
 
 - CLI and env var values always take precedence over config file values.
 - Use `boa:"ignore"` to mark fields that should only be loaded from the config file (no CLI flag, no env var).
-- Set `ConfigUnmarshal: yaml.Unmarshal` on the command for YAML or other formats.
 - For manual control, use `boa.LoadConfigFile` in a `PreValidateFunc` hook.
+
+### Substruct Config Files
+
+Nested structs can have their own `configfile:"true"` field. Each substruct loads its own config file independently:
+
+```go
+type DBConfig struct {
+    ConfigFile string `configfile:"true" optional:"true"`
+    Host       string `default:"localhost"`
+    Port       int    `default:"5432"`
+}
+
+type Params struct {
+    ConfigFile string   `configfile:"true" optional:"true" default:"config.json"`
+    DB         DBConfig
+}
+```
+
+Priority: CLI > env > root config > substruct config > defaults.
+
+### Config Format Registry
+
+JSON is the only format shipped by default. Register additional formats by file extension:
+
+```go
+import "gopkg.in/yaml.v3"
+
+boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
+boa.RegisterConfigFormat(".toml", toml.Unmarshal)
+```
+
+Resolution order for unmarshal function: explicit `ConfigUnmarshal` on the command > registered format by file extension > `json.Unmarshal` fallback.
 
 ## Value Priority
 
 1. **CLI flags** -- highest
 2. **Environment variables**
-3. **Config file**
-4. **Default values**
-5. **Zero value** -- lowest
+3. **Root config file**
+4. **Substruct config files**
+5. **Default values**
+6. **Zero value** -- lowest
 
 ## Subcommands
 

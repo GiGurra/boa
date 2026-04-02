@@ -191,6 +191,34 @@ type Params struct {
 // Usage: --matrix '[[1,2],[3,4]]' --meta '{"tags":["a","b"]}'
 ```
 
+#### Substruct Config Files
+
+The `configfile:"true"` tag now works on fields inside nested structs. Each substruct can have its own config file. Priority: CLI > env > root config > substruct config > defaults.
+
+```go
+type DBConfig struct {
+    ConfigFile string `configfile:"true" optional:"true"`
+    Host       string `default:"localhost"`
+    Port       int    `default:"5432"`
+}
+
+type Params struct {
+    ConfigFile string   `configfile:"true" optional:"true" default:"config.json"`
+    DB         DBConfig
+}
+```
+
+#### Config Format Registry
+
+Register custom config file formats by extension. JSON is the only format shipped by default:
+
+```go
+boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
+boa.RegisterConfigFormat(".toml", toml.Unmarshal)
+```
+
+Resolution: explicit `ConfigUnmarshal` on the command > registered format by file extension > `json.Unmarshal` fallback.
+
 #### Named Struct Auto-Prefixing
 
 Named (non-anonymous) struct fields now auto-prefix their children's flag names and env var names. This is a behavioral change from pre-v1.0 where all nested struct fields were unprefixed.

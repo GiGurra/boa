@@ -16,7 +16,7 @@ Quick reference for all BOA struct tags.
 | `positional` | `pos` | Positional argument | `positional:"true"` |
 | `alts` | `alternatives` | Allowed values | `alts:"a,b,c"` |
 | `strict-alts` | `strict` | Validate alts | `strict:"true"` |
-| `configfile` | | Auto-load config file | `configfile:"true"` |
+| `configfile` | | Auto-load config file (root or substruct) | `configfile:"true"` |
 | `boa` | | Special directives | `boa:"ignore"` |
 
 ## Special Field Types
@@ -135,7 +135,7 @@ type Params struct {
 // Or just: myapp (loads config.json by default)
 ```
 
-The tagged field must be a `string`. Only one `configfile` field per struct. See [Advanced](advanced.md#config-file-loading) for details.
+The tagged field must be a `string`. Only one `configfile` field per struct level. Nested structs can also have their own `configfile:"true"` field for substruct-level config files. See [Advanced](advanced.md#substruct-config-files) for details.
 
 ### Combined Example
 

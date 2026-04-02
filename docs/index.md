@@ -15,7 +15,7 @@ BOA adds a declarative layer on top of [cobra](https://github.com/spf13/cobra), 
 - **Struct composition** - Named struct fields auto-prefix children (`DB.Host` → `--db-host`), embedded fields stay flat
 - **Environment variable binding** - Via struct tags or auto-generated with enrichers
 - **Built-in validation** - Required fields, alternatives, custom validators
-- **Config file support** - Automatic loading via `configfile` tag with value priority
+- **Config file support** - Automatic loading via `configfile` tag with value priority, substruct config files, and pluggable format registry
 - **JSON fallback** - Complex types (nested slices, maps) parsed as JSON on CLI
 - **Pointer fields** - `*string`, `*int` etc. for truly optional params (nil = not set)
 - **Cobra compatible** - Access underlying Cobra commands when needed

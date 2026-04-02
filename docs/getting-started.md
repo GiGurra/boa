@@ -202,9 +202,10 @@ When multiple sources provide values, BOA uses this priority order:
 
 1. **Command-line flags** - Highest priority
 2. **Environment variables**
-3. **Config files** (via `configfile` tag or PreValidate hook)
-4. **Default values**
-5. **Zero value** - Lowest priority
+3. **Root config file** (via `configfile` tag at root or PreValidate hook)
+4. **Substruct config files** (via `configfile` tag in nested structs)
+5. **Default values**
+6. **Zero value** - Lowest priority
 
 ## Config File Support
 
@@ -227,7 +228,9 @@ func main() {
 }
 ```
 
-The config file (JSON by default) is loaded before validation. CLI and env var values always take precedence over config file values. See [Advanced Usage](advanced.md#config-file-loading) for custom formats and the explicit `LoadConfigFile` API.
+The config file (JSON by default) is loaded before validation. CLI and env var values always take precedence over config file values.
+
+Nested structs can also have their own `configfile:"true"` field for independent config files. For YAML, TOML, or other formats, register them with `boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)`. See [Advanced Usage](advanced.md#config-file-loading) for substruct config files, format registry, and the explicit `LoadConfigFile` API.
 
 ## Accessing Cobra
 

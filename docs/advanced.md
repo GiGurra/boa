@@ -180,17 +180,66 @@ boa.CmdT[Params]{
 
 CLI and env var values always take precedence over config file values.
 
-For YAML, TOML, or other formats, set `ConfigUnmarshal`:
+### Config Format Registry
+
+JSON is the only format shipped by default. Register additional formats by file extension:
 
 ```go
 import "gopkg.in/yaml.v3"
 
+boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
+boa.RegisterConfigFormat(".toml", toml.Unmarshal)
+```
+
+Resolution order for unmarshal function:
+
+1. Explicit `ConfigUnmarshal` on the command
+2. Registered format matched by file extension
+3. `json.Unmarshal` (default fallback)
+
+You can also set `ConfigUnmarshal` directly on a command to override all format detection for that command:
+
+```go
 boa.CmdT[Params]{
     Use:             "app",
     ConfigUnmarshal: yaml.Unmarshal,
     RunFunc:         func(p *Params, cmd *cobra.Command, args []string) { ... },
 }.Run()
 ```
+
+### Substruct Config Files
+
+The `configfile:"true"` tag works on fields inside nested structs, not just at root. Each substruct can have its own config file:
+
+```go
+type DBConfig struct {
+    ConfigFile string `configfile:"true" optional:"true"`
+    Host       string `descr:"host" default:"localhost"`
+    Port       int    `descr:"port" default:"5432"`
+}
+
+type CacheConfig struct {
+    ConfigFile string `configfile:"true" optional:"true"`
+    TTL        int    `descr:"cache TTL" default:"300"`
+}
+
+type Params struct {
+    ConfigFile string      `configfile:"true" optional:"true" default:"config.json"`
+    DB         DBConfig
+    Cache      CacheConfig
+}
+```
+
+Substruct configs load first, then root config loads and overrides any overlapping values. The full merge priority is:
+
+1. **CLI flags** -- highest
+2. **Environment variables**
+3. **Root config file**
+4. **Substruct config files**
+5. **Default values**
+6. **Zero value** -- lowest
+
+This lets you split configuration across multiple files while maintaining a clear override hierarchy.
 
 ### Using `LoadConfigFile` Explicitly
 

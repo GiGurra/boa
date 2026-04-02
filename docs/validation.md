@@ -125,8 +125,9 @@ When multiple sources provide values, BOA uses this priority:
 
 1. **CLI flags** - `--port 8080`
 2. **Environment variables** - `PORT=8080`
-3. **Config files** - (via `configfile` tag or PreValidate hook)
-4. **Default values** - `default:"8080"`
-5. **Zero value** - `0` for int, `""` for string, etc.
+3. **Root config file** - (via `configfile` tag at root or PreValidate hook)
+4. **Substruct config files** - (via `configfile` tag in nested structs)
+5. **Default values** - `default:"8080"`
+6. **Zero value** - `0` for int, `""` for string, etc.
 
 Higher priority sources override lower ones.

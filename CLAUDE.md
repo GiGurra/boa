@@ -64,8 +64,14 @@ type Params struct {
 - `optional` / `opt` - Marks as optional
 - `alts` - Allowed values (enum validation)
 - `strict` - Validate against alts
-- `configfile` - Auto-load config file from this field's path
+- `configfile` - Auto-load config file from this field's path (works in root and nested structs)
 - `boa:"ignore"` - Skip CLI/env registration (still loaded from config files)
+
+### Config Format Registry
+- `boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)` registers custom config formats by file extension
+- JSON is the only format shipped by default
+- Resolution: explicit `Cmd.ConfigUnmarshal` > file extension registry > `json.Unmarshal` fallback
+- Substruct `configfile:"true"` fields load their own config files; priority: CLI > env > root config > substruct config > defaults
 
 ## Architecture
 
@@ -83,7 +89,7 @@ Complex types without native pflag support fall back to `StringP` + `json.Unmars
 A single non-generic `paramMeta` struct implements the `Param` interface, replacing the old `required[T]`/`optional[T]` generic types. It uses `reflect.Value` for typed storage and tracks metadata, state, and validation.
 
 ### Value Priority
-CLI args > Environment vars > Config file > Default > Zero value
+CLI args > Environment vars > Root config file > Substruct config files > Default > Zero value
 
 ## Conventions
 
