@@ -312,7 +312,7 @@ func doParsePositional(f Param, strVal string) error {
 	return nil
 }
 
-func toTypedSlice[T SupportedTypes](slice any) []T {
+func toTypedSlice[T any](slice any) []T {
 	if slice == nil {
 		return nil
 	}
@@ -1167,18 +1167,13 @@ func traverse(
 				continue
 			}
 
-			// check if it is a pointer to a struct (but not *url.URL which is a supported param type)
-			if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct && field.Type != urlPtrType {
+			// check if it is a pointer to a struct (but not *url.URL or pointer-to-supported-type)
+			if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct && !isSupportedType(field.Type) {
 				if !fieldAddr.IsNil() && !fieldAddr.Elem().IsNil() {
 					if err := traverse(ctx, fieldAddr.Elem().Interface(), fParam, fStruct); err != nil {
 						return err
 					}
 				}
-				continue
-			}
-
-			if field.Type.Kind() == reflect.Pointer && field.Type != urlPtrType {
-				slog.Warn(fmt.Sprintf("raw pointer types to parameters are not (yet?) supported. Field %s will be ignored", field.Name))
 				continue
 			}
 
@@ -1759,6 +1754,13 @@ func syncMirrors(ctx *processingContext) {
 	for _, rawAddr := range ctx.RawAddresses {
 		mirror := ctx.RawAddrToMirror[rawAddr]
 
+		// Check if this is a pointer field (e.g., *string, *int)
+		pm, isParamMeta := mirror.(*paramMeta)
+		if isParamMeta && pm.isPointer {
+			syncPointerField(rawAddr, mirror, pm)
+			continue
+		}
+
 		// Create a reflect.Value pointing to the raw field via its stored address
 		ptrToRawValue := reflect.NewAt(mirror.GetType(), rawAddr)
 
@@ -1783,6 +1785,36 @@ func syncMirrors(ctx *processingContext) {
 				rawValue.Set(mirrorValue)
 			} else {
 				panic(fmt.Errorf("could not set value for parameter %s", mirror.GetName()))
+			}
+		}
+	}
+}
+
+// syncPointerField handles bidirectional sync for pointer fields like *string, *int.
+// rawAddr points to the pointer field itself (e.g., the *string field in the user's struct).
+// The mirror stores the value type (string), while the raw field is a pointer (*string).
+func syncPointerField(rawAddr unsafe.Pointer, mirror Param, _ *paramMeta) {
+	// rawAddr points to the *string field. reflect.NewAt creates a **string pointing at it.
+	ptrType := reflect.PointerTo(mirror.GetType()) // e.g., *string
+	rawFieldPtr := reflect.NewAt(ptrType, rawAddr)  // **string pointing at the field
+	rawFieldVal := rawFieldPtr.Elem()                // the *string field value itself
+
+	// Raw → Mirror: if the user's pointer is non-nil, inject the pointed-to value
+	if !mirror.wasSetOnCli() && !mirror.wasSetByEnv() && !rawFieldVal.IsNil() {
+		// rawFieldVal.Interface() is *string — same type cobra uses
+		mirror.injectValuePtr(rawFieldVal.Interface())
+	}
+
+	// Mirror → Raw: if mirror has a value, set the pointer field
+	if mirror.wasSetOnCli() || mirror.wasSetByEnv() || (mirror.HasValue() && rawFieldVal.IsNil()) {
+		valPtr := mirror.valuePtrF()
+		if valPtr != nil {
+			mirrorVal := reflect.ValueOf(valPtr) // *string from cobra
+			// Skip if types don't match (e.g., string vs *url.URL before conversion)
+			if mirrorVal.Type().AssignableTo(rawFieldVal.Type()) {
+				if rawFieldVal.CanSet() {
+					rawFieldVal.Set(mirrorVal)
+				}
 			}
 		}
 	}
@@ -1891,15 +1923,79 @@ func isSupportedType(t reflect.Type) bool {
 		if t == urlPtrType {
 			return true
 		}
-		return false
+		// Pointer-to-supported-type (e.g., *string, *int, *bool)
+		return isSupportedType(t.Elem())
 	default:
 		return false
 	}
 }
 
-func newParam(field *reflect.StructField, t reflect.Type) Param {
+// normalizeType converts type aliases to their base types for cobra compatibility.
+// For example, `type MyString string` returns reflect.TypeOf("") (string).
+// Special types (time.Time, time.Duration, net.IP, *url.URL, slices) are returned as-is.
+func normalizeType(t reflect.Type) reflect.Type {
+	// Special types that should NOT be normalized
+	switch {
+	case t == timeType, t == durationType, t == ipType, t == urlPtrType:
+		return t
+	}
 
+	// For slices, check if it's a special slice type
+	if t.Kind() == reflect.Slice {
+		elem := t.Elem()
+		if elem == timeType || elem == durationType || elem == ipType || elem == urlPtrType {
+			return t
+		}
+		// Normalize the element type for basic slices
+		normElem := normalizeType(elem)
+		if normElem != elem {
+			return reflect.SliceOf(normElem)
+		}
+		return t
+	}
+
+	// For basic kinds, return the canonical Go type
+	switch t.Kind() {
+	case reflect.String:
+		return reflect.TypeOf("")
+	case reflect.Int:
+		return reflect.TypeOf(0)
+	case reflect.Int32:
+		return reflect.TypeOf(int32(0))
+	case reflect.Int64:
+		return reflect.TypeOf(int64(0))
+	case reflect.Float32:
+		return reflect.TypeOf(float32(0))
+	case reflect.Float64:
+		return reflect.TypeOf(float64(0))
+	case reflect.Bool:
+		return reflect.TypeOf(false)
+	}
+
+	return t
+}
+
+func newParam(field *reflect.StructField, t reflect.Type) Param {
+	// Determine if this is a pointer-to-value field (e.g., *string, *int)
+	// Note: *url.URL is NOT treated as a pointer field — it's a specific supported type
+	isPtr := t.Kind() == reflect.Pointer && t != urlPtrType
+	valueType := t
+	if isPtr {
+		valueType = t.Elem()
+	}
+
+	// Normalize type aliases to their base types for cobra compatibility.
+	// e.g., `type MyString string` → store as string, since cobra's StringP returns *string.
+	// This matches the old required[T] behavior where newParam always created required[string]{},
+	// required[int]{}, etc. regardless of whether the field was a type alias.
+	valueType = normalizeType(valueType)
+
+	// Pointer fields default to optional (nil = not set)
 	isRequired := !cfg.defaultOptional
+	if isPtr {
+		isRequired = false
+	}
+
 	if requiredTag, ok := field.Tag.Lookup("required"); ok {
 		switch requiredTag {
 		case "true":
@@ -1941,160 +2037,10 @@ func newParam(field *reflect.StructField, t reflect.Type) Param {
 		}
 	}
 
-	switch t.Kind() {
-	case reflect.String:
-		if isRequired {
-			return &required[string]{}
-		} else {
-			return &optional[string]{}
-		}
-	case reflect.Int:
-		if isRequired {
-			return &required[int]{}
-		} else {
-			return &optional[int]{}
-		}
-	case reflect.Int32:
-		if isRequired {
-			return &required[int32]{}
-		} else {
-			return &optional[int32]{}
-		}
-	case reflect.Int64:
-		if t == durationType {
-			if isRequired {
-				return &required[time.Duration]{}
-			} else {
-				return &optional[time.Duration]{}
-			}
-		}
-		if isRequired {
-			return &required[int64]{}
-		} else {
-			return &optional[int64]{}
-		}
-	case reflect.Float32:
-		if isRequired {
-			return &required[float32]{}
-		} else {
-			return &optional[float32]{}
-		}
-	case reflect.Float64:
-		if isRequired {
-			return &required[float64]{}
-		} else {
-			return &optional[float64]{}
-		}
-	case reflect.Bool:
-		if isRequired {
-			return &required[bool]{}
-		} else {
-			return &optional[bool]{}
-		}
-	case reflect.Struct:
-		if t == timeType {
-			if isRequired {
-				return &required[time.Time]{}
-			} else {
-				return &optional[time.Time]{}
-			}
-		} else {
-			panic(fmt.Errorf("unsupported type %s", t.String()))
-		}
-	case reflect.Slice:
-		if t == ipType {
-			if isRequired {
-				return &required[net.IP]{}
-			} else {
-				return &optional[net.IP]{}
-			}
-		}
-		elem := t.Elem()
-		if elem == ipType {
-			if isRequired {
-				return &required[[]net.IP]{}
-			} else {
-				return &optional[[]net.IP]{}
-			}
-		}
-		if elem == durationType {
-			if isRequired {
-				return &required[[]time.Duration]{}
-			} else {
-				return &optional[[]time.Duration]{}
-			}
-		}
-		if elem == timeType {
-			if isRequired {
-				return &required[[]time.Time]{}
-			} else {
-				return &optional[[]time.Time]{}
-			}
-		}
-		if elem == urlPtrType {
-			if isRequired {
-				return &required[[]*url.URL]{}
-			} else {
-				return &optional[[]*url.URL]{}
-			}
-		}
-		switch elem.Kind() {
-		case reflect.String:
-			if isRequired {
-				return &required[[]string]{}
-			} else {
-				return &optional[[]string]{}
-			}
-		case reflect.Int:
-			if isRequired {
-				return &required[[]int]{}
-			} else {
-				return &optional[[]int]{}
-			}
-		case reflect.Int32:
-			if isRequired {
-				return &required[[]int32]{}
-			} else {
-				return &optional[[]int32]{}
-			}
-		case reflect.Int64:
-			if isRequired {
-				return &required[[]int64]{}
-			} else {
-				return &optional[[]int64]{}
-			}
-		case reflect.Float32:
-			if isRequired {
-				return &required[[]float32]{}
-			} else {
-				return &optional[[]float32]{}
-			}
-		case reflect.Float64:
-			if isRequired {
-				return &required[[]float64]{}
-			} else {
-				return &optional[[]float64]{}
-			}
-		case reflect.Bool:
-			if isRequired {
-				return &required[[]bool]{}
-			} else {
-				return &optional[[]bool]{}
-			}
-		default:
-			panic(fmt.Errorf("unsupported slice type %s", t.String()))
-		}
-	case reflect.Pointer:
-		if t == urlPtrType {
-			if isRequired {
-				return &required[*url.URL]{}
-			} else {
-				return &optional[*url.URL]{}
-			}
-		}
-		panic(fmt.Errorf("unsupported pointer type %s", t.String()))
-	default:
-		panic(fmt.Errorf("unsupported type %s", t.String()))
+	return &paramMeta{
+		fieldType:       valueType,
+		isPointer:       isPtr,
+		defaultRequired: isRequired,
 	}
 }
 

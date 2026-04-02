@@ -7,42 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
-	"net/url"
 	"os"
 	"reflect"
-	"time"
 	"unsafe"
 
 	"github.com/spf13/cobra"
 )
-
-// SupportedTypes defines the Go types that can be used as parameter values in struct fields.
-// Note: time.Duration is supported via the ~int64 constraint and handled specially for parsing.
-// net.IP and *url.URL are explicitly supported for network-related CLI tools.
-type SupportedTypes interface {
-	~string |
-		~int |
-		~int32 |
-		~int64 |
-		~bool |
-		~float64 |
-		~float32 |
-		time.Time |
-		net.IP |
-		*url.URL |
-		~[]string |
-		~[]int |
-		~[]int32 |
-		~[]int64 |
-		~[]float32 |
-		~[]float64 |
-		~[]bool |
-		[]time.Duration |
-		[]net.IP |
-		[]time.Time |
-		[]*url.URL
-}
 
 // Cmd represents a CLI command with all its configuration options.
 // It serves as a wrapper around cobra.Command with additional functionality
@@ -297,7 +267,7 @@ func (b Cmd) RunArgsE(rawArgs []string) error {
 // Default creates a pointer to a value of a supported type.
 // This is used to define default values for parameters programmatically
 // via HookContext.GetParam().SetDefault().
-func Default[T SupportedTypes](val T) *T {
+func Default[T any](val T) *T {
 	return &val
 }
 

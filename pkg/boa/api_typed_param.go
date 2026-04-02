@@ -29,7 +29,7 @@ import (
 //	        return nil
 //	    },
 //	}
-type ParamT[T SupportedTypes] interface {
+type ParamT[T any] interface {
 	// Param returns the underlying untyped Param interface.
 	Param() Param
 
@@ -101,7 +101,7 @@ type ParamT[T SupportedTypes] interface {
 //	        return nil
 //	    },
 //	}
-func GetParamT[T SupportedTypes](ctx *HookContext, fieldPtr *T) ParamT[T] {
+func GetParamT[T any](ctx *HookContext, fieldPtr *T) ParamT[T] {
 	param := ctx.GetParam(fieldPtr)
 	if param == nil {
 		slog.Error("GetParamT: could not find param for field pointer", "fieldPtr", fieldPtr)
@@ -116,7 +116,7 @@ func GetParamT[T SupportedTypes](ctx *HookContext, fieldPtr *T) ParamT[T] {
 // ParamTView is a typed view over a parameter's configuration.
 // It wraps an untyped Param and provides type-safe methods for configuration.
 // Use GetParamT to obtain an instance.
-type ParamTView[T SupportedTypes] struct {
+type ParamTView[T any] struct {
 	param Param
 }
 
