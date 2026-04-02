@@ -8,8 +8,6 @@ go get github.com/GiGurra/boa@latest
 
 ## Basic Usage
 
-### Minimum Setup
-
 ```go
 package main
 
@@ -247,4 +245,20 @@ boa.CmdT[Params]{
         // ...
     },
 }.Run()
+```
+
+## Using Claude Code
+
+You can also use [Claude Code](https://claude.com/claude-code) to scaffold a boa CLI project. Feed it the README and describe what you want:
+
+```bash
+mkdir my-cli && cd my-cli
+go mod init my-cli
+
+claude "$(curl -s https://raw.githubusercontent.com/GiGurra/boa/main/README.md)
+
+Build me a CLI tool that manages TODO items with commands for:
+- add: adds a new todo
+- list: lists all todos
+- done: marks a todo as complete"
 ```

@@ -3,27 +3,19 @@
 [![CI Status](https://github.com/GiGurra/boa/actions/workflows/ci.yml/badge.svg)](https://github.com/GiGurra/boa/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/GiGurra/boa)](https://goreportcard.com/report/github.com/GiGurra/boa)
 
-Boa is a declarative CLI framework for Go built on top of [cobra](https://github.com/spf13/cobra). Define your CLI parameters as plain Go structs and let boa generate flags, env var bindings, validation, and help text automatically.
+Self-documenting CLIs from Go structs. Define your parameters once and get flags, env vars, validation, config file loading, and help text — all generated automatically. The result is a CLI that's easy to write, easy for humans to use, and easy for LLMs to invoke — because the full parameter schema is right there in `--help`.
+
+Built on top of [cobra](https://github.com/spf13/cobra), not replacing it. Full cobra interop when you need it.
 
 **[Full Documentation](https://gigurra.github.io/boa/)**
 
-## Installation
+## Quick Start
 
 ```bash
 go get github.com/GiGurra/boa@latest
 ```
 
-## Quick Start
-
 ```go
-package main
-
-import (
-    "fmt"
-    "github.com/GiGurra/boa/pkg/boa"
-    "github.com/spf13/cobra"
-)
-
 type Params struct {
     Name string `descr:"your name"`
     Port int    `descr:"port number" default:"8080" optional:"true"`
@@ -52,74 +44,87 @@ Flags:
 
 ## Parameter Types
 
-### Plain types (required by default)
+All standard Go types work out of the box:
 
 ```go
 type Params struct {
-    Host    string        `descr:"server host"`
-    Port    int           `descr:"port number"`
-    Verbose bool          `descr:"verbose output" optional:"true"`
-    Timeout time.Duration `descr:"request timeout" default:"30s" optional:"true"`
+    Host    string            `descr:"server host"`                    // required by default
+    Port    int               `descr:"port" default:"8080"`            // with default
+    Name    *string           `descr:"user name"`                      // pointer = optional, nil = not set
+    Tags    []string          `descr:"tags" default:"[a,b,c]"`         // --tags a,b,c
+    Labels  map[string]string `descr:"labels"`                         // --labels env=prod,team=backend
+    Input   string            `positional:"true"`                      // positional arg
+    Timeout time.Duration     `descr:"timeout" default:"30s"`          // durations, IPs, URLs, etc.
+    Matrix  [][]int           `descr:"matrix" optional:"true"`         // complex types use JSON: '[[1,2],[3,4]]'
 }
 ```
 
-### Pointer types (optional by default, nil = not set)
+## Subcommands
+
+```go
+boa.CmdT[boa.NoParams]{
+    Use:   "my-app",
+    Short: "a multi-command CLI",
+    SubCmds: boa.SubCmds(
+        boa.CmdT[ServeParams]{
+            Use: "serve", Short: "start the server",
+            RunFunc: func(p *ServeParams, cmd *cobra.Command, args []string) { ... },
+        },
+        boa.CmdT[DeployParams]{
+            Use: "deploy", Short: "deploy the app",
+            RunFunc: func(p *DeployParams, cmd *cobra.Command, args []string) { ... },
+        },
+    ),
+}.Run()
+```
+
+## Config Files
+
+Tag a field with `configfile` and boa loads it automatically. CLI and env vars always win:
 
 ```go
 type Params struct {
-    Name  *string `descr:"user name"`              // nil if not provided
-    Count *int    `descr:"count" required:"true"`   // override: make it required
+    ConfigFile string            `configfile:"true" optional:"true" default:"config.json"`
+    Host       string            `descr:"server host"`
+    Port       int               `descr:"port" default:"8080"`
+    Internal   [][]string        `boa:"configonly"` // loaded from config only, no CLI flag
 }
 ```
 
-### Slices
+JSON is built in. Register other formats with `boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)`.
+
+## Struct Composition
+
+Named fields auto-prefix their children. Embedded fields stay flat:
 
 ```go
-type Params struct {
-    Tags  []string `descr:"tags" default:"[a,b,c]"`
-    Ports []int    `descr:"ports"`
+type DBConfig struct {
+    Host string `default:"localhost"`
+    Port int    `default:"5432"`
 }
-// Usage: --tags a,b,c --ports 8080,8081
+
+type Params struct {
+    CommonFlags           // embedded: --verbose, --output
+    Primary DBConfig      // --primary-host, --primary-port
+    Replica DBConfig      // --replica-host, --replica-port
+}
 ```
 
-### Maps (optional by default)
+## Validation
 
 ```go
 type Params struct {
-    Labels map[string]string `descr:"key=value labels"`
-    Limits map[string]int    `descr:"resource limits"`
+    Port     int    `descr:"port" min:"1" max:"65535"`
+    LogLevel string `descr:"log level" alts:"debug,info,warn,error" strict:"true"`
+    Name     string `descr:"name" pattern:"^[a-z]+$"`
 }
-// Usage: --labels env=prod,team=backend --limits cpu=4,memory=8192
-```
-
-### Complex types (JSON on CLI)
-
-Any type without native pflag support uses JSON parsing automatically:
-
-```go
-type Params struct {
-    Matrix [][]int             `descr:"nested matrix" optional:"true"`
-    Meta   map[string][]string `descr:"metadata" optional:"true"`
-}
-// Usage: --matrix '[[1,2],[3,4]]' --meta '{"tags":["a","b"]}'
-```
-
-### Positional arguments
-
-```go
-type Params struct {
-    Input  string `positional:"true"`
-    Output string `positional:"true" default:"out.txt"`
-    Extra  string `positional:"true" optional:"true"`
-}
-// Usage: my-app <input> <output> [extra]
 ```
 
 ## Struct Tags Reference
 
 | Tag | Description | Example |
 |-----|-------------|---------|
-| `descr` / `desc` / `description` / `help` | Description text | `descr:"User name"` |
+| `descr` / `desc` | Description text | `descr:"User name"` |
 | `name` / `long` | Override flag name | `name:"user-name"` |
 | `default` | Default value | `default:"8080"` |
 | `env` | Environment variable name | `env:"PORT"` |
@@ -127,334 +132,29 @@ type Params struct {
 | `positional` / `pos` | Marks positional argument | `positional:"true"` |
 | `required` / `req` | Marks as required | `required:"true"` |
 | `optional` / `opt` | Marks as optional | `optional:"true"` |
-| `alts` / `alternatives` | Allowed values (enum) | `alts:"debug,info,warn,error"` |
-| `strict-alts` / `strict` | Validate against alts | `strict:"true"` |
-| `min` | Min value (numeric) or min length (string) | `min:"1"` |
-| `max` | Max value (numeric) or max length (string) | `max:"65535"` |
-| `pattern` | Regex pattern (strings only) | `pattern:"^[a-z]+$"` |
-| `configfile` | Auto-load config from this field's path | `configfile:"true"` |
+| `alts` | Allowed values (enum) | `alts:"debug,info,warn,error"` |
+| `strict` | Validate against alts | `strict:"true"` |
+| `min` | Min value or min length | `min:"1"` |
+| `max` | Max value or max length | `max:"65535"` |
+| `pattern` | Regex pattern | `pattern:"^[a-z]+$"` |
+| `configfile` | Auto-load config from path | `configfile:"true"` |
 | `boa` | Special directives | `boa:"ignore"`, `boa:"configonly"` |
-
-### Auto-generated names
-
-- Field `MyParam` becomes flag `--my-param` (kebab-case)
-- Acronyms handled correctly: `DBHost` becomes `--db-host`, `HTTPPort` becomes `--http-port`
-- Environment variable: `MY_PARAM` (UPPER_SNAKE_CASE)
-
-## Config Files
-
-Tag a string field with `configfile:"true"` and boa loads the file automatically before validation:
-
-```go
-type Params struct {
-    ConfigFile string `configfile:"true" optional:"true" default:"config.json"`
-    Host       string
-    Port       int
-    Internal   [][]string `boa:"ignore"` // config-file only, no CLI flag
-}
-
-func main() {
-    boa.CmdT[Params]{
-        Use: "my-app",
-        RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
-            fmt.Printf("Host: %s, Port: %d\n", params.Host, params.Port)
-        },
-    }.Run()
-}
-```
-
-- CLI and env var values always take precedence over config file values.
-- Use `boa:"ignore"` (or `boa:"configonly"`) to mark fields that should only be loaded from the config file (no CLI flag, no env var).
-- For manual control, use `boa.LoadConfigFile` in a `PreValidateFunc` hook.
-
-### Substruct Config Files
-
-Nested structs can have their own `configfile:"true"` field. Each substruct loads its own config file independently:
-
-```go
-type DBConfig struct {
-    ConfigFile string `configfile:"true" optional:"true"`
-    Host       string `default:"localhost"`
-    Port       int    `default:"5432"`
-}
-
-type Params struct {
-    ConfigFile string   `configfile:"true" optional:"true" default:"config.json"`
-    DB         DBConfig
-}
-```
-
-Priority: CLI > env > root config > substruct config > defaults.
-
-### Config Format Registry
-
-JSON is the only format shipped by default. Register additional formats by file extension:
-
-```go
-import "gopkg.in/yaml.v3"
-
-boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
-boa.RegisterConfigFormat(".toml", toml.Unmarshal)
-```
-
-Resolution order for unmarshal function: explicit `ConfigUnmarshal` on the command > registered format by file extension > `json.Unmarshal` fallback.
-
-Use `boa.ConfigFormatExtensions()` to list all registered extensions (used internally by `boaviper`).
-
-## Custom Types
-
-Register user-defined types as CLI parameters with `RegisterType`:
-
-```go
-type SemVer struct{ Major, Minor, Patch int }
-
-boa.RegisterType[SemVer](boa.TypeDef[SemVer]{
-    Parse: func(s string) (SemVer, error) {
-        // parse "1.2.3" into SemVer
-        return parseSemVer(s)
-    },
-    Format: func(v SemVer) string {
-        return fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
-    },
-})
-```
-
-Registered types are stored as string flags in cobra and converted via the provided `Parse`/`Format` functions. If `Format` is nil, `fmt.Sprintf("%v", val)` is used.
-
-## Value Priority
-
-1. **CLI flags** -- highest
-2. **Environment variables**
-3. **Root config file**
-4. **Substruct config files**
-5. **Default values**
-6. **Zero value** -- lowest
-
-## Subcommands
-
-```go
-func main() {
-    boa.CmdT[boa.NoParams]{
-        Use:   "my-app",
-        Short: "a multi-command CLI",
-        SubCmds: boa.SubCmds(
-            boa.CmdT[ServeParams]{
-                Use:   "serve",
-                Short: "start the server",
-                RunFunc: func(p *ServeParams, cmd *cobra.Command, args []string) {
-                    fmt.Printf("Serving on %s:%d\n", p.Host, p.Port)
-                },
-            },
-            boa.CmdT[DeployParams]{
-                Use:   "deploy",
-                Short: "deploy the app",
-                RunFunc: func(p *DeployParams, cmd *cobra.Command, args []string) {
-                    fmt.Println("Deploying...")
-                },
-            },
-        ),
-    }.Run()
-}
-```
-
-## Enrichers
-
-The `ParamEnrich` field controls automatic parameter enrichment:
-
-| Value | Behavior |
-|-------|----------|
-| `nil` (default) | `ParamEnricherDefault` -- derives flag names, short flags, and bool defaults |
-| `ParamEnricherNone` | No enrichment -- you must specify everything via struct tags |
-
-`ParamEnricherDefault` includes `ParamEnricherName`, `ParamEnricherShort`, and `ParamEnricherBool`. Environment variable binding is **not** included by default. Add it explicitly:
-
-```go
-boa.CmdT[Params]{
-    Use: "cmd",
-    ParamEnrich: boa.ParamEnricherCombine(
-        boa.ParamEnricherName,
-        boa.ParamEnricherShort,
-        boa.ParamEnricherEnv,                  // auto env vars
-        boa.ParamEnricherEnvPrefix("MYAPP"),   // optional: MYAPP_MY_PARAM
-        boa.ParamEnricherBool,
-    ),
-    // ...
-}
-```
-
-## Global Configuration
-
-```go
-func main() {
-    boa.Init(
-        boa.WithDefaultOptional(), // plain fields default to optional instead of required
-    )
-    boa.CmdT[Params]{Use: "my-app", /* ... */}.Run()
-}
-```
-
-Explicit struct tags (`required`, `optional`) always take precedence.
-
-## Hooks
-
-Boa provides lifecycle hooks for customizing behavior at each stage:
-
-| Hook | When it runs |
-|------|-------------|
-| `InitFunc` / `InitFuncCtx` | After param mirrors created, before cobra flags registered |
-| `PostCreateFunc` / `PostCreateFuncCtx` | After cobra flags created, before parsing |
-| `PreValidateFunc` / `PreValidateFuncCtx` | After parsing, before validation |
-| `PreExecuteFunc` / `PreExecuteFuncCtx` | After validation, before execution |
-
-The `Ctx` variants provide a `*boa.HookContext` for programmatic parameter configuration:
-
-```go
-boa.CmdT[Params]{
-    Use: "cmd",
-    InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
-        ctx.GetParam(&p.FilePath).SetRequiredFn(func() bool {
-            return p.Mode == "file"
-        })
-        ctx.GetParam(&p.LogLevel).SetAlternatives([]string{"debug", "info", "warn", "error"})
-        ctx.GetParam(&p.LogLevel).SetDefault(boa.Default("info"))
-        return nil
-    },
-    // ...
-}
-```
-
-Parameter structs can also implement hook interfaces directly (`CfgStructInit`, `CfgStructInitCtx`, `CfgStructPreValidate`, etc.).
-
-See [Hooks](https://gigurra.github.io/boa/hooks/) for details.
-
-## Checking if a Value Was Set
-
-Use `RunFuncCtx` to check whether optional parameters were explicitly provided:
-
-```go
-boa.CmdT[Params]{
-    Use: "server",
-    RunFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command, args []string) {
-        if ctx.HasValue(&p.Port) {
-            fmt.Printf("Port explicitly set to %d\n", p.Port)
-        }
-    },
-}
-```
 
 ## Error Handling
 
 | Method | Behavior |
 |--------|----------|
-| `Run()` | User input errors exit(1), other errors panic |
-| `RunE()` | Returns errors for programmatic handling |
-| `RunArgs(args)` | Like `Run()` with custom args |
-| `RunArgsE(args)` | Like `RunE()` with custom args |
-| `ToCobra()` | Returns `*cobra.Command` (panics on setup error) |
-| `ToCobraE()` | Returns `(*cobra.Command, error)` |
-
-Use `RunFunc` with `Run()` for simple CLIs. Use `RunFuncE` with `RunE()` when you need error returns:
-
-```go
-err := boa.CmdT[Params]{
-    Use: "process",
-    RunFuncE: func(p *Params, cmd *cobra.Command, args []string) error {
-        if p.File == "" {
-            return fmt.Errorf("file cannot be empty")
-        }
-        return nil
-    },
-}.RunE()
-```
-
-## Cobra Interop
-
-Access the underlying cobra command for advanced customization:
-
-```go
-boa.CmdT[Params]{
-    Use: "cmd",
-    InitFunc: func(p *Params, cmd *cobra.Command) error {
-        cmd.Deprecated = "use new-cmd instead"
-        return nil
-    },
-    RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
-        // ...
-    },
-}
-```
-
-## Struct Composition
-
-```go
-type CommonFlags struct {
-    Verbose bool `optional:"true"`
-    Output  string `default:"stdout"`
-}
-
-type DBConfig struct {
-    Host string `default:"localhost"`
-    Port int    `default:"5432"`
-}
-
-type Params struct {
-    CommonFlags           // embedded (anonymous): --verbose, --output (no prefix)
-    DB          DBConfig  // named field: --db-host, --db-port (auto-prefixed)
-    File        string
-}
-```
-
-**Embedded (anonymous) fields** are not prefixed -- `CommonFlags.Verbose` becomes `--verbose`.
-
-**Named struct fields** auto-prefix their children with the field name in kebab-case:
-
-- `DB.Host` becomes `--db-host`, env var `DB_HOST`
-- `DB.Port` becomes `--db-port`, env var `DB_PORT`
-
-This prevents collisions when the same struct type is used in multiple fields:
-
-```go
-type Params struct {
-    Primary DBConfig  // --primary-host, --primary-port
-    Replica DBConfig  // --replica-host, --replica-port
-}
-```
-
-Deep nesting chains prefixes: `Infra.Primary.Host` becomes `--infra-primary-host`.
-
-Explicit `name:"..."` and `env:"..."` tags also get prefixed inside named fields.
-
-## Viper-like Config Discovery (Optional)
-
-The `boaviper` subpackage provides opt-in Viper-like automatic config file discovery:
-
-```go
-import "github.com/GiGurra/boa/pkg/boaviper"
-
-boa.CmdT[Params]{
-    Use:      "myapp",
-    InitFunc: boaviper.AutoConfig[Params]("myapp"),
-    ParamEnrich: boa.ParamEnricherCombine(
-        boa.ParamEnricherDefault,
-        boaviper.SetEnvPrefix("MYAPP"),  // MYAPP_PORT, MYAPP_HOST, etc.
-    ),
-    RunFunc: func(p *Params, cmd *cobra.Command, args []string) { ... },
-}.Run()
-```
-
-Automatically searches for config files in:
-1. `./myapp.json` (current directory)
-2. `~/.config/myapp/config.json`
-3. `/etc/myapp/config.json`
-
-Tries all registered config format extensions. CLI flags override auto-discovered configs.
+| `Run()` | Shows usage + error on bad input, exits 1 |
+| `RunE()` | Returns errors silently for programmatic use |
+| `ToCobra()` | Returns `*cobra.Command` for custom execution |
 
 ## Further Reading
 
-- [Full Documentation](https://gigurra.github.io/boa/)
-- [Hooks & Lifecycle](https://gigurra.github.io/boa/hooks/)
-- [Advanced Features](https://gigurra.github.io/boa/advanced/)
-- [Enrichers](https://gigurra.github.io/boa/enrichers/)
-- [Struct Tags](https://gigurra.github.io/boa/struct-tags/)
-- [Error Handling](https://gigurra.github.io/boa/error-handling/)
-- [Migration Guide](https://gigurra.github.io/boa/migration/)
+- [Getting Started](https://gigurra.github.io/boa/getting-started/) — all parameter types, subcommands, config files
+- [Struct Tags](https://gigurra.github.io/boa/struct-tags/) — complete tag reference with auto-prefixing
+- [Validation](https://gigurra.github.io/boa/validation/) — required/optional, alternatives, conditional requirements
+- [Lifecycle Hooks](https://gigurra.github.io/boa/hooks/) — customize behavior at each stage
+- [Enrichers](https://gigurra.github.io/boa/enrichers/) — auto-derive flag names, env vars, short flags
+- [Error Handling](https://gigurra.github.io/boa/error-handling/) — Run() vs RunE() and error propagation
+- [Advanced](https://gigurra.github.io/boa/advanced/) — custom types, config format registry, viper-like discovery
+- [Cobra Interop](https://gigurra.github.io/boa/cobra-interop/) — access cobra primitives, migrate incrementally
