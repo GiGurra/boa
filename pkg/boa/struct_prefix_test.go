@@ -296,6 +296,43 @@ func TestNamedStruct_DeepNesting_EnvVar(t *testing.T) {
 	}
 }
 
+func TestNamedStruct_ExplicitEnvTag(t *testing.T) {
+	// Explicit env tags should be used as-is, no auto-prefix
+	type ServerConfig struct {
+		Host string `descr:"host" env:"SERVER_HOST" default:"localhost"`
+		Port int    `descr:"port" env:"SERVER_PORT" default:"8080"`
+	}
+	type Params struct {
+		API ServerConfig
+	}
+
+	os.Setenv("SERVER_HOST", "api.example.com")
+	os.Setenv("SERVER_PORT", "9090")
+	defer os.Unsetenv("SERVER_HOST")
+	defer os.Unsetenv("SERVER_PORT")
+
+	var gotHost string
+	var gotPort int
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName, // no env enricher — rely on explicit tags
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotHost = p.API.Host
+			gotPort = p.API.Port
+		},
+	}).RunArgsE([]string{})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotHost != "api.example.com" {
+		t.Errorf("expected host='api.example.com', got %q", gotHost)
+	}
+	if gotPort != 9090 {
+		t.Errorf("expected port=9090, got %d", gotPort)
+	}
+}
+
 func TestNamedStruct_ExplicitNameOverridesPrefix(t *testing.T) {
 	// Explicit name:"..." tag on a child field should override the auto-prefix
 	type Config struct {
