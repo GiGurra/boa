@@ -827,3 +827,950 @@ func TestErrorHandlingTable(t *testing.T) {
 		})
 	}
 }
+
+// TestPositionalArgsErrorOutput verifies that missing positional arguments
+// produce both a usage message and an error message in Run()/RunArgs() output,
+// and that RunE()/RunArgsE() return errors without printing anything.
+func TestPositionalArgsErrorOutput(t *testing.T) {
+	type Params struct {
+		File string `positional:"true" required:"true"`
+		Dest string `positional:"true" required:"true"`
+	}
+
+	tests := []struct {
+		name          string
+		method        string
+		args          []string
+		wantErr       bool
+		wantUsage     bool
+		wantErrorMsg  bool
+		errorContains string
+	}{
+		{
+			name:          "Run/missing all positional args",
+			method:        "Run",
+			args:          []string{},
+			wantErr:       true,
+			wantUsage:     true,
+			wantErrorMsg:  true,
+			errorContains: "accepts between 2 and 2 arg(s), received 0",
+		},
+		{
+			name:          "Run/missing one positional arg",
+			method:        "Run",
+			args:          []string{"file.txt"},
+			wantErr:       true,
+			wantUsage:     true,
+			wantErrorMsg:  true,
+			errorContains: "accepts between 2 and 2 arg(s), received 1",
+		},
+		{
+			name:          "Run/too many positional args",
+			method:        "Run",
+			args:          []string{"a", "b", "c"},
+			wantErr:       true,
+			wantUsage:     true,
+			wantErrorMsg:  true,
+			errorContains: "accepts between 2 and 2 arg(s), received 3",
+		},
+		{
+			name:          "RunE/missing all positional args",
+			method:        "RunE",
+			args:          []string{},
+			wantErr:       true,
+			wantUsage:     false,
+			wantErrorMsg:  false, // RunE returns error, prints nothing
+			errorContains: "accepts between 2 and 2 arg(s), received 0",
+		},
+		{
+			name:         "Run/correct number of args",
+			method:       "Run",
+			args:         []string{"file.txt", "/tmp/dest"},
+			wantErr:      false,
+			wantUsage:    false,
+			wantErrorMsg: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var exitCalled bool
+			oldOsExit := osExit
+			osExit = func(code int) {
+				exitCalled = true
+			}
+			defer func() { osExit = oldOsExit }()
+
+			// Capture stderr
+			oldStderr := os.Stderr
+			r, w, _ := os.Pipe()
+			os.Stderr = w
+
+			cmd := CmdT[Params]{
+				Use:         "test <file> <dest>",
+				RunFunc:     func(p *Params, c *cobra.Command, args []string) {},
+				ParamEnrich: ParamEnricherName,
+			}
+
+			var returnedErr error
+			switch tc.method {
+			case "Run":
+				cmd.RunArgs(tc.args)
+			case "RunE":
+				returnedErr = cmd.RunArgsE(tc.args)
+			}
+
+			w.Close()
+			os.Stderr = oldStderr
+			captured := make([]byte, 8192)
+			n, _ := r.Read(captured)
+			r.Close()
+			output := string(captured[:n])
+
+			if tc.wantErr {
+				if tc.method == "Run" && !exitCalled {
+					t.Error("Expected osExit to be called")
+				}
+				if tc.method == "RunE" && returnedErr == nil {
+					t.Error("Expected error to be returned")
+				}
+				if tc.method == "RunE" && returnedErr != nil && tc.errorContains != "" {
+					if !strings.Contains(returnedErr.Error(), tc.errorContains) {
+						t.Errorf("Expected error containing %q, got: %s", tc.errorContains, returnedErr.Error())
+					}
+				}
+			}
+
+			if tc.wantUsage {
+				if !strings.Contains(output, "Usage:") {
+					t.Errorf("Expected 'Usage:' in output, got:\n%s", output)
+				}
+			}
+			if tc.wantErrorMsg {
+				if !strings.Contains(output, "Error:") {
+					t.Errorf("Expected 'Error:' in output, got:\n%s", output)
+				}
+				if tc.errorContains != "" && !strings.Contains(output, tc.errorContains) {
+					t.Errorf("Expected output containing %q, got:\n%s", tc.errorContains, output)
+				}
+			}
+			if !tc.wantUsage && !tc.wantErrorMsg && n > 0 {
+				if tc.method == "RunE" {
+					t.Errorf("Expected no output for RunE, got:\n%s", output)
+				}
+			}
+		})
+	}
+}
+
+// TestSubcommandPositionalArgsError verifies that subcommands with missing positional
+// args produce both usage and error messages.
+func TestSubcommandPositionalArgsError(t *testing.T) {
+	type CpParams struct {
+		ConvID   string `positional:"true" required:"true"`
+		DestPath string `positional:"true" required:"true"`
+	}
+
+	type RootParams struct{}
+
+	t.Run("Run/subcommand missing positional args", func(t *testing.T) {
+		var exitCalled bool
+		oldOsExit := osExit
+		osExit = func(code int) { exitCalled = true }
+		defer func() { osExit = oldOsExit }()
+
+		oldStderr := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
+
+		root := Cmd{
+			Use: "app",
+			SubCmds: SubCmds(
+				CmdT[CpParams]{
+					Use:         "cp <conv-id> <dest-path>",
+					Short:       "Copy a conversation",
+					RunFunc:     func(p *CpParams, c *cobra.Command, args []string) {},
+					ParamEnrich: ParamEnricherName,
+				},
+			),
+		}
+		root.RunArgs([]string{"cp"})
+
+		w.Close()
+		os.Stderr = oldStderr
+		captured := make([]byte, 8192)
+		n, _ := r.Read(captured)
+		r.Close()
+		output := string(captured[:n])
+
+		if !exitCalled {
+			t.Error("Expected osExit to be called")
+		}
+		if !strings.Contains(output, "Usage:") {
+			t.Errorf("Expected 'Usage:' in output, got:\n%s", output)
+		}
+		if !strings.Contains(output, "Error:") {
+			t.Errorf("Expected 'Error:' in output, got:\n%s", output)
+		}
+		if !strings.Contains(output, "accepts between 2 and 2 arg(s), received 0") {
+			t.Errorf("Expected error about arg count, got:\n%s", output)
+		}
+	})
+
+	t.Run("RunE/subcommand missing positional args", func(t *testing.T) {
+		oldStderr := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
+
+		root := Cmd{
+			Use: "app",
+			SubCmds: SubCmds(
+				CmdT[CpParams]{
+					Use:         "cp <conv-id> <dest-path>",
+					Short:       "Copy a conversation",
+					RunFunc:     func(p *CpParams, c *cobra.Command, args []string) {},
+					ParamEnrich: ParamEnricherName,
+				},
+			),
+		}
+		err := root.RunArgsE([]string{"cp"})
+
+		w.Close()
+		os.Stderr = oldStderr
+		captured := make([]byte, 8192)
+		n, _ := r.Read(captured)
+		r.Close()
+
+		if err == nil {
+			t.Fatal("Expected error to be returned")
+		}
+		if !strings.Contains(err.Error(), "accepts between 2 and 2 arg(s), received 0") {
+			t.Errorf("Expected error about arg count, got: %s", err.Error())
+		}
+		if n > 0 {
+			t.Errorf("Expected no output for RunE, got:\n%s", string(captured[:n]))
+		}
+	})
+
+	t.Run("Run/unknown subcommand rejected", func(t *testing.T) {
+		var exitCalled bool
+		oldOsExit := osExit
+		osExit = func(code int) { exitCalled = true }
+		defer func() { osExit = oldOsExit }()
+
+		oldStderr := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
+
+		root := Cmd{
+			Use: "app",
+			SubCmds: SubCmds(
+				CmdT[RootParams]{
+					Use:         "valid",
+					RunFunc:     func(p *RootParams, c *cobra.Command, args []string) {},
+					ParamEnrich: ParamEnricherName,
+				},
+			),
+		}
+		root.RunArgs([]string{"bogus"})
+
+		w.Close()
+		os.Stderr = oldStderr
+		captured := make([]byte, 8192)
+		n, _ := r.Read(captured)
+		r.Close()
+		output := string(captured[:n])
+
+		if !exitCalled {
+			t.Error("Expected osExit to be called for unknown subcommand")
+		}
+		if !strings.Contains(output, "Error:") {
+			t.Errorf("Expected 'Error:' in output for unknown subcommand, got:\n%s", output)
+		}
+	})
+}
+
+// TestSlicePositionalArgsErrorOutput verifies that slice positional args accept
+// variable argument counts (MinimumNArgs) instead of exact counts.
+func TestSlicePositionalArgsErrorOutput(t *testing.T) {
+	type SliceParams struct {
+		Files []string `positional:"true" required:"true"`
+	}
+
+	type MixedParams struct {
+		Dest  string   `positional:"true" required:"true"`
+		Files []string `positional:"true" required:"true"`
+	}
+
+	t.Run("Run/slice accepts single arg", func(t *testing.T) {
+		var got []string
+		cmd := CmdT[SliceParams]{
+			Use:         "test <files>...",
+			ParamEnrich: ParamEnricherName,
+			RunFunc: func(p *SliceParams, c *cobra.Command, args []string) {
+				got = p.Files
+			},
+		}
+		cmd.RunArgs([]string{"only.txt"})
+		if len(got) != 1 || got[0] != "only.txt" {
+			t.Errorf("Expected [only.txt], got %v", got)
+		}
+	})
+
+	t.Run("Run/slice accepts many args", func(t *testing.T) {
+		var got []string
+		cmd := CmdT[SliceParams]{
+			Use:         "test <files>...",
+			ParamEnrich: ParamEnricherName,
+			RunFunc: func(p *SliceParams, c *cobra.Command, args []string) {
+				got = p.Files
+			},
+		}
+		input := []string{"a", "b", "c", "d", "e"}
+		cmd.RunArgs(input)
+		if len(got) != 5 {
+			t.Errorf("Expected 5 files, got %d: %v", len(got), got)
+		}
+		for i, want := range input {
+			if got[i] != want {
+				t.Errorf("Files[%d] = %q, want %q", i, got[i], want)
+			}
+		}
+	})
+
+	t.Run("Run/slice requires minimum args", func(t *testing.T) {
+		var exitCalled bool
+		oldOsExit := osExit
+		osExit = func(code int) { exitCalled = true }
+		defer func() { osExit = oldOsExit }()
+
+		oldStderr := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
+
+		cmd := CmdT[SliceParams]{
+			Use:         "test <files>...",
+			RunFunc:     func(p *SliceParams, c *cobra.Command, args []string) {},
+			ParamEnrich: ParamEnricherName,
+		}
+		cmd.RunArgs([]string{})
+
+		w.Close()
+		os.Stderr = oldStderr
+		captured := make([]byte, 8192)
+		n, _ := r.Read(captured)
+		r.Close()
+		output := string(captured[:n])
+
+		if !exitCalled {
+			t.Error("Expected osExit to be called")
+		}
+		if !strings.Contains(output, "Error:") {
+			t.Errorf("Expected 'Error:' in output, got:\n%s", output)
+		}
+	})
+
+	t.Run("Run/mixed positional with slice accepts variable count", func(t *testing.T) {
+		var gotDest string
+		var gotFiles []string
+		cmd := CmdT[MixedParams]{
+			Use:         "test <dest> <files>...",
+			ParamEnrich: ParamEnricherName,
+			RunFunc: func(p *MixedParams, c *cobra.Command, args []string) {
+				gotDest = p.Dest
+				gotFiles = p.Files
+			},
+		}
+		cmd.RunArgs([]string{"/tmp", "a.txt", "b.txt"})
+		if gotDest != "/tmp" {
+			t.Errorf("Dest = %q, want /tmp", gotDest)
+		}
+		if len(gotFiles) != 2 || gotFiles[0] != "a.txt" || gotFiles[1] != "b.txt" {
+			t.Errorf("Files = %v, want [a.txt b.txt]", gotFiles)
+		}
+	})
+
+	t.Run("Run/mixed positional with just required and one slice arg", func(t *testing.T) {
+		var gotDest string
+		var gotFiles []string
+		cmd := CmdT[MixedParams]{
+			Use:         "test <dest> <files>...",
+			ParamEnrich: ParamEnricherName,
+			RunFunc: func(p *MixedParams, c *cobra.Command, args []string) {
+				gotDest = p.Dest
+				gotFiles = p.Files
+			},
+		}
+		cmd.RunArgs([]string{"/out", "single.txt"})
+		if gotDest != "/out" {
+			t.Errorf("Dest = %q, want /out", gotDest)
+		}
+		if len(gotFiles) != 1 || gotFiles[0] != "single.txt" {
+			t.Errorf("Files = %v, want [single.txt]", gotFiles)
+		}
+	})
+
+	t.Run("Run/mixed positional missing required", func(t *testing.T) {
+		var exitCalled bool
+		oldOsExit := osExit
+		osExit = func(code int) { exitCalled = true }
+		defer func() { osExit = oldOsExit }()
+
+		oldStderr := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
+
+		cmd := CmdT[MixedParams]{
+			Use:         "test <dest> <files>...",
+			RunFunc:     func(p *MixedParams, c *cobra.Command, args []string) {},
+			ParamEnrich: ParamEnricherName,
+		}
+		cmd.RunArgs([]string{})
+
+		w.Close()
+		os.Stderr = oldStderr
+		captured := make([]byte, 8192)
+		n, _ := r.Read(captured)
+		r.Close()
+		output := string(captured[:n])
+
+		if !exitCalled {
+			t.Error("Expected osExit to be called")
+		}
+		if !strings.Contains(output, "Error:") {
+			t.Errorf("Expected 'Error:' in output, got:\n%s", output)
+		}
+		if !strings.Contains(output, "Usage:") {
+			t.Errorf("Expected 'Usage:' in output, got:\n%s", output)
+		}
+	})
+
+	t.Run("RunE/slice returns error for missing args", func(t *testing.T) {
+		err := (CmdT[SliceParams]{
+			Use:         "test <files>...",
+			RunFunc:     func(p *SliceParams, c *cobra.Command, args []string) {},
+			ParamEnrich: ParamEnricherName,
+		}).RunArgsE([]string{})
+
+		if err == nil {
+			t.Fatal("Expected error for missing slice positional args")
+		}
+		if !IsUserInputError(err) {
+			t.Errorf("Expected UserInputError, got: %T", err)
+		}
+	})
+}
+
+// TestUsageStringGeneration verifies that auto-generated usage strings contain
+// the expected flag names, descriptions, defaults, positional placeholders,
+// and subcommand listings.
+func TestUsageStringGeneration(t *testing.T) {
+	t.Run("flags with descriptions and defaults", func(t *testing.T) {
+		type Params struct {
+			Name    string `descr:"User name" required:"true"`
+			Port    int    `descr:"Port number" default:"8080" optional:"true"`
+			Verbose bool   `short:"v" descr:"Enable verbose output"`
+		}
+		usage := (CmdT[Params]{
+			Use:     "serve",
+			Short:   "Start the server",
+			RunFunc: func(p *Params, c *cobra.Command, args []string) {},
+		}).ToCobra().UsageString()
+
+		for _, want := range []string{
+			"serve [flags]",
+			"--name string",
+			"User name",
+			"(required)",
+			"--port int",
+			"Port number",
+			"(default 8080)",
+			"-v, --verbose",
+			"Enable verbose output",
+		} {
+			if !strings.Contains(usage, want) {
+				t.Errorf("Usage missing %q:\n%s", want, usage)
+			}
+		}
+	})
+
+	t.Run("auto-generated flag names from field names", func(t *testing.T) {
+		type Params struct {
+			DBHost   string `descr:"Database host"`
+			HTTPPort int    `descr:"HTTP port" default:"8080"`
+			LogLevel string `descr:"Log level"`
+		}
+		usage := (CmdT[Params]{
+			Use:         "app",
+			RunFunc:     func(p *Params, c *cobra.Command, args []string) {},
+			ParamEnrich: ParamEnricherName,
+		}).ToCobra().UsageString()
+
+		for _, want := range []string{
+			"--db-host string",
+			"--http-port int",
+			"--log-level string",
+		} {
+			if !strings.Contains(usage, want) {
+				t.Errorf("Usage missing %q:\n%s", want, usage)
+			}
+		}
+	})
+
+	t.Run("positional args in use line", func(t *testing.T) {
+		type Params struct {
+			Src  string `positional:"true" required:"true"`
+			Dest string `positional:"true" required:"true"`
+		}
+		usage := (CmdT[Params]{
+			Use:         "cp",
+			RunFunc:     func(p *Params, c *cobra.Command, args []string) {},
+			ParamEnrich: ParamEnricherName,
+		}).ToCobra().UsageString()
+
+		for _, want := range []string{
+			"cp <src> <dest>",
+		} {
+			if !strings.Contains(usage, want) {
+				t.Errorf("Usage missing %q:\n%s", want, usage)
+			}
+		}
+		// Positional-only commands should not show [flags]
+		if strings.Contains(usage, "[flags]") {
+			t.Errorf("Positional-only command should not show [flags]:\n%s", usage)
+		}
+	})
+
+	t.Run("mixed flags and positional args", func(t *testing.T) {
+		type Params struct {
+			File   string  `positional:"true" required:"true"`
+			Output *string `descr:"Output file"`
+			Force  bool    `short:"f" descr:"Force overwrite"`
+		}
+		usage := (CmdT[Params]{
+			Use:     "process",
+			RunFunc: func(p *Params, c *cobra.Command, args []string) {},
+		}).ToCobra().UsageString()
+
+		for _, want := range []string{
+			"process <file> [flags]",
+			"--output string",
+			"Output file",
+			"-f, --force",
+			"Force overwrite",
+		} {
+			if !strings.Contains(usage, want) {
+				t.Errorf("Usage missing %q:\n%s", want, usage)
+			}
+		}
+	})
+
+	t.Run("pointer fields are optional by default", func(t *testing.T) {
+		type Params struct {
+			Name *string `descr:"Optional name"`
+			Age  *int    `descr:"Optional age"`
+		}
+		usage := (CmdT[Params]{
+			Use:         "app",
+			RunFunc:     func(p *Params, c *cobra.Command, args []string) {},
+			ParamEnrich: ParamEnricherName,
+		}).ToCobra().UsageString()
+
+		// Pointer fields should NOT show "(required)"
+		if strings.Contains(usage, "(required)") {
+			t.Errorf("Pointer fields should not show (required):\n%s", usage)
+		}
+	})
+
+	t.Run("subcommands listed", func(t *testing.T) {
+		type SubParams struct {
+			ID string `positional:"true" required:"true"`
+		}
+		type RootParams struct {
+			LogLevel string `descr:"Log level" default:"info"`
+		}
+		usage := (CmdT[RootParams]{
+			Use:   "app",
+			Short: "My app",
+			SubCmds: SubCmds(
+				CmdT[SubParams]{
+					Use:   "get",
+					Short: "Get a resource",
+					RunFunc: func(p *SubParams, c *cobra.Command, args []string) {},
+				},
+				CmdT[SubParams]{
+					Use:   "delete",
+					Short: "Delete a resource",
+					RunFunc: func(p *SubParams, c *cobra.Command, args []string) {},
+				},
+			),
+		}).ToCobra().UsageString()
+
+		for _, want := range []string{
+			"app [command]",
+			"Available Commands:",
+			"get",
+			"Get a resource",
+			"delete",
+			"Delete a resource",
+			"--log-level string",
+			`(default "info")`,
+		} {
+			if !strings.Contains(usage, want) {
+				t.Errorf("Usage missing %q:\n%s", want, usage)
+			}
+		}
+	})
+
+	t.Run("slice positional in use line", func(t *testing.T) {
+		type Params struct {
+			Dest  string   `positional:"true" required:"true"`
+			Files []string `positional:"true" required:"true"`
+		}
+		usage := (CmdT[Params]{
+			Use:         "upload",
+			RunFunc:     func(p *Params, c *cobra.Command, args []string) {},
+			ParamEnrich: ParamEnricherName,
+		}).ToCobra().UsageString()
+
+		for _, want := range []string{
+			"upload <dest> <files...>",
+		} {
+			if !strings.Contains(usage, want) {
+				t.Errorf("Usage missing %q:\n%s", want, usage)
+			}
+		}
+	})
+
+	t.Run("short flags auto-assigned by default enricher", func(t *testing.T) {
+		type Params struct {
+			Name string `descr:"User name"`
+			Port int    `descr:"Port number" default:"8080"`
+		}
+		usage := (CmdT[Params]{
+			Use:     "app",
+			RunFunc: func(p *Params, c *cobra.Command, args []string) {},
+			// Default enricher (not ParamEnricherName) assigns short flags
+		}).ToCobra().UsageString()
+
+		for _, want := range []string{
+			"-n, --name",
+			"-p, --port",
+		} {
+			if !strings.Contains(usage, want) {
+				t.Errorf("Usage missing %q:\n%s", want, usage)
+			}
+		}
+	})
+
+	t.Run("explicit short flag override", func(t *testing.T) {
+		type Params struct {
+			Verbose bool `short:"V" descr:"Verbose output"`
+		}
+		usage := (CmdT[Params]{
+			Use:         "app",
+			RunFunc:     func(p *Params, c *cobra.Command, args []string) {},
+			ParamEnrich: ParamEnricherName,
+		}).ToCobra().UsageString()
+
+		if !strings.Contains(usage, "-V, --verbose") {
+			t.Errorf("Expected explicit short flag -V:\n%s", usage)
+		}
+	})
+
+	t.Run("env tag shown in description", func(t *testing.T) {
+		type Params struct {
+			Token string `descr:"API token" env:"API_TOKEN"`
+		}
+		usage := (CmdT[Params]{
+			Use:     "app",
+			RunFunc: func(p *Params, c *cobra.Command, args []string) {},
+		}).ToCobra().UsageString()
+
+		if !strings.Contains(usage, "API_TOKEN") {
+			t.Errorf("Expected env var name in usage:\n%s", usage)
+		}
+	})
+}
+
+// TestPositionalArgsUsageAndValidation checks usage strings and argument
+// validation for every positional argument combination:
+// 0, 1, 2, 3 required; slice; required+optional; required+slice.
+func TestPositionalArgsUsageAndValidation(t *testing.T) {
+	noop := func(_ *cobra.Command, _ []string) {}
+
+	// --- 0 positional args ---
+	t.Run("0 pos args/usage", func(t *testing.T) {
+		type P struct {
+			Flag string `descr:"A flag"`
+		}
+		usage := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).ToCobra().UsageString()
+		if !strings.Contains(usage, "cmd [flags]") {
+			t.Errorf("Expected 'cmd [flags]':\n%s", usage)
+		}
+	})
+	t.Run("0 pos args/rejects args", func(t *testing.T) {
+		type P struct{}
+		err := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).RunArgsE([]string{"unexpected"})
+		if err == nil {
+			t.Fatal("Expected error for unexpected arg")
+		}
+	})
+
+	// --- 1 positional arg ---
+	t.Run("1 pos arg/usage", func(t *testing.T) {
+		type P struct {
+			Src string `positional:"true" required:"true"`
+		}
+		usage := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).ToCobra().UsageString()
+		if !strings.Contains(usage, "cmd <src>") {
+			t.Errorf("Expected 'cmd <src>':\n%s", usage)
+		}
+	})
+	t.Run("1 pos arg/accepts 1", func(t *testing.T) {
+		type P struct {
+			Src string `positional:"true" required:"true"`
+		}
+		var got string
+		(CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Src }, ParamEnrich: ParamEnricherName}).RunArgs([]string{"hello"})
+		if got != "hello" {
+			t.Errorf("Src = %q, want hello", got)
+		}
+	})
+	t.Run("1 pos arg/rejects 0", func(t *testing.T) {
+		type P struct {
+			Src string `positional:"true" required:"true"`
+		}
+		err := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).RunArgsE([]string{})
+		if err == nil {
+			t.Fatal("Expected error for missing arg")
+		}
+	})
+	t.Run("1 pos arg/rejects 2", func(t *testing.T) {
+		type P struct {
+			Src string `positional:"true" required:"true"`
+		}
+		err := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).RunArgsE([]string{"a", "b"})
+		if err == nil {
+			t.Fatal("Expected error for too many args")
+		}
+	})
+
+	// --- 2 positional args ---
+	t.Run("2 pos args/usage", func(t *testing.T) {
+		type P struct {
+			Src  string `positional:"true" required:"true"`
+			Dest string `positional:"true" required:"true"`
+		}
+		usage := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).ToCobra().UsageString()
+		if !strings.Contains(usage, "cmd <src> <dest>") {
+			t.Errorf("Expected 'cmd <src> <dest>':\n%s", usage)
+		}
+	})
+	t.Run("2 pos args/accepts 2", func(t *testing.T) {
+		type P struct {
+			Src  string `positional:"true" required:"true"`
+			Dest string `positional:"true" required:"true"`
+		}
+		var gotSrc, gotDest string
+		(CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) { gotSrc = p.Src; gotDest = p.Dest }, ParamEnrich: ParamEnricherName}).RunArgs([]string{"a", "b"})
+		if gotSrc != "a" || gotDest != "b" {
+			t.Errorf("Got src=%q dest=%q, want a, b", gotSrc, gotDest)
+		}
+	})
+	t.Run("2 pos args/rejects 1", func(t *testing.T) {
+		type P struct {
+			Src  string `positional:"true" required:"true"`
+			Dest string `positional:"true" required:"true"`
+		}
+		err := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).RunArgsE([]string{"a"})
+		if err == nil {
+			t.Fatal("Expected error for missing arg")
+		}
+	})
+
+	// --- 3 positional args ---
+	t.Run("3 pos args/usage", func(t *testing.T) {
+		type P struct {
+			A string `positional:"true" required:"true"`
+			B string `positional:"true" required:"true"`
+			C string `positional:"true" required:"true"`
+		}
+		usage := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).ToCobra().UsageString()
+		if !strings.Contains(usage, "cmd <a> <b> <c>") {
+			t.Errorf("Expected 'cmd <a> <b> <c>':\n%s", usage)
+		}
+	})
+	t.Run("3 pos args/accepts 3", func(t *testing.T) {
+		type P struct {
+			A string `positional:"true" required:"true"`
+			B string `positional:"true" required:"true"`
+			C string `positional:"true" required:"true"`
+		}
+		var a, b, c string
+		(CmdT[P]{Use: "cmd", RunFunc: func(p *P, cc *cobra.Command, args []string) { a = p.A; b = p.B; c = p.C }, ParamEnrich: ParamEnricherName}).RunArgs([]string{"x", "y", "z"})
+		if a != "x" || b != "y" || c != "z" {
+			t.Errorf("Got %q %q %q, want x y z", a, b, c)
+		}
+	})
+	t.Run("3 pos args/rejects 2", func(t *testing.T) {
+		type P struct {
+			A string `positional:"true" required:"true"`
+			B string `positional:"true" required:"true"`
+			C string `positional:"true" required:"true"`
+		}
+		err := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).RunArgsE([]string{"a", "b"})
+		if err == nil {
+			t.Fatal("Expected error for missing arg")
+		}
+	})
+
+	// --- slice positional args ---
+	t.Run("slice pos/usage", func(t *testing.T) {
+		type P struct {
+			Files []string `positional:"true" required:"true"`
+		}
+		usage := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).ToCobra().UsageString()
+		if !strings.Contains(usage, "cmd <files...>") {
+			t.Errorf("Expected 'cmd <files>':\n%s", usage)
+		}
+	})
+	t.Run("slice pos/accepts 1", func(t *testing.T) {
+		type P struct {
+			Files []string `positional:"true" required:"true"`
+		}
+		var got []string
+		(CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Files }, ParamEnrich: ParamEnricherName}).RunArgs([]string{"a"})
+		if len(got) != 1 || got[0] != "a" {
+			t.Errorf("Got %v, want [a]", got)
+		}
+	})
+	t.Run("slice pos/accepts 5", func(t *testing.T) {
+		type P struct {
+			Files []string `positional:"true" required:"true"`
+		}
+		var got []string
+		(CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Files }, ParamEnrich: ParamEnricherName}).RunArgs([]string{"a", "b", "c", "d", "e"})
+		if len(got) != 5 {
+			t.Errorf("Got %d args, want 5: %v", len(got), got)
+		}
+	})
+	t.Run("slice pos/rejects 0", func(t *testing.T) {
+		type P struct {
+			Files []string `positional:"true" required:"true"`
+		}
+		err := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).RunArgsE([]string{})
+		if err == nil {
+			t.Fatal("Expected error for missing args")
+		}
+	})
+
+	// --- 1 required + 1 optional positional ---
+	t.Run("1 req + 1 opt/usage", func(t *testing.T) {
+		type P struct {
+			Src  string `positional:"true" required:"true"`
+			Dest string `positional:"true" optional:"true"`
+		}
+		usage := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).ToCobra().UsageString()
+		if !strings.Contains(usage, "cmd <src> [dest]") {
+			t.Errorf("Expected 'cmd <src> [dest]':\n%s", usage)
+		}
+	})
+	t.Run("1 req + 1 opt/accepts 1", func(t *testing.T) {
+		type P struct {
+			Src  string `positional:"true" required:"true"`
+			Dest string `positional:"true" optional:"true"`
+		}
+		var src, dest string
+		(CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) { src = p.Src; dest = p.Dest }, ParamEnrich: ParamEnricherName}).RunArgs([]string{"a"})
+		if src != "a" {
+			t.Errorf("Src = %q, want a", src)
+		}
+		if dest != "" {
+			t.Errorf("Dest = %q, want empty", dest)
+		}
+	})
+	t.Run("1 req + 1 opt/accepts 2", func(t *testing.T) {
+		type P struct {
+			Src  string `positional:"true" required:"true"`
+			Dest string `positional:"true" optional:"true"`
+		}
+		var src, dest string
+		(CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) { src = p.Src; dest = p.Dest }, ParamEnrich: ParamEnricherName}).RunArgs([]string{"a", "b"})
+		if src != "a" || dest != "b" {
+			t.Errorf("Got src=%q dest=%q, want a, b", src, dest)
+		}
+	})
+	t.Run("1 req + 1 opt/rejects 0", func(t *testing.T) {
+		type P struct {
+			Src  string `positional:"true" required:"true"`
+			Dest string `positional:"true" optional:"true"`
+		}
+		err := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).RunArgsE([]string{})
+		if err == nil {
+			t.Fatal("Expected error for missing required arg")
+		}
+	})
+	t.Run("1 req + 1 opt/rejects 3", func(t *testing.T) {
+		type P struct {
+			Src  string `positional:"true" required:"true"`
+			Dest string `positional:"true" optional:"true"`
+		}
+		err := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).RunArgsE([]string{"a", "b", "c"})
+		if err == nil {
+			t.Fatal("Expected error for too many args")
+		}
+	})
+
+	// --- 2 required + 1 slice (arbitrary tail) ---
+	t.Run("2 req + slice/usage", func(t *testing.T) {
+		type P struct {
+			Src   string   `positional:"true" required:"true"`
+			Dest  string   `positional:"true" required:"true"`
+			Files []string `positional:"true" required:"true"`
+		}
+		usage := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).ToCobra().UsageString()
+		if !strings.Contains(usage, "cmd <src> <dest> <files...>") {
+			t.Errorf("Expected 'cmd <src> <dest> <files>':\n%s", usage)
+		}
+	})
+	t.Run("2 req + slice/accepts exactly required", func(t *testing.T) {
+		type P struct {
+			Src   string   `positional:"true" required:"true"`
+			Dest  string   `positional:"true" required:"true"`
+			Files []string `positional:"true" required:"true"`
+		}
+		var src, dest string
+		var files []string
+		(CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) { src = p.Src; dest = p.Dest; files = p.Files }, ParamEnrich: ParamEnricherName}).RunArgs([]string{"s", "d", "f1"})
+		if src != "s" || dest != "d" || len(files) != 1 || files[0] != "f1" {
+			t.Errorf("Got src=%q dest=%q files=%v", src, dest, files)
+		}
+	})
+	t.Run("2 req + slice/accepts many trailing", func(t *testing.T) {
+		type P struct {
+			Src   string   `positional:"true" required:"true"`
+			Dest  string   `positional:"true" required:"true"`
+			Files []string `positional:"true" required:"true"`
+		}
+		var src, dest string
+		var files []string
+		(CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) { src = p.Src; dest = p.Dest; files = p.Files }, ParamEnrich: ParamEnricherName}).RunArgs([]string{"s", "d", "f1", "f2", "f3", "f4"})
+		if src != "s" || dest != "d" || len(files) != 4 {
+			t.Errorf("Got src=%q dest=%q files=%v", src, dest, files)
+		}
+	})
+	t.Run("2 req + slice/rejects 1", func(t *testing.T) {
+		type P struct {
+			Src   string   `positional:"true" required:"true"`
+			Dest  string   `positional:"true" required:"true"`
+			Files []string `positional:"true" required:"true"`
+		}
+		err := (CmdT[P]{Use: "cmd", RunFunc: func(p *P, c *cobra.Command, args []string) {}, ParamEnrich: ParamEnricherName}).RunArgsE([]string{"a"})
+		if err == nil {
+			t.Fatal("Expected error for insufficient args")
+		}
+	})
+
+	_ = noop
+}

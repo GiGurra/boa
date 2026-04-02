@@ -90,6 +90,14 @@ func IsUserInputError(err error) bool {
 	return false
 }
 
+// runFuncError marks errors originating from RunFuncE/RunFuncCtxE so that
+// runImpl can distinguish them from cobra errors (unknown command, bad flags).
+// Cobra errors should be treated as user input; RunFuncE errors are programming errors.
+type runFuncError struct{ Err error }
+
+func (e *runFuncError) Error() string { return e.Err.Error() }
+func (e *runFuncError) Unwrap() error { return e.Err }
+
 // wrapArgsValidator wraps a cobra.PositionalArgs validator to return UserInputError
 func wrapArgsValidator(validator cobra.PositionalArgs) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
@@ -283,7 +291,8 @@ func validate(ctx *processingContext, structPtr any) error {
 }
 
 // validateMinMaxPattern checks min/max/pattern tag constraints.
-// For numeric types, min/max compare the value. For strings, min/max compare length.
+// For numeric types, min/max compare the value.
+// For strings and slices, min/max compare length.
 func validateMinMaxPattern(pm *paramMeta, valPtr any) error {
 	if pm.minVal == nil && pm.maxVal == nil && pm.pattern == "" {
 		return nil
@@ -318,6 +327,14 @@ func validateMinMaxPattern(pm *paramMeta, valPtr any) error {
 		}
 		if pm.maxVal != nil && float64(len(str)) > *pm.maxVal {
 			return fmt.Errorf("length %d exceeds max %v", len(str), *pm.maxVal)
+		}
+	case reflect.Slice:
+		l := v.Len()
+		if pm.minVal != nil && float64(l) < *pm.minVal {
+			return fmt.Errorf("length %d is below min %v", l, *pm.minVal)
+		}
+		if pm.maxVal != nil && float64(l) > *pm.maxVal {
+			return fmt.Errorf("length %d exceeds max %v", l, *pm.maxVal)
 		}
 	}
 
@@ -466,7 +483,11 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param, ctx *processingContex
 				return "]"
 			}
 		}()
-		cmd.Use += " " + startSign + f.GetName() + endSign
+		suffix := ""
+		if f.GetType().Kind() == reflect.Slice {
+			suffix = "..."
+		}
+		cmd.Use += " " + startSign + f.GetName() + suffix + endSign
 
 		if cmd.Args == nil {
 			cmd.Args = func(cmd *cobra.Command, args []string) error {
@@ -1420,12 +1441,20 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		}
 	} else if b.RunFuncE != nil {
 		cmd.RunE = func(cmd *cobra.Command, args []string) error {
-			return b.RunFuncE(cmd, args)
+			err := b.RunFuncE(cmd, args)
+			if err != nil && !IsUserInputError(err) {
+				return &runFuncError{Err: err}
+			}
+			return err
 		}
 	} else if b.RunFuncCtxE != nil {
 		cmd.RunE = func(cmd *cobra.Command, args []string) error {
 			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
-			return b.RunFuncCtxE(hookCtx, cmd, args)
+			err := b.RunFuncCtxE(hookCtx, cmd, args)
+			if err != nil && !IsUserInputError(err) {
+				return &runFuncError{Err: err}
+			}
+			return err
 		}
 	}
 
@@ -1559,15 +1588,17 @@ func runImpl(cmd *cobra.Command, handler resultHandler) {
 		if handler.Failure != nil {
 			handler.Failure(err)
 		} else {
-			// For expected user input errors (missing required params, invalid values, etc.),
-			// print the error and exit cleanly (no stack trace).
-			// Only panic for unexpected errors (programming errors, runtime failures).
-			if IsUserInputError(err) {
-				fmt.Fprintln(os.Stderr, "Error:", err.Error())
-				osExit(1)
-				return // osExit may be mocked in tests, so we need to return explicitly
+			// Errors from RunFuncE/RunFuncCtxE that aren't UserInputError are
+			// programming errors — panic so developers notice.
+			var rfe *runFuncError
+			if errors.As(err, &rfe) {
+				panic(rfe.Unwrap())
 			}
-			panic(err)
+			// Everything else (cobra errors like unknown command/flag, args
+			// validation, missing required params, hooks) — print and exit cleanly.
+			fmt.Fprintln(os.Stderr, "Error:", err.Error())
+			osExit(1)
+			return // osExit may be mocked in tests, so we need to return explicitly
 		}
 	} else {
 		if handler.Success != nil {

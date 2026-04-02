@@ -16,8 +16,8 @@ Quick reference for all BOA struct tags.
 | `positional` | `pos` | Positional argument | `positional:"true"` |
 | `alts` | `alternatives` | Allowed values | `alts:"a,b,c"` |
 | `strict-alts` | `strict` | Validate alts | `strict:"true"` |
-| `min` | | Min value (numeric) or min length (string) | `min:"1"` |
-| `max` | | Max value (numeric) or max length (string) | `max:"65535"` |
+| `min` | | Min value (numeric) or min length (string/slice) | `min:"1"` |
+| `max` | | Max value (numeric) or max length (string/slice) | `max:"65535"` |
 | `pattern` | | Regex pattern (strings only) | `pattern:"^[a-z]+$"` |
 | `configfile` | | Auto-load config file (root or substruct) | `configfile:"true"` |
 | `boa` | | Special directives | `boa:"ignore"`, `boa:"configonly"` |
@@ -131,14 +131,16 @@ type Params struct {
 
 ### Min/Max Validation
 
-For numeric types, `min` and `max` validate the value itself. For strings, they validate the string length:
+For numeric types, `min` and `max` validate the value itself. For strings and slices, they validate the length:
 
 ```go
 type Params struct {
-    Port    int     `descr:"port" min:"1" max:"65535"`
-    Rate    float64 `descr:"rate" min:"0.0" max:"1.0"`
-    Name    string  `descr:"name" min:"3" max:"20"`
-    Retries int     `descr:"retries" max:"10"`
+    Port    int      `descr:"port" min:"1" max:"65535"`
+    Rate    float64  `descr:"rate" min:"0.0" max:"1.0"`
+    Name    string   `descr:"name" min:"3" max:"20"`
+    Retries int      `descr:"retries" max:"10"`
+    Tags    []string `descr:"tags" min:"1" max:"5"`
+    Files   []string `positional:"true" min:"2" max:"10"`
 }
 ```
 

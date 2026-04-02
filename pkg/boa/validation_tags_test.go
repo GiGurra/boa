@@ -261,3 +261,175 @@ func TestValidationTag_MinMax_StringLength(t *testing.T) {
 		t.Fatal("expected error for name too long")
 	}
 }
+
+// --- min/max for slice length ---
+
+func TestValidationTag_MinMax_Slice(t *testing.T) {
+	type Params struct {
+		Tags []string `descr:"tags" min:"1" max:"3"`
+	}
+
+	// Valid: 2 items
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--tags", "a", "--tags", "b"})
+	if err != nil {
+		t.Fatalf("expected no error for valid slice, got: %v", err)
+	}
+
+	// Below min: 1 item when min is 1 (need at least 1 tag provided)
+	err = (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{})
+	if err == nil {
+		t.Fatal("expected error for slice below min (required with 0 items)")
+	}
+
+	// Above max: 4 items
+	err = (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--tags", "a", "--tags", "b", "--tags", "c", "--tags", "d"})
+	if err == nil {
+		t.Fatal("expected error for slice above max")
+	}
+	if !strings.Contains(err.Error(), "max") {
+		t.Errorf("expected error about max, got: %v", err)
+	}
+}
+
+func TestValidationTag_MinOnly_Slice(t *testing.T) {
+	type Params struct {
+		Files []string `descr:"files" min:"2"`
+	}
+
+	// Valid: exactly 2
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--files", "a", "--files", "b"})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Below min: 1 item
+	err = (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--files", "a"})
+	if err == nil {
+		t.Fatal("expected error for slice below min")
+	}
+}
+
+func TestValidationTag_MaxOnly_Slice(t *testing.T) {
+	type Params struct {
+		Items []string `descr:"items" max:"2" optional:"true"`
+	}
+
+	// Valid: 0 items
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{})
+	if err != nil {
+		t.Fatalf("expected no error for empty slice, got: %v", err)
+	}
+
+	// Valid: 2 items
+	err = (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--items", "a", "--items", "b"})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Above max: 3 items
+	err = (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--items", "a", "--items", "b", "--items", "c"})
+	if err == nil {
+		t.Fatal("expected error for slice above max")
+	}
+}
+
+func TestValidationTag_MinMax_Slice_Positional(t *testing.T) {
+	type Params struct {
+		Files []string `positional:"true" min:"2" max:"4"`
+	}
+
+	// Valid: 3 items
+	var got []string
+	(CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) { got = p.Files },
+	}).RunArgs([]string{"a", "b", "c"})
+	if len(got) != 3 {
+		t.Fatalf("expected 3 files, got %d", len(got))
+	}
+
+	// Below min: 1 item
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"a"})
+	if err == nil {
+		t.Fatal("expected error for positional slice below min")
+	}
+	if !strings.Contains(err.Error(), "min") {
+		t.Errorf("expected error about min, got: %v", err)
+	}
+
+	// Above max: 5 items
+	err = (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"a", "b", "c", "d", "e"})
+	if err == nil {
+		t.Fatal("expected error for positional slice above max")
+	}
+	if !strings.Contains(err.Error(), "max") {
+		t.Errorf("expected error about max, got: %v", err)
+	}
+}
+
+func TestValidationTag_MinMax_IntSlice(t *testing.T) {
+	type Params struct {
+		Ports []int `descr:"ports" min:"1" max:"3"`
+	}
+
+	// Valid: 2 items
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--ports", "80", "--ports", "443"})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Above max: 4 items
+	err = (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--ports", "80", "--ports", "443", "--ports", "8080", "--ports", "9090"})
+	if err == nil {
+		t.Fatal("expected error for int slice above max")
+	}
+}

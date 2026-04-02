@@ -67,8 +67,8 @@ type Params struct {
 - `optional` / `opt` - Marks as optional
 - `alts` - Allowed values (enum validation)
 - `strict` - Validate against alts
-- `min` - Minimum value (numeric) or minimum length (string)
-- `max` - Maximum value (numeric) or maximum length (string)
+- `min` - Minimum value (numeric) or minimum length (string/slice)
+- `max` - Maximum value (numeric) or maximum length (string/slice)
 - `pattern` - Regex pattern for string validation
 - `configfile` - Auto-load config file from this field's path (works in root and nested structs)
 - `boa:"ignore"` - Skip CLI/env registration (still loaded from config files)

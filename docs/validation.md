@@ -46,15 +46,16 @@ type Params struct {
 
 ## Min/Max Validation
 
-Use `min` and `max` tags to constrain values. For numeric types, they validate the value. For strings, they validate the string length:
+Use `min` and `max` tags to constrain values. For numeric types, they validate the value. For strings and slices, they validate the length:
 
 ```go
 type Params struct {
-    Port    int     `descr:"port" min:"1" max:"65535"`
-    Rate    float64 `descr:"rate" min:"0.0" max:"1.0"`
-    Name    string  `descr:"name" min:"3" max:"20"`
-    Retries int     `descr:"retries" max:"10"`
-    Count   int     `descr:"count" min:"0"`
+    Port    int      `descr:"port" min:"1" max:"65535"`
+    Rate    float64  `descr:"rate" min:"0.0" max:"1.0"`
+    Name    string   `descr:"name" min:"3" max:"20"`
+    Retries int      `descr:"retries" max:"10"`
+    Count   int      `descr:"count" min:"0"`
+    Tags    []string `descr:"tags" min:"1" max:"5"`
 }
 ```
 
