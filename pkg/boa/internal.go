@@ -9,7 +9,9 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -266,11 +268,70 @@ func validate(ctx *processingContext, structPtr any) error {
 			if err := param.customValidatorOfPtr()(param.valuePtrF()); err != nil {
 				return fmt.Errorf("invalid value for param '%s': %s", param.GetName(), err.Error())
 			}
+
+			// min/max/pattern tag validation
+			if pm, ok := param.(*paramMeta); ok {
+				if err := validateMinMaxPattern(pm, param.valuePtrF()); err != nil {
+					return fmt.Errorf("invalid value for param '%s': %s", param.GetName(), err.Error())
+				}
+			}
 		}
 
 		return nil
 	}, nil)
 	return newUserInputError(err)
+}
+
+// validateMinMaxPattern checks min/max/pattern tag constraints.
+// For numeric types, min/max compare the value. For strings, min/max compare length.
+func validateMinMaxPattern(pm *paramMeta, valPtr any) error {
+	if pm.minVal == nil && pm.maxVal == nil && pm.pattern == "" {
+		return nil
+	}
+
+	v := reflect.ValueOf(valPtr)
+	if v.Kind() == reflect.Ptr && !v.IsNil() {
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.Int, reflect.Int32, reflect.Int64:
+		val := float64(v.Int())
+		if pm.minVal != nil && val < *pm.minVal {
+			return fmt.Errorf("value %v is below min %v", v.Int(), *pm.minVal)
+		}
+		if pm.maxVal != nil && val > *pm.maxVal {
+			return fmt.Errorf("value %v exceeds max %v", v.Int(), *pm.maxVal)
+		}
+	case reflect.Float32, reflect.Float64:
+		val := v.Float()
+		if pm.minVal != nil && val < *pm.minVal {
+			return fmt.Errorf("value %v is below min %v", val, *pm.minVal)
+		}
+		if pm.maxVal != nil && val > *pm.maxVal {
+			return fmt.Errorf("value %v exceeds max %v", val, *pm.maxVal)
+		}
+	case reflect.String:
+		str := v.String()
+		if pm.minVal != nil && float64(len(str)) < *pm.minVal {
+			return fmt.Errorf("length %d is below min %v", len(str), *pm.minVal)
+		}
+		if pm.maxVal != nil && float64(len(str)) > *pm.maxVal {
+			return fmt.Errorf("length %d exceeds max %v", len(str), *pm.maxVal)
+		}
+	}
+
+	if pm.pattern != "" && v.Kind() == reflect.String {
+		matched, err := regexp.MatchString(pm.pattern, v.String())
+		if err != nil {
+			return fmt.Errorf("invalid pattern %q: %w", pm.pattern, err)
+		}
+		if !matched {
+			return fmt.Errorf("value %q does not match pattern %q", v.String(), pm.pattern)
+		}
+	}
+
+	return nil
 }
 
 func ptrToAnyToString(ptr any) string {
@@ -992,6 +1053,27 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 						return fmt.Errorf("invalid default value for param %s: %s", param.GetName(), err.Error())
 					}
 					param.SetDefault(ptr)
+				}
+			}
+
+			// Parse min/max/pattern validation tags
+			if pm, ok := param.(*paramMeta); ok {
+				if minStr, ok := tags.Lookup("min"); ok {
+					v, err := strconv.ParseFloat(minStr, 64)
+					if err != nil {
+						return fmt.Errorf("invalid min value for param %s: %s", param.GetName(), err.Error())
+					}
+					pm.minVal = &v
+				}
+				if maxStr, ok := tags.Lookup("max"); ok {
+					v, err := strconv.ParseFloat(maxStr, 64)
+					if err != nil {
+						return fmt.Errorf("invalid max value for param %s: %s", param.GetName(), err.Error())
+					}
+					pm.maxVal = &v
+				}
+				if pat, ok := tags.Lookup("pattern"); ok {
+					pm.pattern = pat
 				}
 			}
 

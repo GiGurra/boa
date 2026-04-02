@@ -286,6 +286,38 @@ boa.CmdT[Params]{
 }.Run()
 ```
 
+## Flag Constraints (Mutual Exclusion, Required Together)
+
+Cobra supports flag relationship constraints. Use `InitFunc` to access these via the `*cobra.Command`:
+
+```go
+type Params struct {
+    JSON bool   `descr:"output as JSON" optional:"true"`
+    YAML bool   `descr:"output as YAML" optional:"true"`
+    Host string `descr:"server host"`
+    Port int    `descr:"server port" default:"8080"`
+}
+
+boa.CmdT[Params]{
+    Use: "serve",
+    InitFunc: func(params *Params, cmd *cobra.Command) error {
+        // --json and --yaml cannot both be set
+        cmd.MarkFlagsMutuallyExclusive("json", "yaml")
+        // --host and --port must be set together
+        cmd.MarkFlagsRequiredTogether("host", "port")
+        return nil
+    },
+    RunFunc: func(params *Params, cmd *cobra.Command, args []string) {
+        // ...
+    },
+}.Run()
+```
+
+Available constraint methods on `*cobra.Command`:
+- `MarkFlagsMutuallyExclusive(flags ...string)` — at most one can be set
+- `MarkFlagsOneRequired(flags ...string)` — at least one must be set
+- `MarkFlagsRequiredTogether(flags ...string)` — all or none must be set
+
 ## Summary
 
 | Task | Method |

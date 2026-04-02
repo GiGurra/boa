@@ -47,8 +47,11 @@ type paramMeta struct {
 	valuePtr        any            // cobra flag pointer (e.g., *string from StringP)
 	parent          *cobra.Command
 
-	// Validator
+	// Validation
 	customValidator func(any) error
+	minVal          *float64 // min value (numeric) or min length (string)
+	maxVal          *float64 // max value (numeric) or max length (string)
+	pattern         string   // regex pattern for string validation
 }
 
 var _ Param = &paramMeta{}
