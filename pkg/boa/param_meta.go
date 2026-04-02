@@ -298,8 +298,10 @@ func (f *paramMeta) SetCustomValidator(validator func(any) error) {
 // --- JSON marshaling ---
 
 func (f *paramMeta) MarshalJSON() ([]byte, error) {
+	if !f.HasValue() {
+		return json.Marshal(nil)
+	}
 	if f.valuePtr != nil {
-		// Dereference the pointer to get the value
 		val := reflect.ValueOf(f.valuePtr)
 		if val.Kind() == reflect.Ptr && !val.IsNil() {
 			return json.Marshal(val.Elem().Interface())
