@@ -766,6 +766,13 @@ func traverse(
 				var ok bool
 				if param, ok = ctx.RawAddrToMirror[addr]; !ok {
 					param = newParam(&field, field.Type)
+					// Set prefix for named struct nesting
+					if prefix != "" {
+						if pm, ok := param.(*paramMeta); ok {
+							pm.flagPrefix = camelToKebabCase(prefix) + "-"
+							pm.envPrefix = kebabCaseToUpperSnakeCase(pm.flagPrefix[:len(pm.flagPrefix)-1]) + "_"
+						}
+					}
 					ctx.RawAddresses = append(ctx.RawAddresses, addr)
 					ctx.RawAddrToMirror[addr] = param
 				}
@@ -910,7 +917,12 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			}
 			if param.GetEnv() == "" {
 				if env, ok := tags.Lookup("env"); ok {
-					param.SetEnv(env)
+					// Apply struct prefix to explicit env tags
+					if pm, ok2 := param.(*paramMeta); ok2 && pm.envPrefix != "" {
+						param.SetEnv(pm.envPrefix + env)
+					} else {
+						param.SetEnv(env)
+					}
 				}
 			}
 			if param.GetShort() == "" {
@@ -920,9 +932,18 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			}
 			if param.GetName() == "" {
 				if name, ok := tags.Lookup("name"); ok {
-					param.SetName(name)
+					// Apply struct prefix to explicit name tags
+					if pm, ok2 := param.(*paramMeta); ok2 && pm.flagPrefix != "" {
+						param.SetName(pm.flagPrefix + name)
+					} else {
+						param.SetName(name)
+					}
 				} else if name, ok := tags.Lookup("long"); ok {
-					param.SetName(name)
+					if pm, ok2 := param.(*paramMeta); ok2 && pm.flagPrefix != "" {
+						param.SetName(pm.flagPrefix + name)
+					} else {
+						param.SetName(name)
+					}
 				}
 			}
 

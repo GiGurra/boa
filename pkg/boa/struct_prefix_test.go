@@ -297,7 +297,8 @@ func TestNamedStruct_DeepNesting_EnvVar(t *testing.T) {
 }
 
 func TestNamedStruct_ExplicitEnvTag(t *testing.T) {
-	// Explicit env tags should be used as-is, no auto-prefix
+	// Explicit env tags get prefixed when inside a named struct field.
+	// API.Host with env:"SERVER_HOST" becomes API_SERVER_HOST.
 	type ServerConfig struct {
 		Host string `descr:"host" env:"SERVER_HOST" default:"localhost"`
 		Port int    `descr:"port" env:"SERVER_PORT" default:"8080"`
@@ -306,10 +307,10 @@ func TestNamedStruct_ExplicitEnvTag(t *testing.T) {
 		API ServerConfig
 	}
 
-	os.Setenv("SERVER_HOST", "api.example.com")
-	os.Setenv("SERVER_PORT", "9090")
-	defer os.Unsetenv("SERVER_HOST")
-	defer os.Unsetenv("SERVER_PORT")
+	os.Setenv("API_SERVER_HOST", "api.example.com")
+	os.Setenv("API_SERVER_PORT", "9090")
+	defer os.Unsetenv("API_SERVER_HOST")
+	defer os.Unsetenv("API_SERVER_PORT")
 
 	var gotHost string
 	var gotPort int
@@ -333,10 +334,12 @@ func TestNamedStruct_ExplicitEnvTag(t *testing.T) {
 	}
 }
 
-func TestNamedStruct_ExplicitNameOverridesPrefix(t *testing.T) {
-	// Explicit name:"..." tag on a child field should override the auto-prefix
+func TestNamedStruct_ExplicitNameGetsPrefixed(t *testing.T) {
+	// Explicit name:"..." on a child field should ALSO be prefixed
+	// when inside a named struct field. The parent prefix always applies.
+	// This avoids collisions when the same struct is used in multiple fields.
 	type Config struct {
-		Host string `descr:"host" name:"server-host"`
+		Host string `descr:"host" name:"host"` // explicit name
 		Port int    `descr:"port" default:"8080"`
 	}
 	type Params struct {
@@ -352,7 +355,7 @@ func TestNamedStruct_ExplicitNameOverridesPrefix(t *testing.T) {
 			gotHost = p.API.Host
 			gotPort = p.API.Port
 		},
-	}).RunArgsE([]string{"--server-host", "api.example.com"})
+	}).RunArgsE([]string{"--api-host", "api.example.com"})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -362,5 +365,71 @@ func TestNamedStruct_ExplicitNameOverridesPrefix(t *testing.T) {
 	}
 	if gotPort != 8080 {
 		t.Errorf("expected port=8080, got %d", gotPort)
+	}
+}
+
+func TestNamedStruct_ExplicitEnvGetsPrefixed(t *testing.T) {
+	// Explicit env:"..." on a child field should ALSO be prefixed
+	// when inside a named struct field.
+	type Config struct {
+		Host string `descr:"host" env:"HOST" default:"localhost"`
+	}
+	type Params struct {
+		Primary Config
+		Replica Config
+	}
+
+	os.Setenv("PRIMARY_HOST", "primary.db")
+	os.Setenv("REPLICA_HOST", "replica.db")
+	defer os.Unsetenv("PRIMARY_HOST")
+	defer os.Unsetenv("REPLICA_HOST")
+
+	var gotPrimary, gotReplica string
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotPrimary = p.Primary.Host
+			gotReplica = p.Replica.Host
+		},
+	}).RunArgsE([]string{})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPrimary != "primary.db" {
+		t.Errorf("expected primary='primary.db', got %q", gotPrimary)
+	}
+	if gotReplica != "replica.db" {
+		t.Errorf("expected replica='replica.db', got %q", gotReplica)
+	}
+}
+
+func TestNamedStruct_ExplicitEnvNoPrefixWhenEmbedded(t *testing.T) {
+	// Embedded (anonymous) structs should NOT prefix explicit env tags
+	type Config struct {
+		Host string `descr:"host" env:"MY_HOST" default:"localhost"`
+	}
+	type Params struct {
+		Config // embedded — env stays MY_HOST
+	}
+
+	os.Setenv("MY_HOST", "embedded.host")
+	defer os.Unsetenv("MY_HOST")
+
+	var gotHost string
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotHost = p.Host
+		},
+	}).RunArgsE([]string{})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotHost != "embedded.host" {
+		t.Errorf("expected host='embedded.host', got %q", gotHost)
 	}
 }

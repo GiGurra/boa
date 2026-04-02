@@ -33,6 +33,10 @@ type paramMeta struct {
 	fieldType reflect.Type // the VALUE type (string for *string fields, *url.URL for *url.URL fields)
 	isPointer bool         // whether the user's struct field is a pointer (except *url.URL)
 
+	// Prefix for nested named struct fields (e.g., "db-" for DB.Host → --db-host)
+	flagPrefix string // kebab-case prefix for flag names
+	envPrefix  string // UPPER_SNAKE_CASE prefix for env var names
+
 	// Default value — stored as typed reflect.Value
 	defaultVal *reflect.Value
 
