@@ -32,7 +32,12 @@ func main() {
 }
 ```
 
+This is what you get — flag names, short flags, defaults, required/optional, descriptions, and usage line all generated from the struct:
+
 ```
+$ my-app --help
+a simple CLI tool
+
 Usage:
   my-app [flags]
 
@@ -40,6 +45,27 @@ Flags:
   -h, --help          help for my-app
   -n, --name string   your name (required)
   -p, --port int      port number (default 8080)
+```
+
+And this is how you interact with it:
+
+```
+$ my-app --name Alice
+Hello Alice on port 8080
+
+$ my-app --name Bob --port 3000
+Hello Bob on port 3000
+
+$ my-app
+Usage:
+  my-app [flags]
+
+Flags:
+  -h, --help          help for my-app
+  -n, --name string   your name (required)
+  -p, --port int      port number (default 8080)
+
+Error: required flag "name" not set
 ```
 
 ## Parameter Types
