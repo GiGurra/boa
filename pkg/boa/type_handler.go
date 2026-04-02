@@ -53,6 +53,69 @@ func init() {
 	registerBuiltinTypes()
 }
 
+// TypeDef defines how a custom type is parsed from and formatted to strings.
+// Use with RegisterType to add support for user-defined types as CLI parameters.
+type TypeDef[T any] struct {
+	// Parse converts a CLI string into the typed value.
+	Parse func(string) (T, error)
+	// Format converts the typed value back to a string (for default display).
+	// If nil, fmt.Sprintf("%v", val) is used.
+	Format func(T) string
+}
+
+// RegisterType registers a custom type for use as a CLI parameter.
+// The type will be stored as a string flag in cobra and converted using
+// the provided Parse/Format functions.
+//
+// Example:
+//
+//	boa.RegisterType[SemVer](boa.TypeDef[SemVer]{
+//	    Parse:  func(s string) (SemVer, error) { return parseSemVer(s) },
+//	    Format: func(v SemVer) string { return v.String() },
+//	})
+func RegisterType[T any](def TypeDef[T]) {
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	formatFn := def.Format
+	if formatFn == nil {
+		formatFn = func(v T) string { return fmt.Sprintf("%v", v) }
+	}
+
+	exactTypeHandlers[t] = &typeHandler{
+		baseType: t,
+		bindFlag: func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+			def := ""
+			if defaultVal != nil {
+				v := reflect.ValueOf(defaultVal)
+				if v.Kind() == reflect.Ptr && !v.IsNil() {
+					def = formatFn(v.Elem().Interface().(T))
+				}
+			}
+			return cmd.Flags().StringP(name, short, def, descr)
+		},
+		parse: func(name, strVal string) (any, error) {
+			v, err := def.Parse(strVal)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %w", name, err)
+			}
+			return &v, nil
+		},
+		convert: func(name string, val any) (any, error) {
+			if strPtr, ok := val.(*string); ok {
+				if *strPtr == "" {
+					var zero T
+					return &zero, nil
+				}
+				v, err := def.Parse(*strPtr)
+				if err != nil {
+					return nil, fmt.Errorf("invalid value for param '%s': %w", name, err)
+				}
+				return &v, nil
+			}
+			return val, nil // already converted
+		},
+	}
+}
+
 func registerBuiltinTypes() {
 	// --- Basic types (by kind) ---
 

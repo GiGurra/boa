@@ -799,8 +799,8 @@ func traverse(
 			}
 		} else {
 
-			// check if it is a struct (but not time.Time which is a supported param type)
-			if field.Type.Kind() == reflect.Struct && field.Type != timeType {
+			// check if it is a struct (but not registered types like time.Time or custom types)
+			if field.Type.Kind() == reflect.Struct && !isSupportedType(field.Type) {
 				// Named (non-anonymous) struct fields get auto-prefixed
 				childPrefix := prefix
 				if !field.Anonymous {
