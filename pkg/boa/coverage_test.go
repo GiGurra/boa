@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"reflect"
 	"strings"
@@ -941,4 +943,690 @@ func TestParamMetaUnmarshalJSON_Direct(t *testing.T) {
 			t.Error("Expected valuePtr to remain nil when CLI value is set")
 		}
 	})
+}
+
+// --- Map types (buildMapBindFlag, buildMapParse) ---
+
+func TestMapTypesCoverage(t *testing.T) {
+	t.Run("map[string]int", func(t *testing.T) {
+		type P struct {
+			Limits map[string]int `descr:"resource limits"`
+		}
+		var got map[string]int
+		err := (CmdT[P]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.Limits },
+		}).RunArgsE([]string{"--limits", "cpu=4,memory=8192"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got["cpu"] != 4 || got["memory"] != 8192 {
+			t.Errorf("Got %v, want cpu=4,memory=8192", got)
+		}
+	})
+
+	t.Run("map[string]int64", func(t *testing.T) {
+		type P struct {
+			Sizes map[string]int64 `descr:"sizes"`
+		}
+		var got map[string]int64
+		err := (CmdT[P]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.Sizes },
+		}).RunArgsE([]string{"--sizes", "disk=1099511627776"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got["disk"] != 1099511627776 {
+			t.Errorf("Got %v", got)
+		}
+	})
+
+	t.Run("map[string]string", func(t *testing.T) {
+		type P struct {
+			Labels map[string]string `descr:"labels"`
+		}
+		var got map[string]string
+		err := (CmdT[P]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.Labels },
+		}).RunArgsE([]string{"--labels", "env=prod,team=backend"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got["env"] != "prod" || got["team"] != "backend" {
+			t.Errorf("Got %v", got)
+		}
+	})
+
+	t.Run("map[string]string with default", func(t *testing.T) {
+		type P struct {
+			Labels map[string]string `descr:"labels"`
+		}
+		var got map[string]string
+		(CmdT[P]{
+			Use:         "test",
+			Params:      &P{Labels: map[string]string{"default": "val"}},
+			ParamEnrich: ParamEnricherName,
+			RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.Labels },
+		}).RunArgs([]string{})
+		if got["default"] != "val" {
+			t.Errorf("Got %v, want default=val", got)
+		}
+	})
+}
+
+// --- JSON fallback for complex types ---
+
+func TestJSONFallbackCoverage(t *testing.T) {
+	t.Run("nested slice via JSON", func(t *testing.T) {
+		type P struct {
+			Matrix [][]int `descr:"matrix" optional:"true"`
+		}
+		var got [][]int
+		err := (CmdT[P]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.Matrix },
+		}).RunArgsE([]string{"--matrix", "[[1,2],[3,4]]"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != 2 || got[0][0] != 1 || got[1][1] != 4 {
+			t.Errorf("Got %v", got)
+		}
+	})
+
+	t.Run("nested slice invalid JSON", func(t *testing.T) {
+		type P struct {
+			Matrix [][]int `descr:"matrix" optional:"true"`
+		}
+		err := (CmdT[P]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			RunFunc:     func(p *P, c *cobra.Command, args []string) {},
+		}).RunArgsE([]string{"--matrix", "not-json"})
+		if err == nil {
+			t.Fatal("Expected error for invalid JSON")
+		}
+	})
+
+	t.Run("complex map via JSON", func(t *testing.T) {
+		type P struct {
+			Meta map[string][]string `descr:"metadata" optional:"true"`
+		}
+		var got map[string][]string
+		err := (CmdT[P]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.Meta },
+		}).RunArgsE([]string{"--meta", `{"tags":["a","b"]}`})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got["tags"]) != 2 {
+			t.Errorf("Got %v", got)
+		}
+	})
+
+	t.Run("nested slice default from struct literal", func(t *testing.T) {
+		type P struct {
+			Matrix [][]int `descr:"matrix" optional:"true"`
+		}
+		var got [][]int
+		(CmdT[P]{
+			Use:         "test",
+			Params:      &P{Matrix: [][]int{{1, 2}}},
+			ParamEnrich: ParamEnricherName,
+			RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.Matrix },
+		}).RunArgs([]string{})
+		if len(got) != 1 || got[0][0] != 1 {
+			t.Errorf("Got %v, want [[1,2]]", got)
+		}
+	})
+}
+
+// --- Various numeric types with defaults (registerBuiltinTypes coverage) ---
+
+func TestNumericTypesCoverage(t *testing.T) {
+	t.Run("int32 with default", func(t *testing.T) {
+		type P struct {
+			Val int32 `descr:"val" default:"42"`
+		}
+		var got int32
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Val }}).RunArgs([]string{})
+		if got != 42 {
+			t.Errorf("Got %d, want 42", got)
+		}
+	})
+
+	t.Run("int64 with default", func(t *testing.T) {
+		type P struct {
+			Val int64 `descr:"val" default:"999999999999"`
+		}
+		var got int64
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Val }}).RunArgs([]string{})
+		if got != 999999999999 {
+			t.Errorf("Got %d", got)
+		}
+	})
+
+	t.Run("float32 with default", func(t *testing.T) {
+		type P struct {
+			Val float32 `descr:"val" default:"3.14"`
+		}
+		var got float32
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Val }}).RunArgs([]string{})
+		if got < 3.13 || got > 3.15 {
+			t.Errorf("Got %f, want ~3.14", got)
+		}
+	})
+
+	t.Run("float64 with default", func(t *testing.T) {
+		type P struct {
+			Val float64 `descr:"val" default:"2.718"`
+		}
+		var got float64
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Val }}).RunArgs([]string{})
+		if got != 2.718 {
+			t.Errorf("Got %f, want 2.718", got)
+		}
+	})
+
+	t.Run("bool with default true", func(t *testing.T) {
+		type P struct {
+			Val bool `descr:"val" default:"true"`
+		}
+		var got bool
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Val }}).RunArgs([]string{})
+		if !got {
+			t.Error("Got false, want true")
+		}
+	})
+
+	t.Run("int32 CLI override", func(t *testing.T) {
+		type P struct {
+			Val int32 `descr:"val" default:"0"`
+		}
+		var got int32
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Val }}).RunArgs([]string{"--val", "100"})
+		if got != 100 {
+			t.Errorf("Got %d, want 100", got)
+		}
+	})
+
+	t.Run("float32 CLI override", func(t *testing.T) {
+		type P struct {
+			Val float32 `descr:"val" default:"0"`
+		}
+		var got float32
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Val }}).RunArgs([]string{"--val", "1.5"})
+		if got != 1.5 {
+			t.Errorf("Got %f, want 1.5", got)
+		}
+	})
+}
+
+// --- newParam branches (nested slices, req tag, optional tag) ---
+
+func TestNewParamBranches(t *testing.T) {
+	t.Run("nested slice defaults to optional", func(t *testing.T) {
+		type P struct {
+			Matrix [][]string `descr:"matrix"`
+		}
+		// Should not error with no value — nested slices default optional
+		err := (CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).RunArgsE([]string{})
+		if err != nil {
+			t.Fatalf("Nested slice should default to optional, got: %v", err)
+		}
+	})
+
+	t.Run("req tag alias", func(t *testing.T) {
+		type P struct {
+			Name string `descr:"name" req:"true"`
+		}
+		err := (CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).RunArgsE([]string{})
+		if err == nil {
+			t.Fatal("Expected error for missing required field via req tag")
+		}
+	})
+
+	t.Run("opt tag alias", func(t *testing.T) {
+		type P struct {
+			Name string `descr:"name" opt:"true"`
+		}
+		err := (CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).RunArgsE([]string{})
+		if err != nil {
+			t.Fatalf("Expected no error for optional field via opt tag, got: %v", err)
+		}
+	})
+
+	t.Run("required false", func(t *testing.T) {
+		type P struct {
+			Name string `descr:"name" required:"false"`
+		}
+		err := (CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).RunArgsE([]string{})
+		if err != nil {
+			t.Fatalf("Expected no error for required:false, got: %v", err)
+		}
+	})
+}
+
+// --- UnMarshalFromFileParam error paths ---
+
+func TestUnMarshalFromFileParam_ErrorPaths(t *testing.T) {
+	type Config struct {
+		Host string `json:"host"`
+	}
+
+	t.Run("empty string value", func(t *testing.T) {
+		type P struct {
+			Config string `descr:"config" default:""`
+		}
+		var unmarshalErr error
+		(CmdT[P]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			RunFuncCtxE: func(ctx *HookContext, p *P, c *cobra.Command, args []string) error {
+				param := ctx.GetParam(&p.Config)
+				var cfg Config
+				unmarshalErr = UnMarshalFromFileParam(param, &cfg, json.Unmarshal)
+				return nil
+			},
+		}).RunArgs([]string{"--config", ""})
+		if unmarshalErr == nil {
+			t.Fatal("Expected error for empty config path")
+		}
+	})
+
+	t.Run("nonexistent file", func(t *testing.T) {
+		type P struct {
+			Config string `descr:"config"`
+		}
+		var unmarshalErr error
+		(CmdT[P]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			RunFuncCtxE: func(ctx *HookContext, p *P, c *cobra.Command, args []string) error {
+				param := ctx.GetParam(&p.Config)
+				var cfg Config
+				unmarshalErr = UnMarshalFromFileParam(param, &cfg, json.Unmarshal)
+				return nil
+			},
+		}).RunArgs([]string{"--config", "/nonexistent/path.json"})
+		if unmarshalErr == nil {
+			t.Fatal("Expected error for nonexistent file")
+		}
+	})
+}
+
+// --- GetParam with Param interface directly ---
+
+func TestGetParamWithParamInterface(t *testing.T) {
+	type P struct {
+		Name string `descr:"name" optional:"true"`
+	}
+
+	(CmdT[P]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *P, c *cobra.Command, args []string) {
+			// First get via field pointer
+			param := ctx.GetParam(&p.Name)
+			if param == nil {
+				t.Fatal("Expected param from field pointer")
+			}
+			// Then get via Param interface directly (the other branch)
+			param2 := ctx.GetParam(param)
+			if param2 != param {
+				t.Error("Expected GetParam(Param) to return same Param")
+			}
+		},
+	}).RunArgs([]string{})
+}
+
+// --- MarshalJSON default value branch ---
+
+func TestMarshalJSON_DefaultBranch(t *testing.T) {
+	pm := &paramMeta{
+		fieldType: reflect.TypeOf(0),
+	}
+	// Set a default value
+	v := reflect.ValueOf(42)
+	pm.defaultVal = &v
+
+	data, err := pm.MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON failed: %v", err)
+	}
+	if string(data) != "42" {
+		t.Errorf("Got %s, want 42", data)
+	}
+}
+
+// --- Slice with defaults (derefSliceDefault) ---
+
+func TestSliceWithDefaultsCoverage(t *testing.T) {
+	type P struct {
+		Tags []string `descr:"tags"`
+	}
+	var got []string
+	(CmdT[P]{
+		Use:         "test",
+		Params:      &P{Tags: []string{"a", "b"}},
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.Tags },
+	}).RunArgs([]string{})
+	if len(got) != 2 || got[0] != "a" {
+		t.Errorf("Got %v, want [a b]", got)
+	}
+}
+
+// --- ParamEnricherCombine error path ---
+
+func TestParamEnricherCombineError(t *testing.T) {
+	type P struct {
+		Name string `descr:"name"`
+	}
+	// An enricher that returns an error
+	failEnricher := func(alreadyProcessed []Param, param Param, fieldName string) error {
+		return fmt.Errorf("enricher failed")
+	}
+
+	func() {
+		defer func() {
+			r := recover()
+			if r == nil {
+				t.Fatal("Expected panic from failed enricher")
+			}
+		}()
+		(CmdT[P]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherCombine(ParamEnricherName, failEnricher),
+			RunFunc:     func(p *P, c *cobra.Command, args []string) {},
+		}).ToCobra()
+	}()
+}
+
+// --- connect: short flag "h" collision ---
+
+func TestConnectShortFlagCollision(t *testing.T) {
+	type P struct {
+		Host string `short:"h" descr:"hostname"`
+	}
+	func() {
+		defer func() {
+			r := recover()
+			if r == nil {
+				t.Fatal("Expected panic for short flag 'h' collision")
+			}
+		}()
+		(CmdT[P]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			RunFunc:     func(p *P, c *cobra.Command, args []string) {},
+		}).ToCobra()
+	}()
+}
+
+// --- Special types with defaults (registerBuiltinTypes default branches) ---
+
+func TestSpecialTypesWithDefaults(t *testing.T) {
+	t.Run("duration with default", func(t *testing.T) {
+		type P struct {
+			Timeout time.Duration `descr:"timeout" default:"5s"`
+		}
+		var got time.Duration
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Timeout }}).RunArgs([]string{})
+		if got != 5*time.Second {
+			t.Errorf("Got %v, want 5s", got)
+		}
+	})
+
+	t.Run("duration CLI override", func(t *testing.T) {
+		type P struct {
+			Timeout time.Duration `descr:"timeout" default:"5s"`
+		}
+		var got time.Duration
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Timeout }}).RunArgs([]string{"--timeout", "10m"})
+		if got != 10*time.Minute {
+			t.Errorf("Got %v, want 10m", got)
+		}
+	})
+
+	t.Run("duration with struct literal default", func(t *testing.T) {
+		type P struct {
+			Timeout time.Duration `descr:"timeout"`
+		}
+		var got time.Duration
+		(CmdT[P]{Use: "test", Params: &P{Timeout: 30 * time.Second}, ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Timeout }}).RunArgs([]string{})
+		if got != 30*time.Second {
+			t.Errorf("Got %v, want 30s", got)
+		}
+	})
+
+	t.Run("net.IP with struct literal default", func(t *testing.T) {
+		type P struct {
+			Addr net.IP `descr:"address"`
+		}
+		var got net.IP
+		(CmdT[P]{Use: "test", Params: &P{Addr: net.ParseIP("10.0.0.1")}, ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Addr }}).RunArgs([]string{})
+		if got.String() != "10.0.0.1" {
+			t.Errorf("Got %v, want 10.0.0.1", got)
+		}
+	})
+
+	t.Run("*url.URL with struct literal default", func(t *testing.T) {
+		type P struct {
+			URL *url.URL `descr:"url"`
+		}
+		defURL, _ := url.Parse("https://example.com")
+		var got *url.URL
+		(CmdT[P]{Use: "test", Params: &P{URL: defURL}, ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.URL }}).RunArgs([]string{})
+		if got == nil || got.String() != "https://example.com" {
+			t.Errorf("Got %v, want https://example.com", got)
+		}
+	})
+
+	t.Run("time.Time with default tag", func(t *testing.T) {
+		type P struct {
+			When time.Time `descr:"when" default:"2024-01-15T00:00:00Z"`
+		}
+		var got time.Time
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.When }}).RunArgs([]string{})
+		if got.Year() != 2024 || got.Month() != 1 || got.Day() != 15 {
+			t.Errorf("Got %v, want 2024-01-15", got)
+		}
+	})
+
+	t.Run("time.Time with struct literal default", func(t *testing.T) {
+		type P struct {
+			When time.Time `descr:"when"`
+		}
+		defTime := time.Date(2024, 6, 15, 10, 30, 0, 0, time.UTC)
+		var got time.Time
+		(CmdT[P]{Use: "test", Params: &P{When: defTime}, ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.When }}).RunArgs([]string{})
+		if got != defTime {
+			t.Errorf("Got %v, want %v", got, defTime)
+		}
+	})
+}
+
+// --- Slice types with defaults and CLI (parseSliceWith, derefSliceDefault) ---
+
+func TestSliceTypesCoverage(t *testing.T) {
+	t.Run("[]int with default", func(t *testing.T) {
+		type P struct {
+			Ports []int `descr:"ports"`
+		}
+		var got []int
+		(CmdT[P]{Use: "test", Params: &P{Ports: []int{80, 443}}, ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Ports }}).RunArgs([]string{})
+		if len(got) != 2 || got[0] != 80 {
+			t.Errorf("Got %v, want [80 443]", got)
+		}
+	})
+
+	t.Run("[]int CLI override", func(t *testing.T) {
+		type P struct {
+			Ports []int `descr:"ports"`
+		}
+		var got []int
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Ports }}).RunArgs([]string{"--ports", "8080", "--ports", "9090"})
+		if len(got) != 2 || got[0] != 8080 {
+			t.Errorf("Got %v, want [8080 9090]", got)
+		}
+	})
+
+	t.Run("[]bool", func(t *testing.T) {
+		type P struct {
+			Flags []bool `descr:"flags" optional:"true"`
+		}
+		var got []bool
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Flags }}).RunArgs([]string{"--flags", "true", "--flags", "false"})
+		if len(got) != 2 || got[0] != true || got[1] != false {
+			t.Errorf("Got %v, want [true false]", got)
+		}
+	})
+
+	t.Run("[]float64", func(t *testing.T) {
+		type P struct {
+			Vals []float64 `descr:"vals" optional:"true"`
+		}
+		var got []float64
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Vals }}).RunArgs([]string{"--vals", "1.5", "--vals", "2.5"})
+		if len(got) != 2 || got[0] != 1.5 {
+			t.Errorf("Got %v, want [1.5 2.5]", got)
+		}
+	})
+
+	t.Run("[]int32", func(t *testing.T) {
+		type P struct {
+			Vals []int32 `descr:"vals" optional:"true"`
+		}
+		var got []int32
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Vals }}).RunArgs([]string{"--vals", "1", "--vals", "2"})
+		if len(got) != 2 || got[0] != 1 {
+			t.Errorf("Got %v", got)
+		}
+	})
+
+	t.Run("[]int64", func(t *testing.T) {
+		type P struct {
+			Vals []int64 `descr:"vals" optional:"true"`
+		}
+		var got []int64
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Vals }}).RunArgs([]string{"--vals", "100", "--vals", "200"})
+		if len(got) != 2 || got[0] != 100 {
+			t.Errorf("Got %v", got)
+		}
+	})
+
+	t.Run("[]float32", func(t *testing.T) {
+		type P struct {
+			Vals []float32 `descr:"vals" optional:"true"`
+		}
+		var got []float32
+		(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Vals }}).RunArgs([]string{"--vals", "1.0", "--vals", "2.0"})
+		if len(got) != 2 {
+			t.Errorf("Got %v", got)
+		}
+	})
+}
+
+// --- traverse branches: embedded structs, boa:ignore ---
+
+func TestTraverseCoverage(t *testing.T) {
+	t.Run("embedded struct fields are not prefixed", func(t *testing.T) {
+		type Common struct {
+			Verbose bool `descr:"verbose" optional:"true"`
+		}
+		type P struct {
+			Common // embedded
+			Name string `descr:"name" optional:"true"`
+		}
+		usage := (CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).ToCobra().UsageString()
+		// Embedded → no prefix
+		if !strings.Contains(usage, "--verbose") {
+			t.Errorf("Expected --verbose (no prefix) for embedded struct:\n%s", usage)
+		}
+	})
+
+	t.Run("boa:ignore fields skipped from CLI", func(t *testing.T) {
+		type P struct {
+			Name   string `descr:"name" optional:"true"`
+			Secret string `boa:"ignore"`
+		}
+		usage := (CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).ToCobra().UsageString()
+		if strings.Contains(usage, "secret") {
+			t.Errorf("boa:ignore field should not appear in usage:\n%s", usage)
+		}
+	})
+
+	t.Run("boa:configonly fields skipped from CLI", func(t *testing.T) {
+		type P struct {
+			Name   string `descr:"name" optional:"true"`
+			Secret string `boa:"configonly"`
+		}
+		usage := (CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).ToCobra().UsageString()
+		if strings.Contains(usage, "secret") {
+			t.Errorf("boa:configonly field should not appear in usage:\n%s", usage)
+		}
+	})
+}
+
+// --- map parse error path ---
+
+func TestMapParseErrorCoverage(t *testing.T) {
+	t.Run("invalid map syntax", func(t *testing.T) {
+		type P struct {
+			Labels map[string]string `descr:"labels"`
+		}
+		err := (CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).RunArgsE([]string{"--labels", "no-equals-sign"})
+		// pflag handles map parsing for string maps, so error format may vary
+		if err == nil {
+			t.Fatal("Expected error for invalid map syntax")
+		}
+	})
+}
+
+// --- toCobraImplE RunFuncCtx path ---
+
+func TestToCobraImplE_RunFuncCtx(t *testing.T) {
+	type P struct {
+		Name string `descr:"name" optional:"true"`
+	}
+	var ran bool
+	err := (CmdT[P]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx:  func(ctx *HookContext, p *P, c *cobra.Command, args []string) { ran = true },
+	}).RunArgsE([]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ran {
+		t.Error("Expected RunFuncCtx to run")
+	}
+}
+
+func TestConnectNameHelpCollision(t *testing.T) {
+	type P struct {
+		Help string `name:"help" descr:"help text"`
+	}
+	func() {
+		defer func() {
+			r := recover()
+			if r == nil {
+				t.Fatal("Expected panic for flag name 'help' collision")
+			}
+		}()
+		(CmdT[P]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			RunFunc:     func(p *P, c *cobra.Command, args []string) {},
+		}).ToCobra()
+	}()
 }

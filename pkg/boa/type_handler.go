@@ -281,12 +281,14 @@ func registerBuiltinTypes() {
 			return &v, nil
 		},
 		convert: func(name string, val any) (any, error) {
-			strVal := *val.(*string)
-			v, err := parseTimeString(strVal)
-			if err != nil {
-				return nil, fmt.Errorf("invalid value for param '%s': %s", name, err.Error())
+			if strPtr, ok := val.(*string); ok {
+				v, err := parseTimeString(*strPtr)
+				if err != nil {
+					return nil, fmt.Errorf("invalid value for param '%s': %s", name, err.Error())
+				}
+				return &v, nil
 			}
-			return &v, nil
+			return val, nil // already a *time.Time (e.g., from struct literal)
 		},
 	}
 
