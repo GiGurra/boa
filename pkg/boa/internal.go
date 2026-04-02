@@ -217,6 +217,15 @@ func validate(ctx *processingContext, structPtr any) error {
 				}
 				param.setValuePtr(res)
 				converted = true
+			} else if param.GetKind() == reflect.Map {
+				if mapHandler := lookupMapHandler(param.GetType()); mapHandler != nil && mapHandler.convert != nil {
+					res, err := mapHandler.convert(param.GetName(), param.valuePtrF())
+					if err != nil {
+						return err
+					}
+					param.setValuePtr(res)
+					converted = true
+				}
 			} else if param.GetKind() == reflect.Slice {
 				if sliceHandler := lookupSliceHandler(param.GetType().Elem()); sliceHandler != nil && sliceHandler.convert != nil {
 					res, err := sliceHandler.convert(param.GetName(), param.valuePtrF())
@@ -722,12 +731,20 @@ func camelToKebabCase(in string) string {
 			if i > 0 {
 				prev := runes[i-1]
 				// Insert dash before uppercase if previous was lowercase,
-				// or if previous was uppercase but next is lowercase (end of acronym).
-				// e.g., "DBHost" → "db-host", "myParam" → "my-param"
+				// or if previous was uppercase but next is lowercase (end of acronym)
+				// AND the lowercase tail is more than 1 char (avoids splitting plurals
+				// like "URLs" → "urls" while still splitting "DBHost" → "db-host").
 				if unicode.IsLower(prev) {
 					result.WriteRune('-')
 				} else if unicode.IsUpper(prev) && i+1 < len(runes) && unicode.IsLower(runes[i+1]) {
-					result.WriteRune('-')
+					// Count lowercase chars that follow
+					lowercaseTail := 0
+					for j := i + 1; j < len(runes) && unicode.IsLower(runes[j]); j++ {
+						lowercaseTail++
+					}
+					if lowercaseTail > 1 {
+						result.WriteRune('-')
+					}
 				}
 			}
 			result.WriteRune(unicode.ToLower(char))
@@ -1156,7 +1173,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			if param.GetKind() == reflect.Slice {
 				allowArbitraryNumPositional = true
 			}
-			if param.IsRequired() {
+			if param.IsRequired() && !param.hasDefaultValue() {
 				numReqPositional++
 			}
 			if param.IsRequired() && i >= 1 {

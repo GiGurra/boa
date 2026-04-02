@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1913,5 +1914,836 @@ func TestMarshalJSON_DefaultBranchCoverage(t *testing.T) {
 	}
 	if string(data) != "42" {
 		t.Errorf("Got %s, want 42", data)
+	}
+}
+
+// ============================================================
+// Coverage push: targeting functions below 70%
+// ============================================================
+
+// --- SetCustomValidatorT: *T branch and type alias reflection branch ---
+
+func TestSetCustomValidatorT_StarTBranch(t *testing.T) {
+	type P struct {
+		Name string `descr:"name" optional:"true"`
+	}
+	var called bool
+	err := (CmdT[P]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		InitFuncCtx: func(ctx *HookContext, p *P, c *cobra.Command) error {
+			param := GetParamT[string](ctx, &p.Name)
+			param.SetCustomValidatorT(func(v string) error {
+				called = true
+				if v == "" {
+					return fmt.Errorf("name cannot be empty")
+				}
+				return nil
+			})
+			return nil
+		},
+		RunFunc: func(p *P, c *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--name", "alice"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("Expected validator to be called")
+	}
+}
+
+func TestSetCustomValidatorT_TypeAliasReflection(t *testing.T) {
+	type MyString string
+	type P struct {
+		Tag MyString `descr:"tag" optional:"true"`
+	}
+	var called bool
+	err := (CmdT[P]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		InitFuncCtx: func(ctx *HookContext, p *P, c *cobra.Command) error {
+			param := GetParamT[MyString](ctx, &p.Tag)
+			param.SetCustomValidatorT(func(v MyString) error {
+				called = true
+				if len(v) > 0 && v[0] != 'v' {
+					return fmt.Errorf("must start with v")
+				}
+				return nil
+			})
+			return nil
+		},
+		RunFunc: func(p *P, c *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--tag", "v1.0"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("Expected validator to be called via reflection conversion")
+	}
+}
+
+// --- doParsePositional: int positional ---
+
+func TestDoParsePositional_IntPositional(t *testing.T) {
+	type P struct {
+		Port int `positional:"true" required:"true"`
+	}
+	var got int
+	(CmdT[P]{Use: "test", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Port }}).RunArgs([]string{"8080"})
+	if got != 8080 {
+		t.Errorf("Got %d, want 8080", got)
+	}
+}
+
+// --- SetDefault: type alias, nil ---
+
+func TestSetDefault_TypeAlias(t *testing.T) {
+	type MyPort int
+	type P struct {
+		Port MyPort `descr:"port"`
+	}
+	var got MyPort
+	err := (CmdT[P]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		InitFuncCtx: func(ctx *HookContext, p *P, c *cobra.Command) error {
+			param := ctx.GetParam(&p.Port)
+			param.SetDefault(Default(MyPort(9090)))
+			return nil
+		},
+		RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Port },
+	}).RunArgsE([]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != 9090 {
+		t.Errorf("Got %d, want 9090", got)
+	}
+}
+
+func TestSetDefault_Nil(t *testing.T) {
+	// Directly test that SetDefault(nil) clears the default
+	pm := &paramMeta{fieldType: reflect.TypeOf(0)}
+	v := reflect.ValueOf(42)
+	pm.defaultVal = &v
+	if !pm.hasDefaultValue() {
+		t.Fatal("Expected default to be set")
+	}
+	pm.SetDefault(nil)
+	if pm.hasDefaultValue() {
+		t.Fatal("Expected default to be cleared after SetDefault(nil)")
+	}
+}
+
+// --- jsonFallbackHandler: bindFlag with struct literal default ---
+
+func TestJsonFallback_StructLiteralDefault(t *testing.T) {
+	type P struct {
+		Matrix [][]int `descr:"matrix" optional:"true"`
+	}
+	var got [][]int
+	(CmdT[P]{
+		Use:         "test",
+		Params:      &P{Matrix: [][]int{{1, 2}, {3, 4}}},
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.Matrix },
+	}).RunArgs([]string{})
+	if len(got) != 2 || got[0][0] != 1 {
+		t.Errorf("Got %v, want [[1,2],[3,4]]", got)
+	}
+}
+
+// --- buildMapBindFlag: defaults for int and int64 maps ---
+
+func TestMapBindFlag_IntDefault(t *testing.T) {
+	type P struct {
+		Limits map[string]int `descr:"limits"`
+	}
+	var got map[string]int
+	(CmdT[P]{
+		Use:         "test",
+		Params:      &P{Limits: map[string]int{"cpu": 4}},
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.Limits },
+	}).RunArgs([]string{})
+	if got["cpu"] != 4 {
+		t.Errorf("Got %v, want cpu=4", got)
+	}
+}
+
+func TestMapBindFlag_Int64Default(t *testing.T) {
+	type P struct {
+		Sizes map[string]int64 `descr:"sizes"`
+	}
+	var got map[string]int64
+	(CmdT[P]{
+		Use:         "test",
+		Params:      &P{Sizes: map[string]int64{"disk": 1024}},
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.Sizes },
+	}).RunArgs([]string{})
+	if got["disk"] != 1024 {
+		t.Errorf("Got %v, want disk=1024", got)
+	}
+}
+
+// --- defaultValueStr: no-default path ---
+
+func TestDefaultValueStr_NoDefault(t *testing.T) {
+	pm := &paramMeta{name: "test-param", fieldType: reflect.TypeOf(0)}
+	result := pm.defaultValueStr()
+	if result != "" {
+		t.Errorf("Expected empty string for no-default, got %q", result)
+	}
+}
+
+// --- ptrToAnyToString: panic paths ---
+
+func TestPtrToAnyToString_NonPointerPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("Expected panic for non-pointer")
+		}
+	}()
+	ptrToAnyToString(42)
+}
+
+func TestPtrToAnyToString_NilPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("Expected panic for nil")
+		}
+	}()
+	ptrToAnyToString(nil)
+}
+
+// --- parsePtr: array and unsupported types ---
+
+func TestParsePtr_ArrayType(t *testing.T) {
+	_, err := parsePtr("test", reflect.TypeOf([3]int{}), reflect.Array, "1,2,3")
+	if err == nil {
+		t.Fatal("Expected error for array type")
+	}
+	if !strings.Contains(err.Error(), "arrays not supported") {
+		t.Errorf("Expected 'arrays not supported', got: %v", err)
+	}
+}
+
+func TestParsePtr_UnsupportedType(t *testing.T) {
+	type MyStruct struct{ X int }
+	_, err := parsePtr("test", reflect.TypeOf(MyStruct{}), reflect.Struct, "stuff")
+	if err == nil {
+		t.Fatal("Expected error for unsupported type")
+	}
+	if !strings.Contains(err.Error(), "unsupported param type") {
+		t.Errorf("Expected 'unsupported', got: %v", err)
+	}
+}
+
+// --- buildMapParse: error paths ---
+
+func TestBuildMapParse_InvalidValue(t *testing.T) {
+	type P struct {
+		Limits map[string]int `descr:"limits"`
+	}
+	err := (CmdT[P]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *P, c *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--limits", "cpu=notanumber"})
+	if err == nil {
+		t.Fatal("Expected error for invalid map value")
+	}
+}
+
+// --- parse error paths for int32, int64, float32, bool ---
+
+func TestParseErrors(t *testing.T) {
+	t.Run("int32 parse error", func(t *testing.T) {
+		type P struct{ V int32 `descr:"v"` }
+		err := (CmdT[P]{Use: "t", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).RunArgsE([]string{"--v", "notint"})
+		if err == nil { t.Fatal("expected error") }
+	})
+	t.Run("int64 parse error", func(t *testing.T) {
+		type P struct{ V int64 `descr:"v"` }
+		err := (CmdT[P]{Use: "t", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).RunArgsE([]string{"--v", "notint"})
+		if err == nil { t.Fatal("expected error") }
+	})
+	t.Run("float32 parse error", func(t *testing.T) {
+		type P struct{ V float32 `descr:"v"` }
+		err := (CmdT[P]{Use: "t", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).RunArgsE([]string{"--v", "notfloat"})
+		if err == nil { t.Fatal("expected error") }
+	})
+	t.Run("float64 parse error", func(t *testing.T) {
+		type P struct{ V float64 `descr:"v"` }
+		err := (CmdT[P]{Use: "t", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).RunArgsE([]string{"--v", "notfloat"})
+		if err == nil { t.Fatal("expected error") }
+	})
+	t.Run("bool parse error", func(t *testing.T) {
+		type P struct{ V bool `descr:"v"` }
+		err := (CmdT[P]{Use: "t", ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) {}}).RunArgsE([]string{"--v=notbool"})
+		if err == nil { t.Fatal("expected error") }
+	})
+}
+
+// --- jsonFallbackHandler: convert with non-empty string ---
+
+func TestJsonFallback_ConvertNonEmpty(t *testing.T) {
+	type P struct {
+		Matrix [][]int `descr:"matrix" optional:"true"`
+	}
+	var got [][]int
+	err := (CmdT[P]{
+		Use: "test", ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Matrix },
+	}).RunArgsE([]string{"--matrix", "[[5,6]]"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0][0] != 5 {
+		t.Errorf("Got %v, want [[5,6]]", got)
+	}
+}
+
+// --- buildMapParse: empty string, invalid entry ---
+
+func TestBuildMapParse_EmptyString(t *testing.T) {
+	// map[string]int with empty value after = should parse as empty map via native pflag
+	type P struct {
+		Limits map[string]int `descr:"limits" optional:"true"`
+	}
+	err := (CmdT[P]{
+		Use: "test", ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *P, c *cobra.Command, args []string) {},
+	}).RunArgsE([]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildMapParse_InvalidEntry(t *testing.T) {
+	// map[string]int with missing = separator
+	type P struct {
+		Counts map[string]int `descr:"counts"`
+	}
+	err := (CmdT[P]{
+		Use: "test", ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *P, c *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--counts", "noequals"})
+	if err == nil {
+		t.Fatal("Expected error for map entry without =")
+	}
+}
+
+// --- buildMapBindFlag: the "default" fallback branch (complex map value types) ---
+
+func TestMapNonNativeValueType(t *testing.T) {
+	// map[string]float64 — not natively supported by pflag, uses StringP + buildMapParse
+	type P struct {
+		Rates map[string]float64 `descr:"rates" optional:"true"`
+	}
+	var got map[string]float64
+	err := (CmdT[P]{
+		Use: "test", ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Rates },
+	}).RunArgsE([]string{"--rates", "cpu=0.5,mem=0.8"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got["cpu"] != 0.5 {
+		t.Errorf("Got %v, want cpu=0.5", got)
+	}
+}
+
+func TestMapJsonFallback(t *testing.T) {
+	// map[string][]int — value type has no scalar handler, falls through to JSON fallback
+	type P struct {
+		Data map[string][]int `descr:"data" optional:"true"`
+	}
+
+	t.Run("set via CLI JSON", func(t *testing.T) {
+		var got map[string][]int
+		err := (CmdT[P]{
+			Use: "test", ParamEnrich: ParamEnricherName,
+			RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Data },
+		}).RunArgsE([]string{"--data", `{"ports":[80,443]}`})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got["ports"]) != 2 || got["ports"][0] != 80 {
+			t.Errorf("Got %v, want ports=[80,443]", got)
+		}
+	})
+
+	t.Run("struct literal default", func(t *testing.T) {
+		var got map[string][]int
+		(CmdT[P]{
+			Use: "test", ParamEnrich: ParamEnricherName,
+			Params:  &P{Data: map[string][]int{"ids": {1, 2, 3}}},
+			RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.Data },
+		}).RunArgs([]string{})
+		if len(got["ids"]) != 3 {
+			t.Errorf("Got %v, want ids=[1,2,3]", got)
+		}
+	})
+
+	t.Run("invalid JSON", func(t *testing.T) {
+		err := (CmdT[P]{
+			Use: "test", ParamEnrich: ParamEnricherName,
+			RunFunc: func(p *P, c *cobra.Command, args []string) {},
+		}).RunArgsE([]string{"--data", "not-json"})
+		if err == nil {
+			t.Fatal("Expected error for invalid JSON map")
+		}
+	})
+}
+
+// --- SetDefault: non-pointer value, panic ---
+
+func TestSetDefault_NonPointerValue(t *testing.T) {
+	pm := &paramMeta{fieldType: reflect.TypeOf(0)}
+	// Pass non-pointer int directly (the fallback path at line 189)
+	pm.SetDefault(42)
+	if !pm.hasDefaultValue() {
+		t.Fatal("Expected default to be set from non-pointer value")
+	}
+}
+
+func TestSetDefault_IncompatibleTypePanics(t *testing.T) {
+	pm := &paramMeta{fieldType: reflect.TypeOf(0)}
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("Expected panic for incompatible type")
+		}
+	}()
+	pm.SetDefault("not-an-int") // string for int field — should panic
+}
+
+// --- parseSliceWith: empty bracket string ---
+
+func TestParseSliceWith_EmptyBrackets(t *testing.T) {
+	// Test parseSliceWith directly with empty brackets
+	result, err := parseSliceWith("[]", func(s string) (int, error) {
+		return strconv.Atoi(s)
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(*result) != 0 {
+		t.Errorf("Expected empty slice, got %v", *result)
+	}
+}
+
+func TestParseSliceWith_ParseError(t *testing.T) {
+	_, err := parseSliceWith("[1,bad,3]", func(s string) (int, error) {
+		return strconv.Atoi(s)
+	})
+	if err == nil {
+		t.Fatal("Expected parse error")
+	}
+}
+
+// --- doParsePositional: empty required positional with default set ---
+
+func TestDoParsePositional_EmptyRequiredWithDefaultDirect(t *testing.T) {
+	// Directly test the doParsePositional function
+	pm := &paramMeta{
+		name:            "mode",
+		fieldType:       reflect.TypeOf(""),
+		defaultRequired: true,
+	}
+	v := reflect.ValueOf("auto")
+	pm.defaultVal = &v
+
+	err := doParsePositional(pm, "")
+	if err != nil {
+		t.Fatalf("Expected no error when required positional has default, got: %v", err)
+	}
+}
+
+func TestDoParsePositional_EmptyRequiredNoDefaultDirect(t *testing.T) {
+	pm := &paramMeta{
+		name:            "file",
+		fieldType:       reflect.TypeOf(""),
+		defaultRequired: true,
+	}
+	err := doParsePositional(pm, "")
+	if err == nil {
+		t.Fatal("Expected error for empty required positional without default")
+	}
+	if !IsUserInputError(err) {
+		t.Errorf("Expected UserInputError, got: %T", err)
+	}
+}
+
+// --- SetCustomValidatorT: exercise *T and fallback branches directly ---
+
+func TestSetCustomValidatorT_InternalBranches(t *testing.T) {
+	t.Run("case *T: validator receives pointer to value", func(t *testing.T) {
+		view := &ParamTView[int]{param: &paramMeta{fieldType: reflect.TypeOf(0)}}
+		var received int
+		view.SetCustomValidatorT(func(v int) error {
+			received = v
+			return nil
+		})
+		intVal := 42
+		err := view.param.(*paramMeta).customValidator(&intVal)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if received != 42 {
+			t.Errorf("Got %d, want 42", received)
+		}
+	})
+
+	t.Run("case *T: nil pointer passes zero", func(t *testing.T) {
+		view := &ParamTView[int]{param: &paramMeta{fieldType: reflect.TypeOf(0)}}
+		var received int
+		view.SetCustomValidatorT(func(v int) error {
+			received = v
+			return nil
+		})
+		err := view.param.(*paramMeta).customValidator((*int)(nil))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if received != 0 {
+			t.Errorf("Got %d, want 0 (zero value for nil pointer)", received)
+		}
+	})
+}
+
+// --- jsonFallbackHandler: exercise parse error and convert branches ---
+
+func TestJsonFallbackHandler_Direct(t *testing.T) {
+	t.Run("parse error", func(t *testing.T) {
+		handler := jsonFallbackHandler(reflect.TypeOf([][]int{}))
+		_, err := handler.parse("test", "not-json")
+		if err == nil {
+			t.Fatal("Expected parse error")
+		}
+	})
+
+	t.Run("convert from string", func(t *testing.T) {
+		handler := jsonFallbackHandler(reflect.TypeOf([][]int{}))
+		s := "[[1,2],[3,4]]"
+		result, err := handler.convert("test", &s)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result == nil {
+			t.Fatal("Expected non-nil result")
+		}
+	})
+
+	t.Run("convert empty string", func(t *testing.T) {
+		handler := jsonFallbackHandler(reflect.TypeOf([][]int{}))
+		s := ""
+		result, err := handler.convert("test", &s)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, ok := result.(*string); !ok {
+			t.Errorf("Expected *string for empty, got %T", result)
+		}
+	})
+
+	t.Run("convert already converted", func(t *testing.T) {
+		handler := jsonFallbackHandler(reflect.TypeOf([][]int{}))
+		val := [][]int{{1}}
+		result, err := handler.convert("test", val)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result == nil {
+			t.Error("Expected non-nil result for already-converted value")
+		}
+	})
+
+	t.Run("convert invalid JSON", func(t *testing.T) {
+		handler := jsonFallbackHandler(reflect.TypeOf([][]int{}))
+		s := "not-json"
+		_, err := handler.convert("test", &s)
+		if err == nil {
+			t.Fatal("Expected error for invalid JSON")
+		}
+	})
+
+	t.Run("bindFlag with default", func(t *testing.T) {
+		handler := jsonFallbackHandler(reflect.TypeOf([][]int{}))
+		cmd := &cobra.Command{Use: "test"}
+		defaultVal := &[][]int{{1, 2}}
+		result := handler.bindFlag(cmd, "matrix", "", "data", defaultVal)
+		if result == nil {
+			t.Fatal("Expected non-nil flag pointer")
+		}
+	})
+}
+
+// --- buildMapParse: direct exercise ---
+
+func TestBuildMapParse_Direct(t *testing.T) {
+	mapType := reflect.TypeOf(map[string]int{})
+	valType := reflect.TypeOf(0)
+	valHandler, _ := lookupHandler(valType)
+	parse := buildMapParse(mapType, valType, valHandler)
+
+	t.Run("empty string", func(t *testing.T) {
+		result, err := parse("test", "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result == nil {
+			t.Fatal("Expected non-nil result")
+		}
+	})
+
+	t.Run("invalid entry", func(t *testing.T) {
+		_, err := parse("test", "noequals")
+		if err == nil {
+			t.Fatal("Expected error for missing =")
+		}
+	})
+
+	t.Run("invalid value", func(t *testing.T) {
+		_, err := parse("test", "key=notanumber")
+		if err == nil {
+			t.Fatal("Expected error for non-int value")
+		}
+	})
+}
+
+// --- registerBuiltinTypes: struct literal defaults for all numeric types ---
+
+func TestBuiltinTypeStructLiteralDefaults(t *testing.T) {
+	t.Run("int32", func(t *testing.T) {
+		type P struct{ V int32 `descr:"v"` }
+		var got int32
+		(CmdT[P]{Use: "t", Params: &P{V: 42}, ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.V }}).RunArgs([]string{})
+		if got != 42 { t.Errorf("Got %d, want 42", got) }
+	})
+
+	t.Run("int64", func(t *testing.T) {
+		type P struct{ V int64 `descr:"v"` }
+		var got int64
+		(CmdT[P]{Use: "t", Params: &P{V: 99}, ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.V }}).RunArgs([]string{})
+		if got != 99 { t.Errorf("Got %d, want 99", got) }
+	})
+
+	t.Run("float32", func(t *testing.T) {
+		type P struct{ V float32 `descr:"v"` }
+		var got float32
+		(CmdT[P]{Use: "t", Params: &P{V: 1.5}, ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.V }}).RunArgs([]string{})
+		if got != 1.5 { t.Errorf("Got %f, want 1.5", got) }
+	})
+
+	t.Run("float64", func(t *testing.T) {
+		type P struct{ V float64 `descr:"v"` }
+		var got float64
+		(CmdT[P]{Use: "t", Params: &P{V: 2.718}, ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.V }}).RunArgs([]string{})
+		if got != 2.718 { t.Errorf("Got %f, want 2.718", got) }
+	})
+
+	t.Run("bool true", func(t *testing.T) {
+		type P struct{ V bool `descr:"v"` }
+		var got bool
+		(CmdT[P]{Use: "t", Params: &P{V: true}, ParamEnrich: ParamEnricherName, RunFunc: func(p *P, c *cobra.Command, args []string) { got = p.V }}).RunArgs([]string{})
+		if !got { t.Error("Got false, want true") }
+	})
+}
+
+// ============================================================
+// Coverage push: bug-likely logic paths
+// ============================================================
+
+// --- Positional arg default value application (connect line 527-529) ---
+
+func TestPositionalArgDefaultApplied(t *testing.T) {
+	// When a required positional arg has a default, and fewer args are provided
+	// than max, the default should be used for the missing positional.
+	type P struct {
+		Src  string `positional:"true" required:"true"`
+		Mode string `positional:"true" required:"true" default:"copy"`
+	}
+	var gotSrc, gotMode string
+	// Provide only 1 arg — Mode should get its default "copy"
+	(CmdT[P]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *P, c *cobra.Command, args []string) {
+			gotSrc = p.Src
+			gotMode = p.Mode
+		},
+	}).RunArgs([]string{"file.txt"})
+	if gotSrc != "file.txt" {
+		t.Errorf("Src = %q, want file.txt", gotSrc)
+	}
+	if gotMode != "copy" {
+		t.Errorf("Mode = %q, want copy (from default)", gotMode)
+	}
+}
+
+// --- CfgStructInit lifecycle hook (toCobraBase line 932) ---
+
+var initHookCalled bool
+
+type initHookParams struct {
+	Host string `descr:"host" optional:"true"`
+}
+
+func (p *initHookParams) Init() error {
+	initHookCalled = true
+	return nil
+}
+
+func TestCfgStructInit(t *testing.T) {
+	t.Run("Init is called during setup", func(t *testing.T) {
+		initHookCalled = false
+		(CmdT[initHookParams]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			RunFunc:     func(p *initHookParams, c *cobra.Command, args []string) {},
+		}).RunArgs([]string{})
+		if !initHookCalled {
+			t.Error("Expected Init() to be called")
+		}
+	})
+}
+
+// --- CfgStructPreValidate lifecycle hook (internal line 1314) ---
+
+var preValidateHookCalled bool
+
+type preValidateHookParams struct {
+	Port int `descr:"port" default:"8080"`
+}
+
+func (p *preValidateHookParams) PreValidate() error {
+	preValidateHookCalled = true
+	return nil
+}
+
+func TestCfgStructPreValidate(t *testing.T) {
+	preValidateHookCalled = false
+	(CmdT[preValidateHookParams]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *preValidateHookParams, c *cobra.Command, args []string) {},
+	}).RunArgs([]string{})
+	if !preValidateHookCalled {
+		t.Error("Expected PreValidate() to be called")
+	}
+}
+
+// --- []time.Time with struct literal default (type_handler line 395-402) ---
+
+func TestSliceTimeDuration(t *testing.T) {
+	t.Run("[]time.Duration with struct literal default", func(t *testing.T) {
+		type P struct {
+			Timeouts []time.Duration `descr:"timeouts"`
+		}
+		var got []time.Duration
+		(CmdT[P]{
+			Use:         "test",
+			Params:      &P{Timeouts: []time.Duration{time.Second, 5 * time.Second}},
+			ParamEnrich: ParamEnricherName,
+			RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.Timeouts },
+		}).RunArgs([]string{})
+		if len(got) != 2 || got[0] != time.Second {
+			t.Errorf("Got %v, want [1s 5s]", got)
+		}
+	})
+
+	t.Run("[]time.Duration via CLI", func(t *testing.T) {
+		type P struct {
+			Timeouts []time.Duration `descr:"timeouts" optional:"true"`
+		}
+		var got []time.Duration
+		(CmdT[P]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.Timeouts },
+		}).RunArgs([]string{"--timeouts", "1s", "--timeouts", "5m"})
+		if len(got) != 2 || got[0] != time.Second || got[1] != 5*time.Minute {
+			t.Errorf("Got %v, want [1s 5m]", got)
+		}
+	})
+}
+
+// --- []*url.URL with struct literal default (type_handler line 435-442) ---
+
+func TestSliceURL(t *testing.T) {
+	t.Run("[]*url.URL with struct literal default", func(t *testing.T) {
+		type P struct {
+			URLs []*url.URL `descr:"urls"`
+		}
+		u1, _ := url.Parse("https://a.com")
+		u2, _ := url.Parse("https://b.com")
+		var got []*url.URL
+		(CmdT[P]{
+			Use:         "test",
+			Params:      &P{URLs: []*url.URL{u1, u2}},
+			ParamEnrich: ParamEnricherName,
+			RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.URLs },
+		}).RunArgs([]string{})
+		if len(got) != 2 || got[0].String() != "https://a.com" {
+			t.Errorf("Got %v, want [https://a.com https://b.com]", got)
+		}
+	})
+
+	t.Run("[]*url.URL via CLI", func(t *testing.T) {
+		type P struct {
+			URLs []*url.URL `descr:"urls" optional:"true"`
+		}
+		var got []*url.URL
+		(CmdT[P]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.URLs },
+		}).RunArgs([]string{"--urls", "https://x.com", "--urls", "https://y.com"})
+		if len(got) != 2 || got[0].String() != "https://x.com" {
+			t.Errorf("Got %v", got)
+		}
+	})
+}
+
+// --- Slice default from string tag (connect line 608-613) ---
+
+func TestSliceDefaultFromTag(t *testing.T) {
+	type P struct {
+		Ports []int `descr:"ports" default:"[80,443]"`
+	}
+	var got []int
+	(CmdT[P]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc:     func(p *P, c *cobra.Command, args []string) { got = p.Ports },
+	}).RunArgs([]string{})
+	if len(got) != 2 || got[0] != 80 || got[1] != 443 {
+		t.Errorf("Got %v, want [80 443]", got)
+	}
+}
+
+// --- PostCreateFunc hook (toCobraBase line 1212) ---
+
+func TestPostCreateFunc(t *testing.T) {
+	type P struct {
+		Name string `descr:"name" optional:"true"`
+	}
+	var hookCalled bool
+	err := (CmdT[P]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		PostCreateFunc: func(p *P, c *cobra.Command) error {
+			hookCalled = true
+			return nil
+		},
+		RunFunc: func(p *P, c *cobra.Command, args []string) {},
+	}).RunArgsE([]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hookCalled {
+		t.Error("Expected PostCreateFunc to be called")
 	}
 }

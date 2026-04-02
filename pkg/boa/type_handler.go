@@ -641,11 +641,30 @@ func lookupMapHandler(t reflect.Type) *typeHandler {
 		return nil
 	}
 
+	parseFn := buildMapParse(t, valType, valHandler)
+
 	// Build a composed handler
 	h := &typeHandler{
 		baseType: t,
 		bindFlag: buildMapBindFlag(t, valType),
-		parse:    buildMapParse(t, valType, valHandler),
+		parse:    parseFn,
+	}
+
+	// Non-native map types (not string/int/int64) use StringP, so they need a
+	// convert function to parse the stored string into the actual map type.
+	switch valType {
+	case reflect.TypeOf(""), reflect.TypeOf(0), reflect.TypeOf(int64(0)):
+		// Native pflag support — no convert needed
+	default:
+		h.convert = func(name string, val any) (any, error) {
+			if strPtr, ok := val.(*string); ok {
+				if *strPtr == "" {
+					return val, nil
+				}
+				return parseFn(name, *strPtr)
+			}
+			return val, nil // already converted
+		}
 	}
 
 	// Cache it
