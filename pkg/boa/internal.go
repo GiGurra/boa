@@ -143,6 +143,12 @@ type Param interface {
 	GetStrictAlts() bool
 }
 
+// configFileEntry tracks a configfile:"true" field and the struct it should load into.
+type configFileEntry struct {
+	mirror Param // the string param holding the file path
+	target any   // pointer to the struct to unmarshal into
+}
+
 type processingContext struct {
 	context.Context
 	RawAddrToMirror map[unsafe.Pointer]Param
@@ -152,9 +158,9 @@ type processingContext struct {
 	// as well - since the config file deserialization will
 	// not be aware of the raw values, and just overwrite them.
 	RawAddresses []unsafe.Pointer
-	// ConfigFileMirror is the Param for the field tagged with configfile:"true".
-	// If set, boa automatically loads the config file before validation.
-	ConfigFileMirror Param
+	// ConfigFiles tracks all configfile:"true" fields and their target structs.
+	// Ordered: substruct entries first, root entry last (so root overrides inner).
+	ConfigFiles []configFileEntry
 }
 
 func parseEnv(ctx *processingContext, structPtr any) error {
@@ -900,6 +906,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 	if b.Params != nil {
 
 		// look in tags for info about positional args
+		currentStructPtr := b.Params
 		err := traverse(ctx, b.Params, func(param Param, _ string, tags reflect.StructTag) error {
 			if tags.Get("positional") == "true" || tags.Get("pos") == "true" {
 				param.setPositional(true)
@@ -993,14 +1000,17 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 				if param.GetType().Kind() != reflect.String {
 					return fmt.Errorf("configfile tag on param %s: must be a string field", param.GetName())
 				}
-				if ctx.ConfigFileMirror != nil {
-					return fmt.Errorf("configfile tag on param %s: only one configfile field is allowed per struct", param.GetName())
-				}
-				ctx.ConfigFileMirror = param
+				ctx.ConfigFiles = append(ctx.ConfigFiles, configFileEntry{
+					mirror: param,
+					target: currentStructPtr,
+				})
 			}
 
 			return nil
-		}, nil)
+		}, func(structPtr any) error {
+			currentStructPtr = structPtr
+			return nil
+		})
 
 		if err != nil {
 			return nil, nil, fmt.Errorf("error parsing tags: %w", err)
@@ -1148,11 +1158,40 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 
 			syncMirrors(ctx)
 
-			// Auto-load config file if a field is tagged with configfile:"true"
-			if ctx.ConfigFileMirror != nil && ctx.ConfigFileMirror.HasValue() {
-				filePath := *(ctx.ConfigFileMirror.valuePtrF().(*string))
-				if err := loadConfigFileInto(filePath, b.Params, b.ConfigUnmarshal); err != nil {
-					return NewUserInputError(fmt.Errorf("configfile: %w", err))
+			// Auto-load config files tagged with configfile:"true".
+			// Substruct configs load first, root config loads last (root overrides inner).
+			// Priority: CLI > env > root config > substruct config > defaults
+			if len(ctx.ConfigFiles) > 0 {
+				// Separate root and substruct entries
+				var subEntries, rootEntries []configFileEntry
+				for _, entry := range ctx.ConfigFiles {
+					if entry.target == b.Params {
+						rootEntries = append(rootEntries, entry)
+					} else {
+						subEntries = append(subEntries, entry)
+					}
+				}
+				// Load substruct configs first
+				for _, entry := range subEntries {
+					if entry.mirror.HasValue() {
+						filePath := *(entry.mirror.valuePtrF().(*string))
+						if filePath != "" {
+							if err := loadConfigFileInto(filePath, entry.target, b.ConfigUnmarshal); err != nil {
+								return NewUserInputError(fmt.Errorf("configfile %s: %w", entry.mirror.GetName(), err))
+							}
+						}
+					}
+				}
+				// Then load root config (overrides substruct values)
+				for _, entry := range rootEntries {
+					if entry.mirror.HasValue() {
+						filePath := *(entry.mirror.valuePtrF().(*string))
+						if filePath != "" {
+							if err := loadConfigFileInto(filePath, entry.target, b.ConfigUnmarshal); err != nil {
+								return NewUserInputError(fmt.Errorf("configfile %s: %w", entry.mirror.GetName(), err))
+							}
+						}
+					}
 				}
 				syncMirrors(ctx)
 			}
