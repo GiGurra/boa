@@ -2,6 +2,7 @@ package boa
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -173,6 +174,14 @@ type configFileEntry struct {
 	target any   // pointer to the struct to unmarshal into
 }
 
+// preallocatedPtrInfo tracks a struct pointer field that was nil and got preallocated
+// so that traverse could discover and register its child fields as CLI flags.
+// After all value sources are applied (CLI, env, config), the pointer is nil'd back
+// if none of its fields were explicitly set.
+type preallocatedPtrInfo struct {
+	ptrField reflect.Value // the pointer field in the parent struct (e.g., *DBConfig)
+}
+
 type processingContext struct {
 	context.Context
 	RawAddrToMirror map[unsafe.Pointer]Param
@@ -185,6 +194,352 @@ type processingContext struct {
 	// ConfigFiles tracks all configfile:"true" fields and their target structs.
 	// Ordered: substruct entries first, root entry last (so root overrides inner).
 	ConfigFiles []configFileEntry
+	// PreallocatedPtrs tracks struct pointer fields that were nil and got preallocated.
+	// Ordered depth-first (innermost first) so cleanup processes leaves before parents.
+	PreallocatedPtrs []preallocatedPtrInfo
+	// ConfigPresentPtrs tracks preallocated struct pointers that were explicitly
+	// mentioned in a config file (even if no child fields were set, e.g., "DB": {}).
+	// These survive cleanup regardless of whether individual fields were set.
+	ConfigPresentPtrs map[uintptr]bool
+}
+
+// preallocateStructPtrs walks the struct tree and allocates any nil struct pointer fields,
+// tracking them in ctx.PreallocatedPtrs so they can be nil'd back after parsing if unused.
+// This must be called before the first traverse so that traverse discovers the child fields.
+// The list is built depth-first (innermost first) for correct cleanup ordering.
+func preallocateStructPtrs(ctx *processingContext, structPtr any) {
+	val := reflect.ValueOf(structPtr).Elem()
+	typ := val.Type()
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if isBoaIgnored(field) {
+			continue
+		}
+		// Recurse into non-pointer structs (they're always present)
+		if field.Type.Kind() == reflect.Struct && !isSupportedType(field.Type) {
+			preallocateStructPtrs(ctx, val.Field(i).Addr().Interface())
+			continue
+		}
+		// Preallocate nil struct pointer fields
+		if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct && !isSupportedType(field.Type) {
+			fieldVal := val.Field(i)
+			if fieldVal.IsNil() {
+				fieldVal.Set(reflect.New(field.Type.Elem()))
+				// Recurse into the newly allocated struct (inner pointers first)
+				preallocateStructPtrs(ctx, fieldVal.Interface())
+				// Append after recursion so innermost entries come first
+				ctx.PreallocatedPtrs = append(ctx.PreallocatedPtrs, preallocatedPtrInfo{
+					ptrField: fieldVal,
+				})
+			} else {
+				// Already non-nil (user pre-initialized) — still recurse for nested nil ptrs
+				preallocateStructPtrs(ctx, fieldVal.Interface())
+			}
+			continue
+		}
+	}
+}
+
+// cleanupPreallocatedPtrs nils back any preallocated struct pointers whose fields
+// were never explicitly set (via CLI, env, or config injection). Processes innermost
+// first so that nested struct pointers are cleaned before their parents.
+func cleanupPreallocatedPtrs(ctx *processingContext) {
+	for _, info := range ctx.PreallocatedPtrs {
+		if info.ptrField.IsNil() {
+			// Already cleaned up (e.g., parent was nil'd in a previous iteration)
+			continue
+		}
+
+		structPtr := info.ptrField.Interface()
+		anySet := false
+
+		// Check if this struct was explicitly mentioned in a config file
+		if ctx.ConfigPresentPtrs[reflect.ValueOf(structPtr).Pointer()] {
+			anySet = true
+		}
+
+		// Walk the struct's fields and check if any mirror was explicitly set
+		if !anySet {
+			collectAndCheck(ctx, structPtr, &anySet)
+		}
+
+		if !anySet {
+			// Check if any nested struct pointer survived cleanup (is still non-nil).
+			// This handles the case where a deeply nested field was set, which keeps
+			// the nested ptr alive — the parent should also survive.
+			structVal := reflect.ValueOf(structPtr).Elem()
+			for i := 0; i < structVal.NumField(); i++ {
+				f := structVal.Field(i)
+				if f.Kind() == reflect.Ptr && !f.IsNil() && f.Elem().Kind() == reflect.Struct {
+					anySet = true
+					break
+				}
+			}
+		}
+
+		if !anySet {
+			// Remove mirrors for all fields within this struct
+			removeMirrorsForStruct(ctx, structPtr)
+			// Nil the pointer
+			info.ptrField.Set(reflect.Zero(info.ptrField.Type()))
+		}
+	}
+}
+
+// markConfigKeysPresent probes the raw config file data for key presence to detect
+// which preallocated struct pointer fields were explicitly mentioned in the config,
+// even if the values are zero or match the defaults.
+//
+// It unmarshals the raw bytes into map[string]json.RawMessage to get the set of
+// top-level keys, then matches them against struct field names using the same
+// case-insensitive logic as encoding/json. For nested structs, it recurses into
+// the sub-maps.
+//
+// Returns true if key-presence detection succeeded (JSON-compatible data).
+// Returns false for non-JSON data so the caller can fall back to snapshot comparison.
+func markConfigKeysPresent(ctx *processingContext, target any, rawData []byte) bool {
+	if len(ctx.PreallocatedPtrs) == 0 || len(rawData) == 0 {
+		return false
+	}
+	// Probe the raw data for top-level keys
+	var topLevel map[string]json.RawMessage
+	if err := json.Unmarshal(rawData, &topLevel); err != nil {
+		return false // not JSON-compatible; caller should use snapshot fallback
+	}
+	// Walk the target struct type and match keys against preallocated struct ptrs
+	markConfigKeysPresentInStruct(ctx, target, topLevel)
+	return true
+}
+
+// jsonFieldKey returns the key that encoding/json would use for a struct field.
+// If a json tag is present, use its name. Otherwise, use the Go field name.
+func jsonFieldKey(field reflect.StructField) string {
+	if tag := field.Tag.Get("json"); tag != "" {
+		parts := strings.SplitN(tag, ",", 2)
+		if parts[0] != "" && parts[0] != "-" {
+			return parts[0]
+		}
+		if parts[0] == "-" {
+			return "" // explicitly skipped
+		}
+	}
+	return field.Name
+}
+
+// jsonKeyLookup does a case-insensitive key lookup matching encoding/json behavior:
+// exact match first, then case-insensitive fallback.
+func jsonKeyLookup(keys map[string]json.RawMessage, target string) (json.RawMessage, bool) {
+	if target == "" {
+		return nil, false
+	}
+	// Exact match first (fast path)
+	if v, ok := keys[target]; ok {
+		return v, true
+	}
+	// Case-insensitive fallback (matches encoding/json behavior)
+	for k, v := range keys {
+		if strings.EqualFold(k, target) {
+			return v, true
+		}
+	}
+	return nil, false
+}
+
+func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys map[string]json.RawMessage) {
+	val := reflect.ValueOf(structPtr).Elem()
+	typ := val.Type()
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if isBoaIgnored(field) {
+			continue
+		}
+		jsonKey := jsonFieldKey(field)
+		rawVal, keyPresent := jsonKeyLookup(keys, jsonKey)
+		if !keyPresent {
+			continue
+		}
+		fieldVal := val.Field(i)
+		// If this is a struct pointer field and it's preallocated (non-nil)
+		if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct && !isSupportedType(field.Type) && !fieldVal.IsNil() {
+			// The config mentioned this struct — mark it as present so the
+			// pointer survives cleanup, even if the object is empty `{}`.
+			// Individual fields only get setByConfig if they appear as keys.
+			markStructPtrPresentByConfig(ctx, fieldVal.Interface())
+			var subKeys map[string]json.RawMessage
+			if json.Unmarshal(rawVal, &subKeys) == nil && len(subKeys) > 0 {
+				markConfigKeysPresentInStruct(ctx, fieldVal.Interface(), subKeys)
+			}
+			continue
+		}
+		// If this is a non-pointer struct, recurse
+		if field.Type.Kind() == reflect.Struct && !isSupportedType(field.Type) {
+			var subKeys map[string]json.RawMessage
+			if json.Unmarshal(rawVal, &subKeys) == nil {
+				markConfigKeysPresentInStruct(ctx, fieldVal.Addr().Interface(), subKeys)
+			}
+			continue
+		}
+		// Leaf field present in config — mark its mirror
+		if isSupportedType(field.Type) {
+			addr := fieldVal.Addr().UnsafePointer()
+			if mirror, ok := ctx.RawAddrToMirror[addr]; ok {
+				if pm, isPM := mirror.(*paramMeta); isPM {
+					pm.setByConfig = true
+				}
+			}
+		}
+	}
+}
+
+// snapshotPreallocatedStructs takes a deep copy of each preallocated struct's value.
+// Used as fallback for non-JSON config formats where key-presence detection can't work.
+func snapshotPreallocatedStructs(ctx *processingContext) []reflect.Value {
+	snapshots := make([]reflect.Value, len(ctx.PreallocatedPtrs))
+	for i, info := range ctx.PreallocatedPtrs {
+		if info.ptrField.IsNil() {
+			continue
+		}
+		orig := info.ptrField.Elem()
+		cp := reflect.New(orig.Type()).Elem()
+		cp.Set(orig)
+		snapshots[i] = cp
+	}
+	return snapshots
+}
+
+// markConfigChangedStructs compares preallocated struct values against pre-config
+// snapshots. If any struct changed, marks all its mirrors as setByConfig.
+// This is the fallback for non-JSON formats where key-presence detection can't work.
+func markConfigChangedStructs(ctx *processingContext, snapshots []reflect.Value) {
+	for i, info := range ctx.PreallocatedPtrs {
+		if info.ptrField.IsNil() || !snapshots[i].IsValid() {
+			continue
+		}
+		current := info.ptrField.Elem()
+		if !reflect.DeepEqual(current.Interface(), snapshots[i].Interface()) {
+			markAllMirrorsInStruct(ctx, info.ptrField.Interface())
+		}
+	}
+}
+
+// markStructPtrPresentByConfig records that a preallocated struct pointer was
+// explicitly mentioned in a config file. This ensures the pointer survives
+// cleanup even if no individual child fields were set (e.g., "DB": {}).
+// Individual field HasValue is not affected — only cleanup is.
+func markStructPtrPresentByConfig(ctx *processingContext, structPtr any) {
+	addr := reflect.ValueOf(structPtr).Pointer()
+	if ctx.ConfigPresentPtrs == nil {
+		ctx.ConfigPresentPtrs = make(map[uintptr]bool)
+	}
+	ctx.ConfigPresentPtrs[addr] = true
+}
+
+// markAllMirrorsInStruct marks mirrors in this struct as set by config.
+// It recurses into non-pointer structs but STOPS at pointer-to-struct boundaries.
+// Pointer-to-struct fields are handled by key-presence recursion in
+// markConfigKeysPresentInStruct, which only marks nested ptr structs if the
+// config data actually mentions them.
+func markAllMirrorsInStruct(ctx *processingContext, structPtr any) {
+	val := reflect.ValueOf(structPtr).Elem()
+	typ := val.Type()
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if isBoaIgnored(field) {
+			continue
+		}
+		fieldVal := val.Field(i)
+		if isSupportedType(field.Type) {
+			addr := fieldVal.Addr().UnsafePointer()
+			if mirror, ok := ctx.RawAddrToMirror[addr]; ok {
+				if pm, isPM := mirror.(*paramMeta); isPM {
+					pm.setByConfig = true
+				}
+			}
+			continue
+		}
+		if field.Type.Kind() == reflect.Struct {
+			markAllMirrorsInStruct(ctx, fieldVal.Addr().Interface())
+			continue
+		}
+		// Do NOT recurse into pointer-to-struct fields here.
+		// Key-presence detection handles them.
+	}
+}
+
+// collectAndCheck walks a struct's fields and checks if any mirror was explicitly set
+// by the user (CLI, env var, or config file). Default values alone don't count.
+func collectAndCheck(ctx *processingContext, structPtr any, anySet *bool) {
+	val := reflect.ValueOf(structPtr).Elem()
+	typ := val.Type()
+	for i := 0; i < typ.NumField(); i++ {
+		if *anySet {
+			return
+		}
+		field := typ.Field(i)
+		if isBoaIgnored(field) {
+			continue
+		}
+		fieldVal := val.Field(i)
+		if isSupportedType(field.Type) {
+			addr := fieldVal.Addr().UnsafePointer()
+			if mirror, ok := ctx.RawAddrToMirror[addr]; ok {
+				pm, isPM := mirror.(*paramMeta)
+				if mirror.wasSetOnCli() || mirror.wasSetByEnv() {
+					*anySet = true
+					return
+				}
+				if isPM && pm.setByConfig {
+					*anySet = true
+					return
+				}
+			}
+			continue
+		}
+		// Recurse into non-pointer structs
+		if field.Type.Kind() == reflect.Struct {
+			collectAndCheck(ctx, fieldVal.Addr().Interface(), anySet)
+			continue
+		}
+		// Recurse into non-nil pointer structs
+		if field.Type.Kind() == reflect.Ptr && !fieldVal.IsNil() && field.Type.Elem().Kind() == reflect.Struct {
+			collectAndCheck(ctx, fieldVal.Interface(), anySet)
+		}
+	}
+}
+
+// removeMirrorsForStruct removes all mirrors belonging to fields within the given struct
+// from the processing context, preventing dangling unsafe pointers after the struct is nil'd.
+func removeMirrorsForStruct(ctx *processingContext, structPtr any) {
+	val := reflect.ValueOf(structPtr).Elem()
+	typ := val.Type()
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if isBoaIgnored(field) {
+			continue
+		}
+		fieldVal := val.Field(i)
+		if isSupportedType(field.Type) {
+			addr := fieldVal.Addr().UnsafePointer()
+			delete(ctx.RawAddrToMirror, addr)
+			// Remove from RawAddresses slice
+			for j, a := range ctx.RawAddresses {
+				if a == addr {
+					ctx.RawAddresses = append(ctx.RawAddresses[:j], ctx.RawAddresses[j+1:]...)
+					break
+				}
+			}
+			continue
+		}
+		// Recurse into non-pointer structs
+		if field.Type.Kind() == reflect.Struct {
+			removeMirrorsForStruct(ctx, fieldVal.Addr().Interface())
+			continue
+		}
+		// Recurse into non-nil pointer structs
+		if field.Type.Kind() == reflect.Ptr && !fieldVal.IsNil() && field.Type.Elem().Kind() == reflect.Struct {
+			removeMirrorsForStruct(ctx, fieldVal.Interface())
+		}
+	}
 }
 
 func parseEnv(ctx *processingContext, structPtr any) error {
@@ -940,6 +1295,13 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 		RawAddresses:    []unsafe.Pointer{},
 	}
 
+	// Preallocate nil struct pointer fields so traverse can discover their children.
+	// This must happen before the first traverse and before init hooks so users can
+	// access fields like &params.DB.Port in InitFunc/InitFuncCtx.
+	if b.Params != nil {
+		preallocateStructPtrs(ctx, b.Params)
+	}
+
 	// build mirrors
 	if b.Params != nil {
 		_ = traverse(ctx, b.Params, nil, func(innerParams any) error {
@@ -1294,9 +1656,26 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 
 			syncMirrors(ctx)
 
+			// Snapshot preallocated structs before config loading. Used as fallback
+			// for non-JSON formats where key-presence detection can't work.
+			var preConfigSnapshots []reflect.Value
+			if len(ctx.PreallocatedPtrs) > 0 {
+				preConfigSnapshots = snapshotPreallocatedStructs(ctx)
+			}
+
 			// Auto-load config files tagged with configfile:"true".
 			// Substruct configs load first, root config loads last (root overrides inner).
 			// Priority: CLI > env > root config > substruct config > defaults
+			//
+			// We collect (target, rawData) pairs so that after loading we can probe
+			// the raw bytes for key presence — this lets us detect config-file writes
+			// even when the value equals Go's zero value or the field's default.
+			type configLoadResult struct {
+				target  any
+				rawData []byte
+			}
+			var configResults []configLoadResult
+
 			if len(ctx.ConfigFiles) > 0 {
 				// Separate root and substruct entries
 				var subEntries, rootEntries []configFileEntry
@@ -1312,9 +1691,11 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 					if entry.mirror.HasValue() {
 						filePath := *(entry.mirror.valuePtrF().(*string))
 						if filePath != "" {
-							if err := loadConfigFileInto(filePath, entry.target, b.ConfigUnmarshal); err != nil {
+							rawData, err := loadConfigFileInto(filePath, entry.target, b.ConfigUnmarshal)
+							if err != nil {
 								return NewUserInputError(fmt.Errorf("configfile %s: %w", entry.mirror.GetName(), err))
 							}
+							configResults = append(configResults, configLoadResult{target: entry.target, rawData: rawData})
 						}
 					}
 				}
@@ -1323,13 +1704,39 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 					if entry.mirror.HasValue() {
 						filePath := *(entry.mirror.valuePtrF().(*string))
 						if filePath != "" {
-							if err := loadConfigFileInto(filePath, entry.target, b.ConfigUnmarshal); err != nil {
+							rawData, err := loadConfigFileInto(filePath, entry.target, b.ConfigUnmarshal)
+							if err != nil {
 								return NewUserInputError(fmt.Errorf("configfile %s: %w", entry.mirror.GetName(), err))
 							}
+							configResults = append(configResults, configLoadResult{target: entry.target, rawData: rawData})
 						}
 					}
 				}
 				syncMirrors(ctx)
+			}
+
+			// Probe raw config data for key presence to detect which preallocated
+			// struct pointers were mentioned in config files. This detects writes
+			// even when the value equals Go's zero value or the field's default.
+			// For non-JSON formats, fall back to snapshot comparison.
+			allDetected := true
+			for _, cr := range configResults {
+				if !markConfigKeysPresent(ctx, cr.target, cr.rawData) {
+					allDetected = false
+				}
+			}
+			if !allDetected && preConfigSnapshots != nil {
+				// Non-JSON config format: fall back to comparing struct values
+				// before and after config loading. This catches changed values
+				// but can't detect zero-value or same-as-default writes.
+				markConfigChangedStructs(ctx, preConfigSnapshots)
+			}
+
+			// Clean up preallocated struct pointers that had no fields set.
+			// This must happen after all value sources (CLI, env, config) and before
+			// validation, so that required-field checks don't fire for unused struct groups.
+			if len(ctx.PreallocatedPtrs) > 0 {
+				cleanupPreallocatedPtrs(ctx)
 			}
 
 			// if b.params or any inner struct implements CfgStructPreValidate, call it

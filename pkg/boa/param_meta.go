@@ -42,6 +42,7 @@ type paramMeta struct {
 
 	// State
 	setByEnv        bool
+	setByConfig     bool
 	setPositionally bool
 	injected        bool
 	valuePtr        any            // cobra flag pointer (e.g., *string from StringP)
