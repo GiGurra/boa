@@ -197,6 +197,10 @@ type processingContext struct {
 	// PreallocatedPtrs tracks struct pointer fields that were nil and got preallocated.
 	// Ordered depth-first (innermost first) so cleanup processes leaves before parents.
 	PreallocatedPtrs []preallocatedPtrInfo
+	// ConfigPresentPtrs tracks preallocated struct pointers that were explicitly
+	// mentioned in a config file (even if no child fields were set, e.g., "DB": {}).
+	// These survive cleanup regardless of whether individual fields were set.
+	ConfigPresentPtrs map[uintptr]bool
 }
 
 // preallocateStructPtrs walks the struct tree and allocates any nil struct pointer fields,
@@ -249,8 +253,15 @@ func cleanupPreallocatedPtrs(ctx *processingContext) {
 		structPtr := info.ptrField.Interface()
 		anySet := false
 
+		// Check if this struct was explicitly mentioned in a config file
+		if ctx.ConfigPresentPtrs[reflect.ValueOf(structPtr).Pointer()] {
+			anySet = true
+		}
+
 		// Walk the struct's fields and check if any mirror was explicitly set
-		collectAndCheck(ctx, structPtr, &anySet)
+		if !anySet {
+			collectAndCheck(ctx, structPtr, &anySet)
+		}
 
 		if !anySet {
 			// Check if any nested struct pointer survived cleanup (is still non-nil).
@@ -280,22 +291,58 @@ func cleanupPreallocatedPtrs(ctx *processingContext) {
 // even if the values are zero or match the defaults.
 //
 // It unmarshals the raw bytes into map[string]json.RawMessage to get the set of
-// top-level keys, then matches them against struct field names. For nested structs,
-// it recurses into the sub-maps.
+// top-level keys, then matches them against struct field names using the same
+// case-insensitive logic as encoding/json. For nested structs, it recurses into
+// the sub-maps.
 //
-// This only works for JSON-compatible unmarshalers. For custom formats, the caller
-// should fall back to a snapshot-based comparison or implement their own detection.
-func markConfigKeysPresent(ctx *processingContext, target any, rawData []byte) {
+// Returns true if key-presence detection succeeded (JSON-compatible data).
+// Returns false for non-JSON data so the caller can fall back to snapshot comparison.
+func markConfigKeysPresent(ctx *processingContext, target any, rawData []byte) bool {
 	if len(ctx.PreallocatedPtrs) == 0 || len(rawData) == 0 {
-		return
+		return false
 	}
 	// Probe the raw data for top-level keys
 	var topLevel map[string]json.RawMessage
 	if err := json.Unmarshal(rawData, &topLevel); err != nil {
-		return // not JSON-compatible; skip key detection
+		return false // not JSON-compatible; caller should use snapshot fallback
 	}
 	// Walk the target struct type and match keys against preallocated struct ptrs
 	markConfigKeysPresentInStruct(ctx, target, topLevel)
+	return true
+}
+
+// jsonFieldKey returns the key that encoding/json would use for a struct field.
+// If a json tag is present, use its name. Otherwise, use the Go field name.
+func jsonFieldKey(field reflect.StructField) string {
+	if tag := field.Tag.Get("json"); tag != "" {
+		parts := strings.SplitN(tag, ",", 2)
+		if parts[0] != "" && parts[0] != "-" {
+			return parts[0]
+		}
+		if parts[0] == "-" {
+			return "" // explicitly skipped
+		}
+	}
+	return field.Name
+}
+
+// jsonKeyLookup does a case-insensitive key lookup matching encoding/json behavior:
+// exact match first, then case-insensitive fallback.
+func jsonKeyLookup(keys map[string]json.RawMessage, target string) (json.RawMessage, bool) {
+	if target == "" {
+		return nil, false
+	}
+	// Exact match first (fast path)
+	if v, ok := keys[target]; ok {
+		return v, true
+	}
+	// Case-insensitive fallback (matches encoding/json behavior)
+	for k, v := range keys {
+		if strings.EqualFold(k, target) {
+			return v, true
+		}
+	}
+	return nil, false
 }
 
 func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys map[string]json.RawMessage) {
@@ -306,25 +353,20 @@ func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys m
 		if isBoaIgnored(field) {
 			continue
 		}
-		// Determine the JSON key for this field
-		jsonKey := field.Name
-		if tag := field.Tag.Get("json"); tag != "" {
-			parts := strings.SplitN(tag, ",", 2)
-			if parts[0] != "" && parts[0] != "-" {
-				jsonKey = parts[0]
-			}
-		}
-		rawVal, keyPresent := keys[jsonKey]
+		jsonKey := jsonFieldKey(field)
+		rawVal, keyPresent := jsonKeyLookup(keys, jsonKey)
 		if !keyPresent {
 			continue
 		}
 		fieldVal := val.Field(i)
-		// If this is a struct pointer field and it's preallocated (non-nil), mark it
+		// If this is a struct pointer field and it's preallocated (non-nil)
 		if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct && !isSupportedType(field.Type) && !fieldVal.IsNil() {
-			markAllMirrorsInStruct(ctx, fieldVal.Interface())
-			// Recurse into the sub-object to handle nested preallocated ptrs
+			// The config mentioned this struct — mark it as present so the
+			// pointer survives cleanup, even if the object is empty `{}`.
+			// Individual fields only get setByConfig if they appear as keys.
+			markStructPtrPresentByConfig(ctx, fieldVal.Interface())
 			var subKeys map[string]json.RawMessage
-			if json.Unmarshal(rawVal, &subKeys) == nil {
+			if json.Unmarshal(rawVal, &subKeys) == nil && len(subKeys) > 0 {
 				markConfigKeysPresentInStruct(ctx, fieldVal.Interface(), subKeys)
 			}
 			continue
@@ -337,7 +379,59 @@ func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys m
 			}
 			continue
 		}
+		// Leaf field present in config — mark its mirror
+		if isSupportedType(field.Type) {
+			addr := fieldVal.Addr().UnsafePointer()
+			if mirror, ok := ctx.RawAddrToMirror[addr]; ok {
+				if pm, isPM := mirror.(*paramMeta); isPM {
+					pm.setByConfig = true
+				}
+			}
+		}
 	}
+}
+
+// snapshotPreallocatedStructs takes a deep copy of each preallocated struct's value.
+// Used as fallback for non-JSON config formats where key-presence detection can't work.
+func snapshotPreallocatedStructs(ctx *processingContext) []reflect.Value {
+	snapshots := make([]reflect.Value, len(ctx.PreallocatedPtrs))
+	for i, info := range ctx.PreallocatedPtrs {
+		if info.ptrField.IsNil() {
+			continue
+		}
+		orig := info.ptrField.Elem()
+		cp := reflect.New(orig.Type()).Elem()
+		cp.Set(orig)
+		snapshots[i] = cp
+	}
+	return snapshots
+}
+
+// markConfigChangedStructs compares preallocated struct values against pre-config
+// snapshots. If any struct changed, marks all its mirrors as setByConfig.
+// This is the fallback for non-JSON formats where key-presence detection can't work.
+func markConfigChangedStructs(ctx *processingContext, snapshots []reflect.Value) {
+	for i, info := range ctx.PreallocatedPtrs {
+		if info.ptrField.IsNil() || !snapshots[i].IsValid() {
+			continue
+		}
+		current := info.ptrField.Elem()
+		if !reflect.DeepEqual(current.Interface(), snapshots[i].Interface()) {
+			markAllMirrorsInStruct(ctx, info.ptrField.Interface())
+		}
+	}
+}
+
+// markStructPtrPresentByConfig records that a preallocated struct pointer was
+// explicitly mentioned in a config file. This ensures the pointer survives
+// cleanup even if no individual child fields were set (e.g., "DB": {}).
+// Individual field HasValue is not affected — only cleanup is.
+func markStructPtrPresentByConfig(ctx *processingContext, structPtr any) {
+	addr := reflect.ValueOf(structPtr).Pointer()
+	if ctx.ConfigPresentPtrs == nil {
+		ctx.ConfigPresentPtrs = make(map[uintptr]bool)
+	}
+	ctx.ConfigPresentPtrs[addr] = true
 }
 
 // markAllMirrorsInStruct marks mirrors in this struct as set by config.
@@ -1562,6 +1656,13 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 
 			syncMirrors(ctx)
 
+			// Snapshot preallocated structs before config loading. Used as fallback
+			// for non-JSON formats where key-presence detection can't work.
+			var preConfigSnapshots []reflect.Value
+			if len(ctx.PreallocatedPtrs) > 0 {
+				preConfigSnapshots = snapshotPreallocatedStructs(ctx)
+			}
+
 			// Auto-load config files tagged with configfile:"true".
 			// Substruct configs load first, root config loads last (root overrides inner).
 			// Priority: CLI > env > root config > substruct config > defaults
@@ -1617,8 +1718,18 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			// Probe raw config data for key presence to detect which preallocated
 			// struct pointers were mentioned in config files. This detects writes
 			// even when the value equals Go's zero value or the field's default.
+			// For non-JSON formats, fall back to snapshot comparison.
+			allDetected := true
 			for _, cr := range configResults {
-				markConfigKeysPresent(ctx, cr.target, cr.rawData)
+				if !markConfigKeysPresent(ctx, cr.target, cr.rawData) {
+					allDetected = false
+				}
+			}
+			if !allDetected && preConfigSnapshots != nil {
+				// Non-JSON config format: fall back to comparing struct values
+				// before and after config loading. This catches changed values
+				// but can't detect zero-value or same-as-default writes.
+				markConfigChangedStructs(ctx, preConfigSnapshots)
 			}
 
 			// Clean up preallocated struct pointers that had no fields set.

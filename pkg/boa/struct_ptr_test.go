@@ -1490,6 +1490,242 @@ func TestStructPtr_HasValue_NestedPtr(t *testing.T) {
 	}
 }
 
+// --- JSON key matching: case-insensitive, json tags, boa name divergence ---
+
+func TestStructPtr_ConfigFile_CaseInsensitive_NoJsonTag(t *testing.T) {
+	// Without json tags, encoding/json matches field names case-insensitively.
+	// Config uses lowercase keys, struct has PascalCase fields.
+	type Inner struct {
+		Host string `descr:"host" optional:"true"`
+		Port int    `descr:"port" optional:"true"`
+	}
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		DB         *Inner
+	}
+
+	// All lowercase JSON keys — should match PascalCase Go fields
+	cfgData := []byte(`{"db": {"host": "lower-host", "port": 9999}}`)
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "app.json")
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
+
+	var gotDB *Inner
+	hostHasValue := false
+	portHasValue := false
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			gotDB = p.DB
+			if p.DB != nil {
+				hostHasValue = ctx.HasValue(&p.DB.Host)
+				portHasValue = ctx.HasValue(&p.DB.Port)
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotDB == nil {
+		t.Fatal("expected DB to be non-nil (case-insensitive key match)")
+	}
+	if gotDB.Host != "lower-host" {
+		t.Errorf("expected host='lower-host', got %q", gotDB.Host)
+	}
+	if gotDB.Port != 9999 {
+		t.Errorf("expected port=9999, got %d", gotDB.Port)
+	}
+	if !hostHasValue {
+		t.Error("expected HasValue for host to be true")
+	}
+	if !portHasValue {
+		t.Error("expected HasValue for port to be true")
+	}
+}
+
+func TestStructPtr_ConfigFile_WithJsonTag(t *testing.T) {
+	// json tags should be used for config file matching, not boa's name tag.
+	type Inner struct {
+		Host string `descr:"host" json:"hostname" optional:"true"`
+		Port int    `descr:"port" json:"listen_port" optional:"true"`
+	}
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		DB         *Inner
+	}
+
+	// JSON uses the json tag names
+	cfgData := []byte(`{"DB": {"hostname": "tagged-host", "listen_port": 8080}}`)
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "app.json")
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
+
+	var gotDB *Inner
+	hostHasValue := false
+	portHasValue := false
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			gotDB = p.DB
+			if p.DB != nil {
+				hostHasValue = ctx.HasValue(&p.DB.Host)
+				portHasValue = ctx.HasValue(&p.DB.Port)
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotDB == nil {
+		t.Fatal("expected DB to be non-nil when config uses json tag names")
+	}
+	if gotDB.Host != "tagged-host" {
+		t.Errorf("expected host='tagged-host', got %q", gotDB.Host)
+	}
+	if gotDB.Port != 8080 {
+		t.Errorf("expected port=8080, got %d", gotDB.Port)
+	}
+	if !hostHasValue {
+		t.Error("expected HasValue for host to be true")
+	}
+	if !portHasValue {
+		t.Error("expected HasValue for port to be true")
+	}
+}
+
+func TestStructPtr_ConfigFile_JsonTagCaseInsensitive(t *testing.T) {
+	// Case-insensitive matching should also work with json tags.
+	type Inner struct {
+		Host string `descr:"host" json:"hostname" optional:"true"`
+	}
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		DB         *Inner
+	}
+
+	// JSON uses uppercase of the json tag name
+	cfgData := []byte(`{"DB": {"HOSTNAME": "upper-host"}}`)
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "app.json")
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
+
+	var gotDB *Inner
+	hostHasValue := false
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			gotDB = p.DB
+			if p.DB != nil {
+				hostHasValue = ctx.HasValue(&p.DB.Host)
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotDB == nil {
+		t.Fatal("expected DB to be non-nil (case-insensitive json tag match)")
+	}
+	if gotDB.Host != "upper-host" {
+		t.Errorf("expected host='upper-host', got %q", gotDB.Host)
+	}
+	if !hostHasValue {
+		t.Error("expected HasValue for host to be true")
+	}
+}
+
+func TestStructPtr_ConfigFile_BoaNameDiffersFromJsonName(t *testing.T) {
+	// The boa flag name (from name tag or auto-generated) can be completely
+	// different from the json key. Config files use json names, not boa names.
+	// Here: boa name is "apple" but json key is "banana".
+	type Inner struct {
+		Fruit string `name:"apple" json:"banana" descr:"a fruit" optional:"true"`
+	}
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Box        *Inner
+	}
+
+	// JSON uses "banana" (the json tag), not "apple" (the boa name)
+	cfgData := []byte(`{"Box": {"banana": "yellow"}}`)
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "app.json")
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
+
+	var gotBox *Inner
+	fruitHasValue := false
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			gotBox = p.Box
+			if p.Box != nil {
+				fruitHasValue = ctx.HasValue(&p.Box.Fruit)
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotBox == nil {
+		t.Fatal("expected Box to be non-nil when config uses json tag name")
+	}
+	if gotBox.Fruit != "yellow" {
+		t.Errorf("expected fruit='yellow', got %q", gotBox.Fruit)
+	}
+	if !fruitHasValue {
+		t.Error("expected HasValue for fruit to be true")
+	}
+}
+
+func TestStructPtr_ConfigFile_EmptyObject_KeepsStructAlive(t *testing.T) {
+	// An empty object {"DB": {}} should keep the struct pointer alive because
+	// the config explicitly mentioned the section. Individual fields won't
+	// have HasValue=true, but the struct pointer is non-nil.
+	type Inner struct {
+		Host string `descr:"host" optional:"true"`
+	}
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		DB         *Inner
+	}
+
+	cfgData := []byte(`{"DB": {}}`)
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "app.json")
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
+
+	var gotDB *Inner
+	hostHasValue := false
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			gotDB = p.DB
+			if p.DB != nil {
+				hostHasValue = ctx.HasValue(&p.DB.Host)
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotDB == nil {
+		t.Fatal("expected DB to be non-nil when config mentions DB section (even empty)")
+	}
+	if hostHasValue {
+		t.Error("expected HasValue for host to be false (not in config, no default)")
+	}
+}
+
 // --- Flags from struct pointers show up in help ---
 
 func TestStructPtr_FlagsVisibleInHelp(t *testing.T) {

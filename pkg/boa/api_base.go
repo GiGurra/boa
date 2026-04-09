@@ -84,9 +84,15 @@ type Cmd struct {
 
 // HasValue checks if a parameter has a value from any source.
 // Returns true if the parameter was set by environment variable, command line,
-// default value, or programmatic injection.
+// config file, default value, or programmatic injection.
 func HasValue(f Param) bool {
-	return f.wasSetByEnv() || f.wasSetOnCli() || f.hasDefaultValue() || f.wasSetByInject()
+	if f.wasSetByEnv() || f.wasSetOnCli() || f.hasDefaultValue() || f.wasSetByInject() {
+		return true
+	}
+	if pm, ok := f.(*paramMeta); ok && pm.setByConfig {
+		return true
+	}
+	return false
 }
 
 // ParamEnricher is a function type that can add or modify parameter metadata.
