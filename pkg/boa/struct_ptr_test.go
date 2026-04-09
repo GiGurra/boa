@@ -1726,6 +1726,232 @@ func TestStructPtr_ConfigFile_EmptyObject_KeepsStructAlive(t *testing.T) {
 	}
 }
 
+// --- Cleanup verification: struct pointers nil'd when they should be ---
+
+func TestStructPtr_Cleanup_NoArgsAtAll_NestedPtrsAllNil(t *testing.T) {
+	type Inner struct {
+		Value string `descr:"value" optional:"true"`
+	}
+	type Outer struct {
+		Label string `descr:"label" optional:"true"`
+		Inner *Inner
+	}
+	type Params struct {
+		Other string `descr:"other" optional:"true"`
+		Outer *Outer
+	}
+
+	var gotOuter *Outer
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotOuter = p.Outer
+		},
+	}).RunArgsE([]string{})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotOuter != nil {
+		t.Errorf("expected Outer to be nil when no args/env/config, got %+v", gotOuter)
+	}
+}
+
+func TestStructPtr_Cleanup_CLISetsOuterNotInner(t *testing.T) {
+	// Setting a field on the outer struct but not the inner →
+	// outer non-nil, inner nil.
+	type Inner struct {
+		Value string `descr:"value" optional:"true"`
+	}
+	type Outer struct {
+		Label string `descr:"label" optional:"true"`
+		Inner *Inner
+	}
+	type Params struct {
+		Wrapper *Outer
+	}
+
+	var gotWrapper *Outer
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotWrapper = p.Wrapper
+		},
+	}).RunArgsE([]string{"--wrapper-label", "hello"})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotWrapper == nil {
+		t.Fatal("expected Wrapper to be non-nil (--wrapper-label was set)")
+	}
+	if gotWrapper.Label != "hello" {
+		t.Errorf("expected label='hello', got %q", gotWrapper.Label)
+	}
+	if gotWrapper.Inner != nil {
+		t.Errorf("expected Wrapper.Inner to be nil (nothing set it), got %+v", gotWrapper.Inner)
+	}
+}
+
+func TestStructPtr_Cleanup_ConfigMentionsOuterNotInner(t *testing.T) {
+	// Config sets a field on Outer but doesn't mention Inner.
+	type Inner struct {
+		Value string `descr:"value" optional:"true"`
+	}
+	type Outer struct {
+		Label string `descr:"label" optional:"true"`
+		Inner *Inner
+	}
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Section    *Outer
+	}
+
+	cfgData := []byte(`{"Section": {"Label": "from-config"}}`)
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "app.json")
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
+
+	var gotSection *Outer
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotSection = p.Section
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotSection == nil {
+		t.Fatal("expected Section to be non-nil (config mentioned it)")
+	}
+	if gotSection.Label != "from-config" {
+		t.Errorf("expected label='from-config', got %q", gotSection.Label)
+	}
+	if gotSection.Inner != nil {
+		t.Errorf("expected Section.Inner to be nil (config didn't mention it), got %+v", gotSection.Inner)
+	}
+}
+
+func TestStructPtr_Cleanup_ConfigDoesNotMentionStruct(t *testing.T) {
+	// Config file exists but doesn't mention the struct pointer at all.
+	type Inner struct {
+		Host string `descr:"host" optional:"true"`
+	}
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Name       string `descr:"name" optional:"true"`
+		DB         *Inner
+	}
+
+	cfgData := []byte(`{"Name": "from-config"}`)
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "app.json")
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
+
+	var gotDB *Inner
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotDB = p.DB
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotDB != nil {
+		t.Errorf("expected DB to be nil (config didn't mention it), got %+v", gotDB)
+	}
+}
+
+func TestStructPtr_Cleanup_MultiplePtrs_ConfigMentionsOnlyOne(t *testing.T) {
+	type Params struct {
+		ConfigFile string         `configfile:"true" optional:"true"`
+		DB         *spDBConfig
+		Cache      *spCacheConfig
+	}
+
+	cfgData := []byte(`{"DB": {"Host": "config-db"}}`)
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "app.json")
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
+
+	var gotDB *spDBConfig
+	var gotCache *spCacheConfig
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotDB = p.DB
+			gotCache = p.Cache
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotDB == nil {
+		t.Fatal("expected DB to be non-nil (config mentioned it)")
+	}
+	if gotDB.Host != "config-db" {
+		t.Errorf("expected host='config-db', got %q", gotDB.Host)
+	}
+	if gotCache != nil {
+		t.Errorf("expected Cache to be nil (config didn't mention it), got %+v", gotCache)
+	}
+}
+
+func TestStructPtr_Cleanup_ThreeLevelNesting_OnlyMiddleSet(t *testing.T) {
+	// Three levels: *A -> *B -> *C. Only B's field is set via CLI.
+	// A should be non-nil (B is inside it), B should be non-nil (field set),
+	// C should be nil (nothing set it).
+	type C struct {
+		Deep string `descr:"deep" optional:"true"`
+	}
+	type B struct {
+		Mid string `descr:"mid" optional:"true"`
+		C   *C
+	}
+	type A struct {
+		Top string `descr:"top" optional:"true"`
+		B   *B
+	}
+	type Params struct {
+		Root *A
+	}
+
+	var gotRoot *A
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotRoot = p.Root
+		},
+	}).RunArgsE([]string{"--root-b-mid", "hello"})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotRoot == nil {
+		t.Fatal("expected Root to be non-nil")
+	}
+	if gotRoot.B == nil {
+		t.Fatal("expected Root.B to be non-nil (--root-b-mid was set)")
+	}
+	if gotRoot.B.Mid != "hello" {
+		t.Errorf("expected mid='hello', got %q", gotRoot.B.Mid)
+	}
+	if gotRoot.B.C != nil {
+		t.Errorf("expected Root.B.C to be nil (nothing set it), got %+v", gotRoot.B.C)
+	}
+}
+
 // --- Flags from struct pointers show up in help ---
 
 func TestStructPtr_FlagsVisibleInHelp(t *testing.T) {
