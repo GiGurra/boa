@@ -412,7 +412,8 @@ func SubCmds(cmds ...CmdIfc) []*cobra.Command {
 // CLI and env var values still take precedence when used in PreValidateFunc.
 // If unmarshalFunc is nil, defaults to json.Unmarshal.
 func LoadConfigFile[T any](filePath string, target *T, unmarshalFunc func([]byte, any) error) error {
-	return loadConfigFileInto(filePath, target, unmarshalFunc)
+	_, err := loadConfigFileInto(filePath, target, unmarshalFunc)
+	return err
 }
 
 // configFormats maps file extensions to unmarshal functions.
@@ -447,13 +448,13 @@ func ConfigFormatExtensions() []string {
 //  1. Explicit unmarshalFunc parameter (from Cmd.ConfigUnmarshal)
 //  2. Registered format based on file extension
 //  3. json.Unmarshal (default fallback)
-func loadConfigFileInto(filePath string, target any, unmarshalFunc func([]byte, any) error) error {
+func loadConfigFileInto(filePath string, target any, unmarshalFunc func([]byte, any) error) ([]byte, error) {
 	if filePath == "" {
-		return nil
+		return nil, nil
 	}
 	fileContents, err := os.ReadFile(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to read config file %s: %w", filePath, err)
+		return nil, fmt.Errorf("failed to read config file %s: %w", filePath, err)
 	}
 	if unmarshalFunc == nil {
 		// Look up by file extension
@@ -465,9 +466,9 @@ func loadConfigFileInto(filePath string, target any, unmarshalFunc func([]byte, 
 		}
 	}
 	if err := unmarshalFunc(fileContents, target); err != nil {
-		return fmt.Errorf("failed to unmarshal config file %s: %w", filePath, err)
+		return nil, fmt.Errorf("failed to unmarshal config file %s: %w", filePath, err)
 	}
-	return nil
+	return fileContents, nil
 }
 
 // UnMarshalFromFileParam reads a file path from a parameter and unmarshals its contents into a target struct.
