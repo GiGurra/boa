@@ -1315,6 +1315,181 @@ func TestStructPtr_PreInitialized_KeptEvenIfNoFlagsSet(t *testing.T) {
 	}
 }
 
+// --- HasValue works correctly for fields inside struct pointers ---
+
+func TestStructPtr_HasValue_SetField(t *testing.T) {
+	// HasValue should return true for a field that was explicitly set via CLI
+	type Params struct {
+		DB *spDBConfig
+	}
+
+	hostHasValue := false
+	portHasValue := false
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			if p.DB != nil {
+				hostHasValue = ctx.HasValue(&p.DB.Host)
+				portHasValue = ctx.HasValue(&p.DB.Port)
+			}
+		},
+	}).RunArgsE([]string{"--db-host", "myhost"})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hostHasValue {
+		t.Error("expected HasValue(&p.DB.Host) to be true when --db-host was set")
+	}
+	// Port was not explicitly set, but has a default — HasValue should still be true
+	// (consistent with non-pointer struct behavior)
+	if !portHasValue {
+		t.Error("expected HasValue(&p.DB.Port) to be true (has default value)")
+	}
+}
+
+func TestStructPtr_HasValue_NoFieldsSet(t *testing.T) {
+	// When struct pointer is nil (nothing set), user should nil-check before HasValue.
+	// This test verifies the nil-check pattern works and mirrors are cleaned up properly.
+	type Params struct {
+		Name string     `descr:"name"`
+		DB   *spDBConfig
+	}
+
+	dbWasNil := false
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			dbWasNil = (p.DB == nil)
+		},
+	}).RunArgsE([]string{"--name", "test"})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !dbWasNil {
+		t.Error("expected p.DB to be nil when no --db-* flags were set")
+	}
+}
+
+func TestStructPtr_HasValue_SetViaEnv(t *testing.T) {
+	type Inner struct {
+		Host string `descr:"host" env:"SP_HV_HOST" optional:"true"`
+		Port int    `descr:"port" default:"5432" optional:"true"`
+	}
+	type Params struct {
+		DB *Inner
+	}
+
+	t.Setenv("DB_SP_HV_HOST", "env-host")
+
+	hostHasValue := false
+	portHasValue := false
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			if p.DB != nil {
+				hostHasValue = ctx.HasValue(&p.DB.Host)
+				portHasValue = ctx.HasValue(&p.DB.Port)
+			}
+		},
+	}).RunArgsE([]string{})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hostHasValue {
+		t.Error("expected HasValue(&p.DB.Host) to be true when set via env")
+	}
+	if !portHasValue {
+		t.Error("expected HasValue(&p.DB.Port) to be true (has default)")
+	}
+}
+
+func TestStructPtr_HasValue_SetViaConfigFile(t *testing.T) {
+	type Inner struct {
+		Host string `descr:"host" optional:"true"`
+		Port int    `descr:"port" optional:"true"`
+	}
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		DB         *Inner
+	}
+
+	cfgData, _ := json.Marshal(map[string]any{
+		"DB": map[string]any{"Host": "cfg-host"},
+	})
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "app.json")
+	_ = os.WriteFile(cfgPath, cfgData, 0644)
+
+	hostHasValue := false
+	portHasValue := false
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			if p.DB != nil {
+				hostHasValue = ctx.HasValue(&p.DB.Host)
+				portHasValue = ctx.HasValue(&p.DB.Port)
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hostHasValue {
+		t.Error("expected HasValue(&p.DB.Host) to be true when set via config")
+	}
+	// Port was not in config and has no default — HasValue should be false
+	if portHasValue {
+		t.Error("expected HasValue(&p.DB.Port) to be false (not set, no default)")
+	}
+}
+
+func TestStructPtr_HasValue_NestedPtr(t *testing.T) {
+	// HasValue should work through nested pointer structs
+	type Inner struct {
+		Value string `descr:"value" optional:"true"`
+	}
+	type Outer struct {
+		Name  string `descr:"name" optional:"true"`
+		Inner *Inner
+	}
+	type Params struct {
+		Wrapper *Outer
+	}
+
+	valueHasValue := false
+	nameHasValue := false
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			if p.Wrapper != nil && p.Wrapper.Inner != nil {
+				valueHasValue = ctx.HasValue(&p.Wrapper.Inner.Value)
+			}
+			if p.Wrapper != nil {
+				nameHasValue = ctx.HasValue(&p.Wrapper.Name)
+			}
+		},
+	}).RunArgsE([]string{"--wrapper-inner-value", "hello"})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !valueHasValue {
+		t.Error("expected HasValue for nested value to be true")
+	}
+	if nameHasValue {
+		t.Error("expected HasValue for wrapper name to be false (not set, no default)")
+	}
+}
+
 // --- Flags from struct pointers show up in help ---
 
 func TestStructPtr_FlagsVisibleInHelp(t *testing.T) {
