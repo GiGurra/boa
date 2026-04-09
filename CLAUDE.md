@@ -130,6 +130,16 @@ CLI args > Environment vars > Root config file > Substruct config files > Defaul
 - Explicit `name:"..."` and `env:"..."` tags also get prefixed inside named fields
 - This prevents collisions when the same struct is used in multiple named fields
 
+### Struct Pointer Fields (Optional Parameter Groups)
+- `DB *DBConfig` — pointer struct fields act as optional parameter groups
+- Nil struct pointers are preallocated during init, so their child flags are registered
+- After parsing, if no field within the struct was set (CLI, env, or config), the pointer is nil'd back
+- `p.DB == nil` means nothing in the group was configured; `p.DB != nil` means at least one field was set
+- Defaults alone don't keep the struct alive — only explicit user input does
+- Nested pointer structs work: `Outer *OuterConfig` where OuterConfig has `Inner *InnerConfig`
+- Config file key-presence detection handles zero-value and same-as-default config entries (JSON only)
+- Works with all features: validation tags, custom validators, alternatives, HookContext access
+
 ## Testing
 
 Run all tests:
