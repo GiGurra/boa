@@ -289,7 +289,7 @@ type Params struct {
 // After Run, `if p.DB != nil { useDatabase(p.DB) }`.
 ```
 
-See [Advanced → Struct Pointer Fields](advanced.md#struct-pointer-fields-optional-parameter-groups) for the full semantics.
+See [Config File Examples → Why Key-Presence Detection Matters](examples-config.md#why-key-presence-detection-matters) for the full semantics.
 
 ## What you can configure programmatically
 
