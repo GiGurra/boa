@@ -529,23 +529,30 @@ func (c *HookContext) DumpBytes(ext string, marshalFunc func(v any) ([]byte, err
 	return marshal(tree)
 }
 
-// structTagForExt maps a config file extension to the struct tag the
-// corresponding marshaler consults when encoding struct values. We use the
-// same tag for the map[string]any key names so a source-aware dump's output
-// uses the same names as if the marshaler had handled the struct itself.
-// An empty return value means "no tag lookup — use the Go field name".
+// structTagForExt maps a config file extension to the struct tag that
+// boa should consult when mapping config-file keys to Go struct fields,
+// in both directions — the dump path (source-aware map key generation)
+// and the load path (set-by-config detection for optional struct-pointer
+// groups and for HasValue). Keeping a single source of truth across both
+// paths means renames like `json:"host"` → `"host"` round-trip from a
+// config file back out to a dump of the same format without drift.
+//
+// For unrecognised extensions we default to the extension minus its
+// leading dot — so registering a custom `.kvp` format automatically
+// uses the `kvp` struct tag without any extra plumbing, and registering
+// `.mycustom` uses `mycustom`. Users who want a different convention
+// today need a per-command `Cmd.ConfigFormat` override. We keep the
+// explicit `.yml` entry because yaml parsers consult the `yaml` tag,
+// not a hypothetical `yml` one. Empty ext falls back to `json` so
+// programmatic Dump/Load calls without a file path stay JSON-shaped.
 func structTagForExt(ext string) string {
 	switch ext {
-	case ".json", "":
+	case "", ".json":
 		return "json"
-	case ".yaml", ".yml":
+	case ".yml":
 		return "yaml"
-	case ".toml":
-		return "toml"
-	case ".hcl":
-		return "hcl"
 	}
-	return ""
+	return strings.TrimPrefix(ext, ".")
 }
 
 // resolveDumpFieldName picks the key name for a struct field in a
