@@ -20,7 +20,7 @@ Quick reference for all BOA struct tags.
 | `max` | | Max value (numeric) or max length (string/slice) | `max:"65535"` |
 | `pattern` | | Regex pattern (strings only) | `pattern:"^[a-z]+$"` |
 | `configfile` | | Auto-load config file (root or substruct) | `configfile:"true"` |
-| `boa` | | Special directives | `boa:"ignore"`, `boa:"configonly"` |
+| `boa` | | Special directives | `boa:"ignore"`, `boa:"configonly"`, `boa:"noflag"`, `boa:"nocli"`, `boa:"noenv"` |
 
 ## Special Field Types
 
@@ -53,6 +53,61 @@ type Params struct {
 ```
 
 `boa:"configonly"` is functionally identical to `boa:"ignore"` but communicates intent more clearly.
+
+### The `boa:"noflag"` / `boa:"nocli"` Tag
+
+Fields tagged `boa:"noflag"` (or its alias `boa:"nocli"`) are **excluded from CLI flag registration only**. They do not appear in `--help` and cannot be set with a `--flag`, but they are fully processed in every other way: env vars, config files, defaults, `min`/`max`/`pattern` validation, and custom validators all still apply.
+
+```go
+type Params struct {
+    Name   string `descr:"public name"`
+    Secret string `descr:"api token" boa:"noflag" env:"API_TOKEN"`
+}
+```
+
+With the above, `--secret` is not a valid flag, but `API_TOKEN=...` still populates the field, and the user still sees a `missing required param 'secret' (env: API_TOKEN)` error if it is required and unset.
+
+Combining `boa:"noflag"` with `positional` is an error — a positional argument is, by definition, a CLI argument.
+
+Difference from `boa:"ignore"`: `ignore` skips boa processing entirely (no env reads, no validation) and only supports config-file unmarshal; `noflag` skips just the CLI flag layer.
+
+### The `boa:"noenv"` Tag
+
+Mirror image of `noflag`: the field is exposed as a CLI flag and still loads from config files, but **env var reading is suppressed**. This is mostly useful in combination with `ParamEnricherEnv`, where you want the enricher to auto-bind most fields to env vars but opt a few out:
+
+```go
+type Params struct {
+    Host     string `descr:"hostname"`
+    Internal string `descr:"internal knob" boa:"noenv"`
+}
+// With ParamEnricherEnv: $HOST populates Host, but $INTERNAL is ignored.
+```
+
+### Programmatic parity
+
+Anything configurable with a struct tag is also configurable programmatically through `HookContext.GetParam(&p.Field)` (or the typed `GetParamT`). This is the escape hatch for parameter structs you don't own and can't add tags to:
+
+```go
+boa.CmdT[ExternalConfig]{
+    Use: "cmd",
+    InitFuncCtx: func(ctx *boa.HookContext, p *ExternalConfig, cmd *cobra.Command) error {
+        secret := boa.GetParamT(ctx, &p.Secret)
+        secret.SetDescription("auth token (env or config only)")
+        secret.SetNoFlag(true)    // equivalent to `boa:"noflag"`
+        secret.SetEnv("APP_TOKEN")
+
+        port := boa.GetParamT(ctx, &p.Port)
+        min, max := 1.0, 65535.0
+        port.SetMin(&min)         // equivalent to `min:"1"`
+        port.SetMax(&max)         // equivalent to `max:"65535"`
+        return nil
+    },
+}
+```
+
+Available setters include `SetDescription`, `SetName`, `SetShort`, `SetEnv`, `SetPositional`, `SetRequired(bool)` / `SetRequiredFn`, `SetNoFlag`, `SetNoEnv`, `SetIgnored`, `SetMin`, `SetMax`, `SetPattern`, `SetAlternatives`, `SetAlternativesFunc`, `SetStrictAlts`, `SetDefault` / `SetDefaultT`, `SetCustomValidator` / `SetCustomValidatorT`, and `SetIsEnabledFn`.
+
+All programmatic setters must be called from `InitFunc` / `InitFuncCtx` (or `CfgStructInit` / `CfgStructInitCtx`) so they take effect before cobra flag binding and env parsing.
 
 ### Map Fields
 

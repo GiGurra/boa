@@ -59,6 +59,25 @@ type paramMeta struct {
 	minVal          *float64 // min value (numeric) or min length (string)
 	maxVal          *float64 // max value (numeric) or max length (string)
 	pattern         string   // regex pattern for string validation
+
+	// noFlag indicates the field should not be registered as a CLI flag,
+	// but is still populated from env vars and config files. Set via the
+	// `boa:"noflag"` tag (alias `boa:"nocli"`).
+	noFlag bool
+
+	// noEnv indicates the field should not read from environment variables.
+	// CLI flags and config files still populate it normally. Set via the
+	// `boa:"noenv"` tag.
+	noEnv bool
+
+	// ignored marks the mirror as fully ignored by boa: skip CLI flag,
+	// skip env reading, skip required/min/max/pattern validation. The
+	// only remaining write path is config-file unmarshal, which writes
+	// to the raw struct field directly. The tag-level equivalent
+	// (`boa:"ignore"` / `boa:"-"` / `boa:"configonly"`) skips traversal
+	// entirely so the mirror never exists; this flag is for programmatic
+	// equivalence post-traversal.
+	ignored bool
 }
 
 var _ Param = &paramMeta{}
@@ -304,6 +323,69 @@ func (f *paramMeta) customValidatorOfPtr() func(any) error {
 
 func (f *paramMeta) SetCustomValidator(validator func(any) error) {
 	f.customValidator = validator
+}
+
+// --- noFlag / ignored ---
+
+func (f *paramMeta) IsNoFlag() bool      { return f.noFlag }
+func (f *paramMeta) SetNoFlag(val bool)  { f.noFlag = val }
+func (f *paramMeta) IsNoEnv() bool       { return f.noEnv }
+func (f *paramMeta) SetNoEnv(val bool)   { f.noEnv = val }
+func (f *paramMeta) IsIgnored() bool     { return f.ignored }
+func (f *paramMeta) SetIgnored(val bool) { f.ignored = val }
+
+// --- min / max / pattern ---
+
+func (f *paramMeta) GetMin() *float64 {
+	if f.minVal == nil {
+		return nil
+	}
+	v := *f.minVal
+	return &v
+}
+
+func (f *paramMeta) SetMin(val *float64) {
+	if val == nil {
+		f.minVal = nil
+		return
+	}
+	v := *val
+	f.minVal = &v
+}
+
+func (f *paramMeta) GetMax() *float64 {
+	if f.maxVal == nil {
+		return nil
+	}
+	v := *f.maxVal
+	return &v
+}
+
+func (f *paramMeta) SetMax(val *float64) {
+	if val == nil {
+		f.maxVal = nil
+		return
+	}
+	v := *val
+	f.maxVal = &v
+}
+
+func (f *paramMeta) GetPattern() string       { return f.pattern }
+func (f *paramMeta) SetPattern(pat string)    { f.pattern = pat }
+
+// --- exported description / positional / required convenience ---
+
+func (f *paramMeta) GetDescription() string         { return f.descr }
+func (f *paramMeta) SetDescription(descr string)    { f.descr = descr }
+func (f *paramMeta) IsPositional() bool             { return f.positional }
+func (f *paramMeta) SetPositional(state bool)       { f.positional = state }
+
+// SetRequired is a convenience that sets a constant requirement, equivalent
+// to SetRequiredFn(func() bool { return val }) but without callers needing
+// to pass a closure.
+func (f *paramMeta) SetRequired(val bool) {
+	v := val
+	f.requiredFn = func() bool { return v }
 }
 
 // --- JSON marshaling ---

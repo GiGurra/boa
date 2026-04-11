@@ -562,6 +562,71 @@ With `config.json`:
 
 `Host` and `Port` can be overridden via CLI flags; `InternalID` and `Metadata` are only loaded from the config file.
 
+## Finer-Grained Skipping: `boa:"noflag"` and `boa:"noenv"`
+
+`boa:"ignore"` / `boa:"configonly"` skip the field completely — no CLI, no env, no validation, only raw unmarshal. When you want something in between, boa provides two orthogonal directives:
+
+- **`boa:"noflag"` (alias `boa:"nocli"`)** — do not register a CLI flag for this field, but keep env vars, config file loading, defaults, and `min`/`max`/`pattern` validation active.
+- **`boa:"noenv"`** — do not read this field from environment variables, but keep the CLI flag and config-file loading.
+
+Both can be combined. The equivalent of `boa:"ignore"` in terms of user-visible surface (but still running boa validation) is `boa:"noflag,noenv"`.
+
+```go
+type Params struct {
+    Host   string `descr:"server host"`
+    Secret string `descr:"api token" boa:"noflag" env:"API_TOKEN" min:"20"`
+    Debug  bool   `descr:"debug mode" boa:"noenv" optional:"true"`
+}
+```
+
+Here `--secret` is not a flag, but `API_TOKEN=...` still sets it and the `min:"20"` length check still runs. `--debug` is a flag, but no `$DEBUG` env var is ever consulted (useful when you use `ParamEnricherEnv` to auto-derive env names but want this field excluded).
+
+`boa:"noflag"` cannot be combined with `positional:"true"` — a positional arg is, by definition, a CLI argument.
+
+## Programmatic Configuration (Tag Parity)
+
+All struct-tag features have a matching setter on the `Param` / `ParamT[T]` interface, reachable via `HookContext.GetParam(&field)` or `boa.GetParamT(ctx, &field)`. This matters when your parameter struct comes from a third-party package and you cannot add tags:
+
+```go
+boa.CmdT[ThirdPartyConfig]{
+    Use: "cmd",
+    InitFuncCtx: func(ctx *boa.HookContext, p *ThirdPartyConfig, cmd *cobra.Command) error {
+        token := boa.GetParamT(ctx, &p.Token)
+        token.SetNoFlag(true)               // like boa:"noflag"
+        token.SetEnv("MYAPP_TOKEN")         // like env:"MYAPP_TOKEN"
+        token.SetDescription("API token")   // like descr:"API token"
+
+        port := boa.GetParamT(ctx, &p.Port)
+        min, max := 1.0, 65535.0
+        port.SetMin(&min)                   // like min:"1"
+        port.SetMax(&max)                   // like max:"65535"
+        port.SetRequired(true)              // like required:"true"
+        return nil
+    },
+}
+```
+
+| Tag | Programmatic equivalent |
+|-----|--------------------------|
+| `descr` / `desc` / `help` | `SetDescription(string)` |
+| `name` / `long` | `SetName(string)` |
+| `short` | `SetShort(string)` |
+| `env` | `SetEnv(string)` |
+| `default` | `SetDefault(any)` / `SetDefaultT[T](T)` |
+| `positional` / `pos` | `SetPositional(bool)` |
+| `required` / `req` | `SetRequired(bool)` or `SetRequiredFn(func() bool)` |
+| `optional` / `opt` | `SetRequired(false)` |
+| `alts` / `alternatives` | `SetAlternatives([]string)`, `SetAlternativesFunc(...)` |
+| `strict` / `strict-alts` | `SetStrictAlts(bool)` |
+| `min` | `SetMin(*float64)` (nil clears) |
+| `max` | `SetMax(*float64)` (nil clears) |
+| `pattern` | `SetPattern(string)` |
+| `boa:"noflag"` / `"nocli"` | `SetNoFlag(bool)` |
+| `boa:"noenv"` | `SetNoEnv(bool)` |
+| `boa:"ignore"` / `"configonly"` | `SetIgnored(bool)` (post-traversal equivalent; the tag form skips traversal entirely) |
+
+All programmatic setters must run in `InitFunc` / `InitFuncCtx` (or `CfgStructInit` / `CfgStructInitCtx`) so they take effect before cobra flag binding and env-var reading.
+
 ## Named Struct Auto-Prefixing
 
 Named (non-anonymous) struct fields automatically prefix their children's flag names and env var names with the field name in kebab-case. This is the primary mechanism for avoiding flag name collisions when reusing struct types.

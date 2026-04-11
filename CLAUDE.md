@@ -71,8 +71,28 @@ type Params struct {
 - `max` - Maximum value (numeric) or maximum length (string/slice)
 - `pattern` - Regex pattern for string validation
 - `configfile` - Auto-load config file from this field's path (works in root and nested structs)
-- `boa:"ignore"` - Skip CLI/env registration (still loaded from config files)
+- `boa:"ignore"` - Skip CLI/env registration entirely (field still loaded from config files via unmarshal)
 - `boa:"configonly"` - Alias for `boa:"ignore"` (clearer intent for config-file-only fields)
+- `boa:"noflag"` / `boa:"nocli"` - Skip CLI flag registration **only**; env vars, config files, validation, and defaults still apply. Cannot be combined with `positional`.
+- `boa:"noenv"` - Skip env var reading **only**; CLI flags and config files still apply. Most useful with `ParamEnricherEnv` to opt individual fields out of the auto-generated env binding.
+
+### Programmatic configuration (struct-tag parity)
+
+Every struct-tag feature has a matching method on `Param` / `ParamT[T]` so fields from third-party structs (which you can't tag) can still be fully configured from `InitFunc` / `InitFuncCtx`:
+
+- `SetDescription(string)` / `GetDescription() string`
+- `SetName(string)`, `SetShort(string)`, `SetEnv(string)`
+- `SetPositional(bool)` / `IsPositional() bool`
+- `SetRequired(bool)` — convenience over `SetRequiredFn`
+- `SetNoFlag(bool)` / `IsNoFlag() bool` — mirrors `boa:"noflag"`
+- `SetNoEnv(bool)` / `IsNoEnv() bool` — mirrors `boa:"noenv"`
+- `SetIgnored(bool)` / `IsIgnored() bool` — post-traversal equivalent of `boa:"ignore"` (the tag itself skips traversal entirely, so the mirror never exists; the programmatic form marks an existing mirror as ignored so CLI/env/validation are all skipped)
+- `SetMin(*float64)` / `GetMin() *float64`, `SetMax(*float64)` / `GetMax() *float64`, `SetPattern(string)` / `GetPattern() string`
+- `SetDefault(any)` / typed `ParamT[T].SetDefaultT(T)`
+- `SetAlternatives([]string)`, `SetAlternativesFunc(...)`, `SetStrictAlts(bool)`
+- `SetCustomValidator(func(any) error)` / typed `SetCustomValidatorT(func(T) error)`
+
+Programmatic calls must happen in `InitFunc` / `InitFuncCtx` so they take effect before cobra flag binding (`connect`) and before env parsing.
 
 ### Config Format Registry
 - Dispatch is **extension-driven**: every `loadConfigFileInto` call resolves the format from `filepath.Ext(filePath)` against the global `configFormats` map, so one binary can load any mix of registered formats at runtime.

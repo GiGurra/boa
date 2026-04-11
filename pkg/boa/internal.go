@@ -165,6 +165,54 @@ type Param interface {
 	GetRequiredFn() func() bool
 	SetStrictAlts(bool)
 	GetStrictAlts() bool
+
+	// --- Exported parity for struct-tag-only features ---
+	// These mirror struct tags so anything configurable by tag is also
+	// configurable programmatically (e.g. for params built from third-party
+	// structs you can't add tags to).
+
+	// IsNoFlag reports whether CLI flag registration is suppressed for this
+	// parameter (still reads env vars and config files). Mirrors `boa:"noflag"`.
+	IsNoFlag() bool
+	// SetNoFlag toggles CLI flag suppression. Must be called before cobra
+	// flag binding (e.g. inside InitFunc / InitFuncCtx) to take effect.
+	SetNoFlag(bool)
+
+	// IsNoEnv reports whether env var reading is suppressed for this
+	// parameter (CLI flags and config files still apply). Mirrors `boa:"noenv"`.
+	IsNoEnv() bool
+	// SetNoEnv toggles env var suppression.
+	SetNoEnv(bool)
+
+	// IsIgnored reports whether the parameter is fully ignored by boa
+	// (no CLI flag, no env reading, no validation). Config files can still
+	// populate the underlying field via the unmarshaler.
+	IsIgnored() bool
+	// SetIgnored marks the parameter as ignored. Must be called before
+	// cobra flag binding and env parsing.
+	SetIgnored(bool)
+
+	// GetDescription / SetDescription expose the help/descr text.
+	GetDescription() string
+	SetDescription(string)
+
+	// IsPositional / SetPositional mirror `positional:"true"`.
+	IsPositional() bool
+	SetPositional(bool)
+
+	// GetMin / SetMin / GetMax / SetMax / GetPattern / SetPattern mirror the
+	// validation tags. Pass nil to clear a min/max bound.
+	GetMin() *float64
+	SetMin(*float64)
+	GetMax() *float64
+	SetMax(*float64)
+	GetPattern() string
+	SetPattern(string)
+
+	// SetRequired is a convenience that fixes the parameter as required or
+	// optional regardless of the original tag. Equivalent to
+	// SetRequiredFn(func() bool { return val }).
+	SetRequired(bool)
 }
 
 // configFileEntry tracks a configfile:"true" field and the struct it should load into.
@@ -674,6 +722,14 @@ func parseEnv(ctx *processingContext, structPtr any) error {
 			return nil
 		}
 
+		// Skip env reading for params that opt out of it:
+		//   - IsIgnored: fully disabled; only config-file writes.
+		//   - IsNoEnv:   env-only suppression; CLI and config still work.
+		// Note that noflag is NOT checked here — a noflag param still reads env.
+		if param.IsIgnored() || param.IsNoEnv() {
+			return nil
+		}
+
 		if err := readEnv(param); err != nil {
 			return err
 		}
@@ -688,6 +744,14 @@ func validate(ctx *processingContext, structPtr any) error {
 	err := traverse(ctx, structPtr, func(param Param, _ string, _ reflect.StructTag) error {
 
 		if !param.IsEnabled() {
+			return nil
+		}
+
+		// Fully ignored params are skipped end-to-end: no required check,
+		// no conversion, no alt/min/max/pattern/custom validation. Config
+		// files write directly to the raw struct field via unmarshal, so
+		// their values still land — just without any boa-layer processing.
+		if param.IsIgnored() {
 			return nil
 		}
 
@@ -917,6 +981,16 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param, ctx *processingContex
 
 	if f.GetName() == "" {
 		return fmt.Errorf("invalid conf for param '%s': long param name cannot be empty", f.GetName())
+	}
+
+	// Params marked noflag or ignored are not registered with cobra at all.
+	// They still participate in env-var reading (unless ignored), config-file
+	// loading, and validation — all of which happen outside of cobra.
+	if f.IsNoFlag() || f.IsIgnored() {
+		if f.IsNoFlag() && f.isPositional() {
+			return fmt.Errorf("param '%s': noflag cannot be combined with positional args", f.GetName())
+		}
+		return nil
 	}
 
 	if f.GetShort() == "h" {
@@ -1655,6 +1729,24 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 				if pat, ok := tags.Lookup("pattern"); ok {
 					pm.pattern = pat
 				}
+			}
+
+			// Detect `boa` directives that suppress individual input channels
+			// without fully ignoring the param:
+			//   - noflag / nocli → skip CLI flag, keep env + config + validation
+			//   - noenv          → skip env var reading, keep CLI + config + validation
+			// These are orthogonal and can be combined (e.g. config-only fields
+			// that still want validation).
+			for _, t := range strings.Split(tags.Get("boa"), ",") {
+				switch strings.TrimSpace(t) {
+				case "noflag", "nocli":
+					param.SetNoFlag(true)
+				case "noenv":
+					param.SetNoEnv(true)
+				}
+			}
+			if param.IsNoFlag() && param.isPositional() {
+				return fmt.Errorf("param '%s': `boa:\"noflag\"` cannot be combined with positional args (a CLI positional arg must be a CLI arg)", param.GetName())
 			}
 
 			// Detect configfile tag

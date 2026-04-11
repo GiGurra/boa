@@ -440,7 +440,7 @@ boa.CmdT[Params]{
 | `max` | Max value or max length | `max:"65535"` |
 | `pattern` | Regex pattern | `pattern:"^[a-z]+$"` |
 | `configfile` | Auto-load config from path | `configfile:"true"` |
-| `boa` | Special directives | `boa:"ignore"`, `boa:"configonly"` |
+| `boa` | Special directives | `boa:"ignore"`, `boa:"configonly"`, `boa:"noflag"` / `"nocli"`, `boa:"noenv"` |
 </details>
 
 ## Further Reading
