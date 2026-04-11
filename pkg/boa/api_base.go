@@ -496,7 +496,12 @@ func SubCmds(cmds ...CmdIfc) []*cobra.Command {
 // LoadConfigFile reads a config file and unmarshals it into the target struct.
 // If filePath is empty, it's a no-op (returns nil).
 // CLI and env var values still take precedence when used in PreValidateFunc.
-// If unmarshalFunc is nil, defaults to json.Unmarshal.
+//
+// If unmarshalFunc is non-nil it is used directly. If unmarshalFunc is nil the
+// resolution order is the same as for configfile:"true" fields: the registered
+// format matching the file's extension first (RegisterConfigFormat /
+// RegisterConfigFormatFull), and json.Unmarshal as the final fallback when no
+// registration matches.
 func LoadConfigFile[T any](filePath string, target *T, unmarshalFunc func([]byte, any) error) error {
 	override := ConfigFormat{}
 	if unmarshalFunc != nil {

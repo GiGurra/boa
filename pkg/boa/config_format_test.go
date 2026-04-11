@@ -29,13 +29,21 @@ func fakeKeyTree(data []byte) (map[string]any, error) {
 	return out, nil
 }
 
-// registerFormatCleanup registers a format and schedules its removal from the
-// global registry on test completion, so globally-scoped state doesn't leak
-// across tests within the same run.
+// registerFormatCleanup registers a format and schedules restoration of the
+// previous registry entry (if any) on test completion. Snapshot + restore
+// keeps the suite hermetic even when a test overrides a built-in or
+// previously-registered format — a blind delete would silently drop those.
 func registerFormatCleanup(t *testing.T, ext string, f ConfigFormat) {
 	t.Helper()
+	prev, hadPrev := configFormats[ext]
 	RegisterConfigFormatFull(ext, f)
-	t.Cleanup(func() { delete(configFormats, ext) })
+	t.Cleanup(func() {
+		if hadPrev {
+			configFormats[ext] = prev
+			return
+		}
+		delete(configFormats, ext)
+	})
 }
 
 func TestRegisterConfigFormatFull_NilUnmarshalPanics(t *testing.T) {
@@ -109,8 +117,7 @@ func TestCustomConfigFormat_RegisteredFormatAppliesToCmd(t *testing.T) {
 	// Use a dedicated extension with only Unmarshal — no KeyTree — and verify
 	// the command still runs successfully (format resolution by extension,
 	// graceful snapshot fallback for key-presence detection).
-	RegisterConfigFormat(".fmtB", fakeUnmarshal)
-	t.Cleanup(func() { delete(configFormats, ".fmtB") })
+	registerFormatCleanup(t, ".fmtB", ConfigFormat{Unmarshal: fakeUnmarshal})
 
 	type Params struct {
 		ConfigFile string `configfile:"true" optional:"true"`

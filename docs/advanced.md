@@ -193,7 +193,7 @@ boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
 boa.RegisterConfigFormat(".toml", toml.Unmarshal)
 ```
 
-The full form additionally provides a `KeyTree` probe that lets BOA detect *which keys were mentioned* in a config file, even when the written values are zero-valued or equal to the parameter's default. This matters for [optional struct-pointer parameter groups](#optional-parameter-groups):
+The full form additionally provides a `KeyTree` probe that lets BOA detect *which keys were mentioned* in a config file, even when the written values are zero-valued or equal to the parameter's default. This matters for optional struct-pointer parameter groups (`DB *DBConfig`) — without a `KeyTree`, snapshot comparison can't tell "user wrote the default" apart from "user wrote nothing":
 
 ```go
 boa.RegisterConfigFormatFull(".yaml", boa.ConfigFormat{

@@ -93,7 +93,7 @@ type Params struct {
 
 ### Boaviper Subpackage (`pkg/boaviper/`)
 - `boaviper.AutoConfig[T]("appname")` - InitFunc for auto-discovering config files in standard paths
-- `boaviper.FindConfig("appname")` - Searches standard paths (`./<app>.json`, `~/.config/<app>/config.json`, `/etc/<app>/config.json`)
+- `boaviper.FindConfig("appname")` - Searches standard paths (`./<app>`, `~/.config/<app>/config`, `/etc/<app>/config`) trying every extension returned by `boa.ConfigFormatExtensions()` (so `.json` plus anything registered via `RegisterConfigFormat` / `RegisterConfigFormatFull`)
 - `boaviper.SetEnvPrefix("PREFIX")` - Enricher that combines `ParamEnricherEnv` + `ParamEnricherEnvPrefix`
 - Uses `boa.ConfigFormatExtensions()` to try all registered formats
 
@@ -142,7 +142,7 @@ CLI args > Environment vars > Root config file > Substruct config files > Defaul
 - `p.DB == nil` means nothing in the group was configured; `p.DB != nil` means at least one field was set
 - Defaults alone don't keep the struct alive — only explicit user input does
 - Nested pointer structs work: `Outer *OuterConfig` where OuterConfig has `Inner *InnerConfig`
-- Config file key-presence detection handles zero-value and same-as-default config entries (JSON only)
+- Config file key-presence detection handles zero-value and same-as-default config entries for any format whose `ConfigFormat` supplies a `KeyTree` probe (JSON is built in; YAML/TOML/… opt in by registering their own `KeyTree`)
 - Works with all features: validation tags, custom validators, alternatives, HookContext access
 
 ## Testing

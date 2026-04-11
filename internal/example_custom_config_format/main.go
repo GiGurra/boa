@@ -173,26 +173,53 @@ func kvKeyTree(data []byte) (map[string]any, error) {
 	return tree, err
 }
 
-func main() {
-	// Register the custom format as if it were yaml/toml. boa uses the
-	// file extension to dispatch; Cmd.ConfigFormat can override per-command.
-	boa.RegisterConfigFormatFull(".kv", boa.ConfigFormat{
-		Unmarshal: kvUnmarshal,
-		KeyTree:   kvKeyTree,
-	})
+// Observed records what each RunFuncCtx invocation saw — used by the tests to
+// assert on the actual parsed state instead of just exit status.
+type Observed struct {
+	Host         string
+	Port         int
+	DBPresent    bool
+	DBHost       string
+	DBPort       int
+	DBHostViaCfg bool
+	DBPortViaCfg bool
+}
 
-	boa.CmdT[Params]{
+// newServerCmd builds the command and wires it to capture the parsed state.
+// It is the testable entry point; main() just runs the same builder.
+func newServerCmd(obs *Observed) boa.CmdT[Params] {
+	return boa.CmdT[Params]{
 		Use:         "server",
 		Short:       "Server with a custom config file format",
 		ParamEnrich: boa.ParamEnricherName,
 		RunFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command, args []string) {
+			obs.Host, obs.Port = p.Host, p.Port
 			fmt.Printf("Host: %s, Port: %d\n", p.Host, p.Port)
 			if p.DB == nil {
 				fmt.Println("DB: <unset>")
 				return
 			}
-			fmt.Printf("DB.Host: %q (set by config: %t)\n", p.DB.Host, ctx.HasValue(&p.DB.Host))
-			fmt.Printf("DB.Port: %d (set by config: %t)\n", p.DB.Port, ctx.HasValue(&p.DB.Port))
+			obs.DBPresent = true
+			obs.DBHost, obs.DBPort = p.DB.Host, p.DB.Port
+			obs.DBHostViaCfg = ctx.HasValue(&p.DB.Host)
+			obs.DBPortViaCfg = ctx.HasValue(&p.DB.Port)
+			fmt.Printf("DB.Host: %q (set by config: %t)\n", p.DB.Host, obs.DBHostViaCfg)
+			fmt.Printf("DB.Port: %d (set by config: %t)\n", p.DB.Port, obs.DBPortViaCfg)
 		},
-	}.Run()
+	}
+}
+
+// registerKVFormat registers the custom .kv format. Separated from main() so
+// tests can call it exactly once via sync.Once semantics at package level.
+func registerKVFormat() {
+	boa.RegisterConfigFormatFull(".kv", boa.ConfigFormat{
+		Unmarshal: kvUnmarshal,
+		KeyTree:   kvKeyTree,
+	})
+}
+
+func main() {
+	registerKVFormat()
+	var obs Observed
+	newServerCmd(&obs).Run()
 }

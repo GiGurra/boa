@@ -223,7 +223,10 @@ boa.RegisterConfigFormatFull(".yaml", boa.ConfigFormat{
     Unmarshal: yaml.Unmarshal,
     KeyTree: func(data []byte) (map[string]any, error) {
         var out map[string]any
-        return out, yaml.Unmarshal(data, &out)
+        if err := yaml.Unmarshal(data, &out); err != nil {
+            return nil, err
+        }
+        return out, nil
     },
 })
 ```
