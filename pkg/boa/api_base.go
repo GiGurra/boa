@@ -411,8 +411,13 @@ func (c *HookContext) GetParam(fieldPtr any) Param {
 	}
 	// Fallback: walk the root to discover a matching leaf address. This handles
 	// the case where the user reassigned a substruct after the cache was built.
+	// On a hit, repair the cache opportunistically so the next lookup for this
+	// address is O(1) again.
 	if c.ctx.rootStructPtr != nil {
 		if path, ok := c.ctx.findPathByAddr(addr); ok {
+			if c.ctx.addrToPath != nil {
+				c.ctx.addrToPath[addr] = path
+			}
 			return c.ctx.mirrorByPath[path]
 		}
 	}

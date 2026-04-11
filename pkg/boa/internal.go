@@ -1290,7 +1290,13 @@ func traverseAt(
 		// childPath is the declared-index path to this field from the root.
 		// Use declared index (i), not a visit counter, so ignored fields do not
 		// drift subsequent siblings.
-		childPath := append(append([]int(nil), path...), i)
+		//
+		// Single allocation: len(path)+1 explicitly sized. The old
+		// append(append([]int(nil), path...), i) form did two allocations per
+		// field visit, which matters during init of larger parameter trees.
+		childPath := make([]int, len(path)+1)
+		copy(childPath, path)
+		childPath[len(path)] = i
 
 		fieldAddr := rootValue.Field(i).Addr()
 		// check if field is a param
@@ -1340,9 +1346,12 @@ func traverseAt(
 				var ok bool
 				if param, ok = ctx.mirrorByPath[pathKey]; !ok {
 					param = newParam(&field, field.Type)
-					// Set prefix for named struct nesting
-					if prefix != "" {
-						if pm, ok := param.(*paramMeta); ok {
+					// Set prefix for named struct nesting, and stash the path
+					// key on the mirror so callers that have a *paramMeta can
+					// read it without scanning pathOrder.
+					if pm, ok := param.(*paramMeta); ok {
+						pm.pathKey = pathKey
+						if prefix != "" {
 							pm.flagPrefix = camelToKebabCase(prefix) + "-"
 							pm.envPrefix = kebabCaseToUpperSnakeCase(pm.flagPrefix[:len(pm.flagPrefix)-1]) + "_"
 						}
@@ -1605,17 +1614,15 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 					return fmt.Errorf("configfile tag on param %s: must be a string field", param.GetName())
 				}
 				// The target struct path is the parent of the configfile param's own path.
-				// Look up the param's path in the authoritative store, then strip the last index.
+				// Read it directly from paramMeta.pathKey (stashed during traverse) —
+				// no scan over pathOrder needed.
 				var targetPath fieldPath
-				for _, p := range ctx.pathOrder {
-					if ctx.mirrorByPath[p] == param {
-						if idx := strings.LastIndex(string(p), "."); idx >= 0 {
-							targetPath = p[:idx]
-						} else {
-							targetPath = ""
-						}
-						break
+				if pm, ok := param.(*paramMeta); ok {
+					if idx := strings.LastIndex(string(pm.pathKey), "."); idx >= 0 {
+						targetPath = pm.pathKey[:idx]
 					}
+					// If there's no dot, the configfile field lives at the root
+					// and its target path is the empty fieldPath — already set.
 				}
 				ctx.ConfigFiles = append(ctx.ConfigFiles, configFileEntry{
 					mirror:     param,
