@@ -77,8 +77,9 @@ type Params struct {
 ### Config Format Registry
 - Dispatch is **extension-driven**: every `loadConfigFileInto` call resolves the format from `filepath.Ext(filePath)` against the global `configFormats` map, so one binary can load any mix of registered formats at runtime.
 - `boa.ConfigFormat{Unmarshal, KeyTree}` describes a full format: an unmarshaler plus an optional `KeyTree func([]byte) (map[string]any, error)` used for set-by-config detection.
-- `boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)` is a shortcut for a format with only `Unmarshal`; falls back to snapshot comparison for detection.
-- `boa.RegisterConfigFormatFull(".yaml", boa.ConfigFormat{...})` registers the full form — required to detect zero-value or same-as-default writes to optional struct-pointer groups.
+- `boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)` is the one-liner for every mainstream Go parser. It wraps the unmarshaler in a `UniversalConfigFormat`, which synthesizes `KeyTree` by decoding the same bytes into `map[string]any`. Full key-presence detection is automatic; panics on nil.
+- `boa.UniversalConfigFormat(unmarshalFunc)` is the exported helper for inline use with `Cmd.ConfigFormat`. Panics on nil.
+- `boa.RegisterConfigFormatFull(".mycustom", boa.ConfigFormat{...})` is the advanced form — reach for it only when the parser cannot decode into `map[string]any` (e.g., a handwritten format that only populates specific struct types), in which case you supply a hand-written `KeyTree`.
 - JSON is the only format shipped by default (built-in `KeyTree` backed by `json.Unmarshal`).
 - `boa.ConfigFormatExtensions()` returns all registered file extensions (used by `boaviper`).
 - `Cmd.ConfigFormat` / legacy `Cmd.ConfigUnmarshal` are **per-command escape hatches** that lock that one command to a single format, bypassing the extension registry. Prefer registry-based dispatch unless you have a specific reason (legacy blob ingestion, test fixtures).
@@ -142,7 +143,7 @@ CLI args > Environment vars > Root config file > Substruct config files > Defaul
 - `p.DB == nil` means nothing in the group was configured; `p.DB != nil` means at least one field was set
 - Defaults alone don't keep the struct alive — only explicit user input does
 - Nested pointer structs work: `Outer *OuterConfig` where OuterConfig has `Inner *InnerConfig`
-- Config file key-presence detection handles zero-value and same-as-default config entries for any format whose `ConfigFormat` supplies a `KeyTree` probe (JSON is built in; YAML/TOML/… opt in by registering their own `KeyTree`)
+- Config file key-presence detection handles zero-value and same-as-default config entries for any format whose `ConfigFormat` supplies a `KeyTree` probe. `RegisterConfigFormat(ext, fn)` auto-synthesizes one via `UniversalConfigFormat`, so YAML/TOML/HCL get it for free; only formats whose unmarshaler cannot decode into `map[string]any` need to supply their own.
 - Works with all features: validation tags, custom validators, alternatives, HookContext access
 
 ## Testing

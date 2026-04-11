@@ -556,23 +556,79 @@ func jsonKeyTree(data []byte) (map[string]any, error) {
 	return out, nil
 }
 
-// RegisterConfigFormat registers an unmarshal function for a config file extension.
-// The extension should include the dot (e.g., ".yaml", ".toml").
+// UniversalConfigFormat builds a ConfigFormat from a single "universal"
+// unmarshal function — one that can decode bytes into any target, including
+// map[string]any. The returned ConfigFormat has:
 //
-// This is a convenience wrapper that registers a ConfigFormat containing only
-// Unmarshal. For full control — including the KeyTree probe that lets boa
-// detect zero-valued or default-matching writes to optional struct-pointer
-// groups — use RegisterConfigFormatFull.
+//   - Unmarshal — the function you passed in.
+//   - KeyTree — a synthesized probe that calls the same function against a
+//     map[string]any target so boa can inspect the literal key structure.
 //
-// Registration is not goroutine-safe; call from init() or from main-goroutine
-// startup before any commands run. Passing a nil unmarshalFunc panics.
+// That covers every mainstream Go config parser (encoding/json,
+// gopkg.in/yaml.v3, github.com/BurntSushi/toml, github.com/hashicorp/hcl/v2,
+// …), all of which decode into interface{} targets uniformly.
+//
+// RegisterConfigFormat uses this helper internally, so for registry-based
+// dispatch you normally just call RegisterConfigFormat directly. Call
+// UniversalConfigFormat yourself when you want to set a format inline on a
+// single command via Cmd.ConfigFormat:
+//
+//	boa.CmdT[Params]{
+//	    ConfigFormat: boa.UniversalConfigFormat(yaml.Unmarshal),
+//	    ...
+//	}
+//
+// Use the explicit boa.ConfigFormat{Unmarshal, KeyTree} struct literal (and
+// RegisterConfigFormatFull) only when the parser cannot decode into
+// map[string]any — e.g., a handwritten custom format that only populates
+// specific struct types. In that case supply a KeyTree function that
+// produces the nested key structure yourself.
+//
+// Passing nil panics — a missing unmarshal function is a programming error
+// and is surfaced eagerly so you don't silently fall through to the JSON
+// handler at parse time.
+func UniversalConfigFormat(unmarshalFunc func([]byte, any) error) ConfigFormat {
+	if unmarshalFunc == nil {
+		panic(fmt.Errorf("boa: UniversalConfigFormat: unmarshalFunc must be non-nil"))
+	}
+	return ConfigFormat{
+		Unmarshal: unmarshalFunc,
+		KeyTree: func(data []byte) (map[string]any, error) {
+			var out map[string]any
+			if err := unmarshalFunc(data, &out); err != nil {
+				return nil, err
+			}
+			return out, nil
+		},
+	}
+}
+
+// RegisterConfigFormat registers an unmarshal function for a config file
+// extension. The extension should include the dot (e.g., ".yaml", ".toml").
+//
+// A single call gives you both parsing (the file extension now dispatches to
+// unmarshalFunc) and full key-presence detection (including zero-valued and
+// same-as-default writes to optional struct-pointer parameter groups).
+// Internally, RegisterConfigFormat wraps unmarshalFunc in a
+// UniversalConfigFormat — the KeyTree is synthesized by calling the same
+// parser against a map[string]any target, which every mainstream Go config
+// library supports.
 //
 // Example:
 //
 //	boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
 //	boa.RegisterConfigFormat(".toml", toml.Unmarshal)
+//	boa.RegisterConfigFormat(".hcl", hcl.Decode)
+//
+// Registration is not goroutine-safe; call from init() or from main-goroutine
+// startup before any commands run. Passing a nil unmarshalFunc panics.
+//
+// Use RegisterConfigFormatFull instead only when your parser cannot decode
+// into map[string]any (e.g., a custom format that only populates specific
+// struct types). In that case you must supply a hand-written KeyTree that
+// produces the nested key structure yourself.
 func RegisterConfigFormat(ext string, unmarshalFunc func([]byte, any) error) {
-	RegisterConfigFormatFull(ext, ConfigFormat{Unmarshal: unmarshalFunc})
+	RegisterConfigFormatFull(ext, UniversalConfigFormat(unmarshalFunc))
 }
 
 // RegisterConfigFormatFull registers a complete ConfigFormat for a config file

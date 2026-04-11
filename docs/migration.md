@@ -213,25 +213,16 @@ type Params struct {
 Register custom config file formats by extension. JSON is the only format shipped by default:
 
 ```go
-// Simple: unmarshal only (falls back to snapshot comparison for set-by-config detection)
+// One line per format — works for every mainstream Go config parser.
+// Key-presence detection (including zero-value and same-as-default writes
+// to optional struct-pointer parameter groups) is enabled automatically.
 boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
 boa.RegisterConfigFormat(".toml", toml.Unmarshal)
-
-// Full: unmarshal + KeyTree probe (required to detect zero-value or
-// same-as-default writes to optional struct-pointer parameter groups)
-boa.RegisterConfigFormatFull(".yaml", boa.ConfigFormat{
-    Unmarshal: yaml.Unmarshal,
-    KeyTree: func(data []byte) (map[string]any, error) {
-        var out map[string]any
-        if err := yaml.Unmarshal(data, &out); err != nil {
-            return nil, err
-        }
-        return out, nil
-    },
-})
 ```
 
-Resolution: `Cmd.ConfigFormat` > `Cmd.ConfigUnmarshal` > registered format by extension > `json.Unmarshal` fallback. See the [Config Format Registry section in Advanced Usage](advanced.md#config-format-registry) for details on when to prefer the full form.
+`RegisterConfigFormat` wraps the unmarshal function in a `boa.UniversalConfigFormat`, which synthesizes the `KeyTree` probe by asking the same parser to decode into a `map[string]any`. For inline per-command overrides you can call the helper directly: `ConfigFormat: boa.UniversalConfigFormat(yaml.Unmarshal)`. Only drop to the explicit `boa.ConfigFormat{Unmarshal: ..., KeyTree: ...}` literal (via `RegisterConfigFormatFull`) when your parser genuinely cannot decode into `map[string]any` — that is almost never a third-party library, only a handwritten custom format.
+
+Resolution: `Cmd.ConfigFormat` > `Cmd.ConfigUnmarshal` > registered format by extension > `json.Unmarshal` fallback. See the [Config Format Registry section in Advanced Usage](advanced.md#config-format-registry) for details.
 
 #### Named Struct Auto-Prefixing
 

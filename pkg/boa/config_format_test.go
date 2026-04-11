@@ -46,6 +46,109 @@ func registerFormatCleanup(t *testing.T, ext string, f ConfigFormat) {
 	})
 }
 
+// TestUniversalConfigFormat_SynthesizesKeyTree proves that the one-liner
+// helper produces a ConfigFormat whose KeyTree decodes via the same unmarshal
+// function — no closure required from the caller.
+func TestUniversalConfigFormat_SynthesizesKeyTree(t *testing.T) {
+	cf := UniversalConfigFormat(fakeUnmarshal)
+	if cf.Unmarshal == nil {
+		t.Fatal("Unmarshal should be non-nil")
+	}
+	if cf.KeyTree == nil {
+		t.Fatal("KeyTree should be auto-synthesized")
+	}
+	tree, err := cf.KeyTree([]byte(`{"DB":{"Host":"","Port":5432}}`))
+	if err != nil {
+		t.Fatalf("KeyTree returned error: %v", err)
+	}
+	db, ok := tree["DB"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected DB to be map[string]any, got %T", tree["DB"])
+	}
+	if _, ok := db["Host"]; !ok {
+		t.Error("expected DB.Host key in synthesized tree")
+	}
+	if _, ok := db["Port"]; !ok {
+		t.Error("expected DB.Port key in synthesized tree")
+	}
+}
+
+func TestUniversalConfigFormat_NilUnmarshalPanics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected UniversalConfigFormat(nil) to panic")
+		}
+		if msg := fmt.Sprintf("%v", r); !strings.Contains(msg, "UniversalConfigFormat") {
+			t.Errorf("panic message should mention the helper name; got: %s", msg)
+		}
+	}()
+	UniversalConfigFormat(nil)
+}
+
+// TestRegisterConfigFormat_SimpleFormGivesFullDetection covers the headline
+// DX improvement: a plain RegisterConfigFormat(ext, fn) call — no closure,
+// no ConfigFormat literal — should give the same zero-value and
+// same-as-default detection that previously required the verbose full form.
+func TestRegisterConfigFormat_SimpleFormGivesFullDetection(t *testing.T) {
+	registerSimpleFormatCleanup(t, ".fmtSimple", fakeUnmarshal)
+
+	type Inner struct {
+		Host string `descr:"host" default:"localhost"`
+		Port int    `descr:"port" default:"5432"`
+	}
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		DB         *Inner
+	}
+
+	raw := []byte(`{"DB":{"Host":"","Port":5432}}`)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.fmtSimple")
+	if err := os.WriteFile(cfgPath, raw, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var gotDB *Inner
+	var dbBothSetViaCfg bool
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			gotDB = p.DB
+			if p.DB != nil {
+				dbBothSetViaCfg = ctx.HasValue(&p.DB.Host) && ctx.HasValue(&p.DB.Port)
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotDB == nil {
+		t.Fatal("expected DB pointer group to survive cleanup under simple RegisterConfigFormat call (KeyTree should be auto-synthesized)")
+	}
+	if !dbBothSetViaCfg {
+		t.Error("expected both DB.Host and DB.Port to report HasValue=true via auto-synthesized KeyTree")
+	}
+}
+
+// registerSimpleFormatCleanup is the simple-form counterpart to
+// registerFormatCleanup: it routes through RegisterConfigFormat (not
+// ...Full) and still restores any prior registry entry on test completion.
+func registerSimpleFormatCleanup(t *testing.T, ext string, fn func([]byte, any) error) {
+	t.Helper()
+	prev, hadPrev := configFormats[ext]
+	RegisterConfigFormat(ext, fn)
+	t.Cleanup(func() {
+		if hadPrev {
+			configFormats[ext] = prev
+			return
+		}
+		delete(configFormats, ext)
+	})
+}
+
 func TestRegisterConfigFormatFull_NilUnmarshalPanics(t *testing.T) {
 	defer func() {
 		r := recover()
