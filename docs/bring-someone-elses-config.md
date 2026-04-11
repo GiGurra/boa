@@ -1,4 +1,4 @@
-# Bring Your Own Config
+# Bring Someone Else's Config
 
 Sometimes the struct you want to expose as a CLI isn't yours. It comes from a third-party library, a generated protobuf type, a shared internal package you don't want to fork — anything where adding `boa:` struct tags isn't an option. BOA supports this: **anything configurable via a struct tag is also configurable programmatically** via `HookContext.GetParam` / `GetParamT`, so you can take a tag-less struct and wire it up from an `InitFuncCtx` hook.
 

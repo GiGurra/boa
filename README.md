@@ -448,7 +448,7 @@ boa.CmdT[Params]{
 
 - [Getting Started](https://gigurra.github.io/boa/getting-started/) — all parameter types, subcommands, config files
 - [Struct Tags](https://gigurra.github.io/boa/struct-tags/) — complete tag reference with auto-prefixing
-- [Bring Your Own Config](https://gigurra.github.io/boa/bring-your-own-config/) — wire up third-party / tag-less structs programmatically
+- [Bring Someone Else's Config](https://gigurra.github.io/boa/bring-someone-elses-config/) — wire up third-party / tag-less structs programmatically
 - [Validation](https://gigurra.github.io/boa/validation/) — required/optional, alternatives, conditional requirements
 - [Lifecycle Hooks](https://gigurra.github.io/boa/hooks/) — customize behavior at each stage
 - [Enrichers](https://gigurra.github.io/boa/enrichers/) — auto-derive flag names, env vars, short flags

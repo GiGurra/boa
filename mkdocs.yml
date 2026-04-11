@@ -39,7 +39,7 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - Struct Tags: struct-tags.md
-  - Bring Your Own Config: bring-your-own-config.md
+  - Bring Someone Else's Config: bring-someone-elses-config.md
   - Enrichers: enrichers.md
   - Validation: validation.md
   - Lifecycle Hooks: hooks.md
