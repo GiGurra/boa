@@ -366,14 +366,42 @@ func newHookContext(pctx *processingContext) *HookContext {
 //	        return nil
 //	    },
 //	}
+//
+// GetParam returns nil and logs a descriptive slog.Error if the field pointer
+// does not belong to the parameters struct associated with this HookContext —
+// for example, if the caller passes a pointer to a field in an unrelated
+// struct, in a different command's params, or in a substruct that was never
+// registered (e.g., tagged boa:"ignore"). Callers using the idiomatic
+// ctx.GetParam(&p.X).SetY(...) pattern will still see a nil-dereference crash
+// if they chain against a nil return, but the preceding slog.Error log line
+// will carry the descriptive cause so the real bug is visible in the output.
+// Callers that want "probe without crashing" semantics can explicitly check
+// for nil.
 func (c *HookContext) GetParam(fieldPtr any) Param {
 	if param, ok := fieldPtr.(Param); ok {
 		return param
 	}
 	if c == nil || c.ctx == nil || c.ctx.mirrorByPath == nil {
+		slog.Error("boa.HookContext.GetParam: called on a nil or uninitialized HookContext (no parameters are registered)")
 		return nil
 	}
-	addr := reflect.ValueOf(fieldPtr).UnsafePointer()
+	if fieldPtr == nil {
+		slog.Error("boa.HookContext.GetParam: fieldPtr is nil")
+		return nil
+	}
+	rv := reflect.ValueOf(fieldPtr)
+	if rv.Kind() != reflect.Ptr {
+		slog.Error("boa.HookContext.GetParam: fieldPtr must be a pointer to a struct field",
+			"got_type", fmt.Sprintf("%T", fieldPtr))
+		return nil
+	}
+	if rv.IsNil() {
+		slog.Error("boa.HookContext.GetParam: fieldPtr is a typed nil",
+			"got_type", fmt.Sprintf("%T", fieldPtr))
+		return nil
+	}
+
+	addr := rv.UnsafePointer()
 	// Rebuild the address cache if it was invalidated (e.g., after a subtree removal).
 	if c.ctx.addrToPath == nil {
 		c.ctx.rebuildAddrToPath()
@@ -388,6 +416,16 @@ func (c *HookContext) GetParam(fieldPtr any) Param {
 			return c.ctx.mirrorByPath[path]
 		}
 	}
+	slog.Error(
+		"boa.HookContext.GetParam: the field pointer does not belong to the parameters struct associated with this HookContext. "+
+			"Likely causes: "+
+			"(1) you passed a pointer to a field in an unrelated struct; "+
+			"(2) you passed a field from a different command's params in the same command tree (each command has its own mirror set); "+
+			"(3) you passed a field from a substruct that was not registered (e.g., one tagged boa:\"ignore\" or of an unsupported type); "+
+			"(4) you passed a field from a different instance of the same params type than the one registered with this command.",
+		"got_type", fmt.Sprintf("%T", fieldPtr),
+		"address", fmt.Sprintf("%p", addr),
+	)
 	return nil
 }
 
