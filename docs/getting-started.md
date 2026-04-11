@@ -137,6 +137,8 @@ type Params struct {
 
 Deep nesting chains prefixes: `Infra.Primary.Host` becomes `--infra-primary-host`. Explicit `name:"..."` and `env:"..."` tags also get prefixed inside named fields. See [Struct Tags](struct-tags.md#named-struct-auto-prefixing) for full details.
 
+> **Using a struct you can't tag?** If the struct comes from a third-party package (or a generated type, or shared internal code you don't want to fork), you can embed it as a field — or as the whole CLI config — and configure every setting programmatically via `InitFuncCtx` instead of struct tags. See [Bring Your Own Config](bring-your-own-config.md) for the full pattern.
+
 ## Array/Slice Parameters
 
 BOA supports array/slice types:
