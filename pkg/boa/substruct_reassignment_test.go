@@ -1,8 +1,10 @@
 package boa
 
 import (
+	"reflect"
 	"slices"
 	"testing"
+	"unsafe"
 
 	"github.com/spf13/cobra"
 )
@@ -325,6 +327,83 @@ func TestReassignToNilAndBack(t *testing.T) {
 	}
 	if finalHost != "restored" {
 		t.Errorf("CLI value did not reach restored pointee: got %q", finalHost)
+	}
+}
+
+// TestGetParam_AutoRepairsCacheAfterReassignment verifies that when the
+// addrToPath cache is stale (because a substruct was reassigned after init),
+// the fallback walk in GetParam not only finds the mirror but also *repairs
+// the cache* so subsequent lookups for the same field address are O(1) again.
+//
+// This is a white-box test — it reaches into the internal addrToPath map to
+// verify the repair — because the optimization is not observable through the
+// public API except by microbenchmark. Verifying the map state is the direct
+// evidence that the repair code path ran.
+func TestGetParam_AutoRepairsCacheAfterReassignment(t *testing.T) {
+	type DB struct {
+		Host string `descr:"host" default:"localhost"`
+	}
+	type Params struct {
+		DB *DB
+	}
+
+	var (
+		newHostAddr           unsafe.Pointer
+		cacheHadNewAddrBefore bool
+		cacheHadNewAddrAfter  bool
+	)
+
+	cmd := (CmdT[Params]{
+		Use: "test",
+		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
+			// Step 1: prime the cache with the preallocated pointee's addresses.
+			if m := ctx.GetParam(&params.DB.Host); m == nil {
+				t.Fatal("initial lookup returned nil")
+			}
+
+			// Step 2: reassign the substruct to a fresh pointee at a new heap
+			// address. Old cache entries are now stale; the new addresses have
+			// never been seen by addrToPath.
+			params.DB = &DB{Host: ""}
+			newHostAddr = reflect.ValueOf(&params.DB.Host).UnsafePointer()
+
+			// Check: the new address should NOT be in the cache yet.
+			if _, ok := ctx.ctx.addrToPath[newHostAddr]; ok {
+				cacheHadNewAddrBefore = true
+			}
+
+			// Step 3: do the lookup through the new address. The cache lookup
+			// will miss, the fallback walk will succeed, and (per the repair
+			// code) the new address should then be written into addrToPath.
+			m := ctx.GetParam(&params.DB.Host)
+			if m == nil {
+				t.Fatal("post-reassignment lookup returned nil")
+			}
+
+			// Check: after the lookup, the new address must now be in the cache.
+			if _, ok := ctx.ctx.addrToPath[newHostAddr]; ok {
+				cacheHadNewAddrAfter = true
+			}
+			return nil
+		},
+		RunFunc: func(p *Params, c *cobra.Command, args []string) {},
+	}).ToCobra()
+
+	cmd.SetArgs([]string{"--db-host", "x"})
+	if err := Execute(cmd); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	// Pre-condition: the new address was not cached before the fallback ran.
+	// (If this fires, the test setup is broken — we accidentally pre-populated
+	// the cache somehow.)
+	if cacheHadNewAddrBefore {
+		t.Errorf("precondition violated: new address was already cached before the fallback lookup")
+	}
+
+	// Post-condition: the fallback walk repaired the cache.
+	if !cacheHadNewAddrAfter {
+		t.Errorf("cache repair did not happen: new address is still not in addrToPath after fallback lookup")
 	}
 }
 
