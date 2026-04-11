@@ -1,0 +1,7 @@
+host = api.example.com
+port = 3000
+# Explicitly mention the DB group, but write values that equal the defaults.
+# Snapshot comparison alone would not detect these writes; the KeyTree probe
+# lets boa keep the DB pointer group alive and mark both fields as set.
+db.host = localhost
+db.port = 5432

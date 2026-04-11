@@ -156,6 +156,78 @@ func TestCustomConfigFormat_CmdConfigFormatOverridesExtension(t *testing.T) {
 	}
 }
 
+// TestCustomConfigFormat_MultipleFormatsOneBinary covers the headline scenario:
+// a single compiled program registers a non-JSON format at init/startup and
+// is then able to load EITHER a .json or a .fmtMulti file — picked per-run by
+// --config-file extension — with no per-command override and no code changes
+// between deployments.
+func TestCustomConfigFormat_MultipleFormatsOneBinary(t *testing.T) {
+	RegisterConfigFormatFull(".fmtMulti", ConfigFormat{
+		Unmarshal: fakeUnmarshal,
+		KeyTree:   fakeKeyTree,
+	})
+
+	type Inner struct {
+		Host string `descr:"host" default:"localhost"`
+		Port int    `descr:"port" default:"5432"`
+	}
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		DB         *Inner
+	}
+
+	newCmd := func(captured **Inner, ctxCapture *bool, _ **HookContext) CmdT[Params] {
+		return CmdT[Params]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+				*captured = p.DB
+				if p.DB != nil {
+					*ctxCapture = ctx.HasValue(&p.DB.Host) && ctx.HasValue(&p.DB.Port)
+				}
+			},
+		}
+	}
+
+	dir := t.TempDir()
+
+	// Pass 1: load a .json file. Uses the built-in JSON handler, including its KeyTree.
+	jsonPath := filepath.Join(dir, "cfg.json")
+	if err := os.WriteFile(jsonPath, []byte(`{"DB":{"Host":"","Port":5432}}`), 0o644); err != nil {
+		t.Fatalf("write json: %v", err)
+	}
+	var gotDB *Inner
+	var ctxHasBoth bool
+	if err := newCmd(&gotDB, &ctxHasBoth, nil).RunArgsE([]string{"--config-file", jsonPath}); err != nil {
+		t.Fatalf("json run: %v", err)
+	}
+	if gotDB == nil {
+		t.Fatal("json run: expected DB pointer group to survive (KeyTree detects zero-value + default writes)")
+	}
+	if !ctxHasBoth {
+		t.Error("json run: expected both DB.Host and DB.Port to report HasValue=true")
+	}
+
+	// Pass 2: SAME command struct, same process, different file extension.
+	// Dispatch goes through the registered .fmtMulti handler — no per-command
+	// override, no rebuild, just a different --config-file argument.
+	altPath := filepath.Join(dir, "cfg.fmtMulti")
+	if err := os.WriteFile(altPath, []byte(`{"DB":{"Host":"","Port":5432}}`), 0o644); err != nil {
+		t.Fatalf("write alt: %v", err)
+	}
+	gotDB = nil
+	ctxHasBoth = false
+	if err := newCmd(&gotDB, &ctxHasBoth, nil).RunArgsE([]string{"--config-file", altPath}); err != nil {
+		t.Fatalf("alt run: %v", err)
+	}
+	if gotDB == nil {
+		t.Fatal("alt run: expected DB pointer group to survive under registered custom format")
+	}
+	if !ctxHasBoth {
+		t.Error("alt run: expected both DB.Host and DB.Port to report HasValue=true via custom KeyTree")
+	}
+}
+
 func TestCustomConfigFormat_KeyTreeHandlesMapAnyAny(t *testing.T) {
 	// yaml.v2 and some other parsers produce map[any]any for nested mappings.
 	// The walker's asKeyMap helper must coerce these transparently.

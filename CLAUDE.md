@@ -75,13 +75,14 @@ type Params struct {
 - `boa:"configonly"` - Alias for `boa:"ignore"` (clearer intent for config-file-only fields)
 
 ### Config Format Registry
+- Dispatch is **extension-driven**: every `loadConfigFileInto` call resolves the format from `filepath.Ext(filePath)` against the global `configFormats` map, so one binary can load any mix of registered formats at runtime.
 - `boa.ConfigFormat{Unmarshal, KeyTree}` describes a full format: an unmarshaler plus an optional `KeyTree func([]byte) (map[string]any, error)` used for set-by-config detection.
 - `boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)` is a shortcut for a format with only `Unmarshal`; falls back to snapshot comparison for detection.
 - `boa.RegisterConfigFormatFull(".yaml", boa.ConfigFormat{...})` registers the full form — required to detect zero-value or same-as-default writes to optional struct-pointer groups.
 - JSON is the only format shipped by default (built-in `KeyTree` backed by `json.Unmarshal`).
 - `boa.ConfigFormatExtensions()` returns all registered file extensions (used by `boaviper`).
-- Per-command overrides: `Cmd.ConfigFormat` (full form, preferred) and `Cmd.ConfigUnmarshal` (legacy, unmarshal-only). `ConfigFormat` wins when both are set.
-- Resolution: `Cmd.ConfigFormat` > `Cmd.ConfigUnmarshal` > extension-registered format > JSON fallback.
+- `Cmd.ConfigFormat` / legacy `Cmd.ConfigUnmarshal` are **per-command escape hatches** that lock that one command to a single format, bypassing the extension registry. Prefer registry-based dispatch unless you have a specific reason (legacy blob ingestion, test fixtures).
+- Resolution per load: `Cmd.ConfigFormat` > `Cmd.ConfigUnmarshal` > extension-registered format > JSON fallback.
 - `KeyTree` may return nested values as `map[string]any` (native) or `map[any]any` (e.g. yaml.v2); boa coerces transparently via `asKeyMap`.
 - Substruct `configfile:"true"` fields load their own config files; priority: CLI > env > root config > substruct config > defaults
 

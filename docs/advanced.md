@@ -182,7 +182,9 @@ CLI and env var values always take precedence over config file values.
 
 ### Config Format Registry
 
-JSON is the only format shipped by default. Register additional formats by file extension:
+JSON is the only format shipped by default. BOA has no third-party parser dependencies — you bring your own library and register it in the global registry. The registry is keyed by file extension, so the same compiled binary can accept any mix of formats at runtime (e.g. `--config-file prod.json` today, `--config-file prod.yaml` tomorrow, no rebuild required).
+
+The simple form registers only an unmarshal function:
 
 ```go
 import "gopkg.in/yaml.v3"
@@ -191,13 +193,46 @@ boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
 boa.RegisterConfigFormat(".toml", toml.Unmarshal)
 ```
 
-Resolution order for unmarshal function:
+The full form additionally provides a `KeyTree` probe that lets BOA detect *which keys were mentioned* in a config file, even when the written values are zero-valued or equal to the parameter's default. This matters for [optional struct-pointer parameter groups](#optional-parameter-groups):
 
-1. Explicit `ConfigUnmarshal` on the command
-2. Registered format matched by file extension
-3. `json.Unmarshal` (default fallback)
+```go
+boa.RegisterConfigFormatFull(".yaml", boa.ConfigFormat{
+    Unmarshal: yaml.Unmarshal,
+    KeyTree: func(data []byte) (map[string]any, error) {
+        var out map[string]any
+        if err := yaml.Unmarshal(data, &out); err != nil {
+            return nil, err
+        }
+        return out, nil
+    },
+})
+```
 
-You can also set `ConfigUnmarshal` directly on a command to override all format detection for that command:
+Without a `KeyTree`, BOA falls back to snapshot comparison — it detects *changed* values but not zero-value or same-as-default writes. For plain fields and non-pointer substructs the simple form is enough; for optional struct-pointer groups, prefer the full form. `KeyTree` accepts nested maps in either `map[string]any` (yaml.v3, json) or `map[any]any` (yaml.v2) shape.
+
+Resolution order for each config file load:
+
+1. `Cmd.ConfigFormat` — per-command escape hatch; locks that one command to a single format (rarely what you want)
+2. `Cmd.ConfigUnmarshal` — legacy, unmarshal-only, also command-locked
+3. **Registered format matched by file extension — the default path; any number of formats can coexist in one binary**
+4. Built-in JSON fallback
+
+#### Per-command escape hatch
+
+Setting a format directly on a command **bypasses** the extension registry and locks that command to one format. This is almost never what you want — prefer the global registry so your binary stays format-agnostic — but the escape hatch exists for custom-extension blobs from legacy systems and for injecting fake parsers in tests.
+
+```go
+boa.CmdT[Params]{
+    Use: "ingest-legacy-blob",
+    ConfigFormat: boa.ConfigFormat{
+        Unmarshal: myLegacyUnmarshal,
+        // KeyTree optional
+    },
+    RunFunc: func(p *Params, cmd *cobra.Command, args []string) { ... },
+}.Run()
+```
+
+The legacy unmarshal-only field still works:
 
 ```go
 boa.CmdT[Params]{

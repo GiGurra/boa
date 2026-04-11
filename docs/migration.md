@@ -213,11 +213,22 @@ type Params struct {
 Register custom config file formats by extension. JSON is the only format shipped by default:
 
 ```go
+// Simple: unmarshal only (falls back to snapshot comparison for set-by-config detection)
 boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
 boa.RegisterConfigFormat(".toml", toml.Unmarshal)
+
+// Full: unmarshal + KeyTree probe (required to detect zero-value or
+// same-as-default writes to optional struct-pointer parameter groups)
+boa.RegisterConfigFormatFull(".yaml", boa.ConfigFormat{
+    Unmarshal: yaml.Unmarshal,
+    KeyTree: func(data []byte) (map[string]any, error) {
+        var out map[string]any
+        return out, yaml.Unmarshal(data, &out)
+    },
+})
 ```
 
-Resolution: explicit `ConfigUnmarshal` on the command > registered format by file extension > `json.Unmarshal` fallback.
+Resolution: `Cmd.ConfigFormat` > `Cmd.ConfigUnmarshal` > registered format by extension > `json.Unmarshal` fallback. See the [Config Format Registry section in Advanced Usage](advanced.md#config-format-registry) for details on when to prefer the full form.
 
 #### Named Struct Auto-Prefixing
 
