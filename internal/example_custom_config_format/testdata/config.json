@@ -1,0 +1,8 @@
+{
+  "Host": "api.example.com",
+  "Port": 3000,
+  "DB": {
+    "Host": "localhost",
+    "Port": 5432
+  }
+}

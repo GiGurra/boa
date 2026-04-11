@@ -2,7 +2,6 @@ package boa
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -349,23 +348,26 @@ func cleanupPreallocatedPtrs(ctx *processingContext) {
 // which preallocated struct pointer fields were explicitly mentioned in the config,
 // even if the values are zero or match the defaults.
 //
-// It unmarshals the raw bytes into map[string]json.RawMessage to get the set of
-// top-level keys, then matches them against struct field names using the same
-// case-insensitive logic as encoding/json. For nested structs, it recurses into
-// the sub-maps.
+// It delegates to the ConfigFormat's KeyTree to build a nested map[string]any
+// representing the raw bytes' key structure, then matches entries against
+// struct field names using case-insensitive logic (the same rule encoding/json
+// applies). For nested structs, it recurses into sub-maps.
 //
-// Returns true if key-presence detection succeeded (JSON-compatible data).
-// Returns false for non-JSON data so the caller can fall back to snapshot comparison.
-func markConfigKeysPresent(ctx *processingContext, target any, targetPath fieldPath, rawData []byte) bool {
+// Returns true if key-presence detection succeeded. Returns false when the
+// format has no KeyTree, when the probe errors out, or when there are no
+// preallocated pointer groups to care about — in those cases the caller
+// should fall back to snapshot comparison.
+func markConfigKeysPresent(ctx *processingContext, target any, targetPath fieldPath, rawData []byte, format ConfigFormat) bool {
 	if len(ctx.PreallocatedPtrs) == 0 || len(rawData) == 0 {
 		return false
 	}
-	// Probe the raw data for top-level keys
-	var topLevel map[string]json.RawMessage
-	if err := json.Unmarshal(rawData, &topLevel); err != nil {
-		return false // not JSON-compatible; caller should use snapshot fallback
+	if format.KeyTree == nil {
+		return false
 	}
-	// Walk the target struct type and match keys against preallocated struct ptrs
+	topLevel, err := format.KeyTree(rawData)
+	if err != nil || topLevel == nil {
+		return false
+	}
 	markConfigKeysPresentInStruct(ctx, target, topLevel, splitPath(targetPath))
 	return true
 }
@@ -410,9 +412,10 @@ func jsonFieldKey(field reflect.StructField) string {
 	return field.Name
 }
 
-// jsonKeyLookup does a case-insensitive key lookup matching encoding/json behavior:
-// exact match first, then case-insensitive fallback.
-func jsonKeyLookup(keys map[string]json.RawMessage, target string) (json.RawMessage, bool) {
+// configKeyLookup does a case-insensitive key lookup matching encoding/json behavior:
+// exact match first, then case-insensitive fallback. Works on any KeyTree output,
+// regardless of the underlying config format (JSON, YAML, TOML, …).
+func configKeyLookup(keys map[string]any, target string) (any, bool) {
 	if target == "" {
 		return nil, false
 	}
@@ -429,7 +432,26 @@ func jsonKeyLookup(keys map[string]json.RawMessage, target string) (json.RawMess
 	return nil, false
 }
 
-func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys map[string]json.RawMessage, path []int) {
+// asKeyMap coerces a KeyTree sub-value to a map[string]any when it is one,
+// tolerating the map[any]any shape that some YAML parsers (notably yaml.v2)
+// produce for nested mappings. Returns nil if the value is not a map-like.
+func asKeyMap(v any) map[string]any {
+	switch m := v.(type) {
+	case map[string]any:
+		return m
+	case map[any]any:
+		out := make(map[string]any, len(m))
+		for k, val := range m {
+			if ks, ok := k.(string); ok {
+				out[ks] = val
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys map[string]any, path []int) {
 	val := reflect.ValueOf(structPtr).Elem()
 	typ := val.Type()
 	for i := 0; i < typ.NumField(); i++ {
@@ -438,8 +460,8 @@ func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys m
 			continue
 		}
 		childPath := append(append([]int(nil), path...), i)
-		jsonKey := jsonFieldKey(field)
-		rawVal, keyPresent := jsonKeyLookup(keys, jsonKey)
+		key := jsonFieldKey(field)
+		rawVal, keyPresent := configKeyLookup(keys, key)
 		if !keyPresent {
 			continue
 		}
@@ -450,17 +472,15 @@ func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys m
 			// pointer survives cleanup, even if the object is empty `{}`.
 			// Individual fields only get setByConfig if they appear as keys.
 			markStructPtrPresentByConfig(ctx, fieldVal.Interface())
-			var subKeys map[string]json.RawMessage
-			if json.Unmarshal(rawVal, &subKeys) == nil && len(subKeys) > 0 {
-				markConfigKeysPresentInStruct(ctx, fieldVal.Interface(), subKeys, childPath)
+			if subMap := asKeyMap(rawVal); len(subMap) > 0 {
+				markConfigKeysPresentInStruct(ctx, fieldVal.Interface(), subMap, childPath)
 			}
 			continue
 		}
 		// If this is a non-pointer struct, recurse
 		if field.Type.Kind() == reflect.Struct && !isSupportedType(field.Type) {
-			var subKeys map[string]json.RawMessage
-			if json.Unmarshal(rawVal, &subKeys) == nil {
-				markConfigKeysPresentInStruct(ctx, fieldVal.Addr().Interface(), subKeys, childPath)
+			if subMap := asKeyMap(rawVal); subMap != nil {
+				markConfigKeysPresentInStruct(ctx, fieldVal.Addr().Interface(), subMap, childPath)
 			}
 			continue
 		}
@@ -493,10 +513,26 @@ func snapshotPreallocatedStructs(ctx *processingContext) []reflect.Value {
 
 // markConfigChangedStructs compares preallocated struct values against pre-config
 // snapshots. If any struct changed, marks all its mirrors as setByConfig.
-// This is the fallback for non-JSON formats where key-presence detection can't work.
-func markConfigChangedStructs(ctx *processingContext, snapshots []reflect.Value) {
+// This is the fallback for formats whose KeyTree cannot describe the literal
+// key structure (no KeyTree set, or the KeyTree returned an error).
+//
+// The fallback is scoped per-load via fallbackRoots: a preallocated pointer
+// is only considered if its path lies within one of those subtrees. This
+// prevents a failing sub-load from blanket-marking fields that a *separate*
+// load already covered precisely via its own KeyTree. An empty fieldPath in
+// the list means "the entire root" (the legacy whole-tree behaviour, used
+// when the root config itself has no KeyTree).
+//
+// An empty fallbackRoots slice is a no-op.
+func markConfigChangedStructs(ctx *processingContext, snapshots []reflect.Value, fallbackRoots []fieldPath) {
+	if len(fallbackRoots) == 0 {
+		return
+	}
 	for i, info := range ctx.PreallocatedPtrs {
 		if info.ptrField.IsNil() || !snapshots[i].IsValid() {
+			continue
+		}
+		if !pathWithinAny(info.path, fallbackRoots) {
 			continue
 		}
 		current := info.ptrField.Elem()
@@ -504,6 +540,13 @@ func markConfigChangedStructs(ctx *processingContext, snapshots []reflect.Value)
 			markAllMirrorsInSubtree(ctx, info.ptrField.Interface(), splitPath(info.path))
 		}
 	}
+}
+
+// pathWithinAny reports whether child lies within (or equals) any of roots.
+// Uses fieldPath.hasSubtreePrefix so segment boundaries are respected (i.e.,
+// path "12" is NOT considered within root "1"; only "1", "1.X", "1.X.Y"... are).
+func pathWithinAny(child fieldPath, roots []fieldPath) bool {
+	return slices.ContainsFunc(roots, child.hasSubtreePrefix)
 }
 
 // markStructPtrPresentByConfig records that a preallocated struct pointer was
@@ -1807,8 +1850,17 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 				target     any
 				targetPath fieldPath
 				rawData    []byte
+				format     ConfigFormat
 			}
 			var configResults []configLoadResult
+
+			// Resolve the per-command override once. ConfigFormat takes
+			// precedence over the legacy ConfigUnmarshal; if neither is set,
+			// loadConfigFileInto falls back to the extension-registered format.
+			cmdOverride := b.ConfigFormat
+			if cmdOverride.Unmarshal == nil && b.ConfigUnmarshal != nil {
+				cmdOverride = ConfigFormat{Unmarshal: b.ConfigUnmarshal}
+			}
 
 			if len(ctx.ConfigFiles) > 0 {
 				// Separate root and substruct entries
@@ -1825,11 +1877,11 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 					if entry.mirror.HasValue() {
 						filePath := *(entry.mirror.valuePtrF().(*string))
 						if filePath != "" {
-							rawData, err := loadConfigFileInto(filePath, entry.target, b.ConfigUnmarshal)
+							rawData, effective, err := loadConfigFileInto(filePath, entry.target, cmdOverride)
 							if err != nil {
 								return NewUserInputError(fmt.Errorf("configfile %s: %w", entry.mirror.GetName(), err))
 							}
-							configResults = append(configResults, configLoadResult{target: entry.target, targetPath: entry.targetPath, rawData: rawData})
+							configResults = append(configResults, configLoadResult{target: entry.target, targetPath: entry.targetPath, rawData: rawData, format: effective})
 						}
 					}
 				}
@@ -1838,11 +1890,11 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 					if entry.mirror.HasValue() {
 						filePath := *(entry.mirror.valuePtrF().(*string))
 						if filePath != "" {
-							rawData, err := loadConfigFileInto(filePath, entry.target, b.ConfigUnmarshal)
+							rawData, effective, err := loadConfigFileInto(filePath, entry.target, cmdOverride)
 							if err != nil {
 								return NewUserInputError(fmt.Errorf("configfile %s: %w", entry.mirror.GetName(), err))
 							}
-							configResults = append(configResults, configLoadResult{target: entry.target, targetPath: entry.targetPath, rawData: rawData})
+							configResults = append(configResults, configLoadResult{target: entry.target, targetPath: entry.targetPath, rawData: rawData, format: effective})
 						}
 					}
 				}
@@ -1852,18 +1904,18 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			// Probe raw config data for key presence to detect which preallocated
 			// struct pointers were mentioned in config files. This detects writes
 			// even when the value equals Go's zero value or the field's default.
-			// For non-JSON formats, fall back to snapshot comparison.
-			allDetected := true
+			// Formats whose ConfigFormat has no KeyTree (or whose KeyTree errors
+			// out) fall back to snapshot comparison — but only for the subtree
+			// of that particular load, so a failing sub-load can't corrupt the
+			// precision of sibling loads whose KeyTree succeeded.
+			var fallbackRoots []fieldPath
 			for _, cr := range configResults {
-				if !markConfigKeysPresent(ctx, cr.target, cr.targetPath, cr.rawData) {
-					allDetected = false
+				if !markConfigKeysPresent(ctx, cr.target, cr.targetPath, cr.rawData, cr.format) {
+					fallbackRoots = append(fallbackRoots, cr.targetPath)
 				}
 			}
-			if !allDetected && preConfigSnapshots != nil {
-				// Non-JSON config format: fall back to comparing struct values
-				// before and after config loading. This catches changed values
-				// but can't detect zero-value or same-as-default writes.
-				markConfigChangedStructs(ctx, preConfigSnapshots)
+			if len(fallbackRoots) > 0 && preConfigSnapshots != nil {
+				markConfigChangedStructs(ctx, preConfigSnapshots, fallbackRoots)
 			}
 
 			// Clean up preallocated struct pointers that had no fields set.

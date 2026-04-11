@@ -182,7 +182,9 @@ CLI and env var values always take precedence over config file values.
 
 ### Config Format Registry
 
-JSON is the only format shipped by default. Register additional formats by file extension:
+JSON is the only format shipped by default. BOA has no third-party parser dependencies — you bring your own library and register it in the global registry. The registry is keyed by file extension, so the same compiled binary can accept any mix of formats at runtime (e.g. `--config-file prod.json` today, `--config-file prod.yaml` tomorrow, no rebuild required).
+
+#### The one-liner
 
 ```go
 import "gopkg.in/yaml.v3"
@@ -191,13 +193,60 @@ boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
 boa.RegisterConfigFormat(".toml", toml.Unmarshal)
 ```
 
-Resolution order for unmarshal function:
+That's the whole story for every mainstream Go config parser. The one-liner gets you both parsing **and** full key-presence detection — including zero-valued and same-as-default writes to optional struct-pointer parameter groups (`DB *DBConfig`). Under the hood `RegisterConfigFormat` wraps the unmarshaler in a `UniversalConfigFormat`, which asks the same parser to also decode the file into a `map[string]any` so BOA can read the literal key structure. Every mainstream Go parser supports that.
 
-1. Explicit `ConfigUnmarshal` on the command
-2. Registered format matched by file extension
-3. `json.Unmarshal` (default fallback)
+Without a `KeyTree`, BOA would fall back to snapshot comparison for those struct-pointer groups, which can't tell "user wrote the default" apart from "user wrote nothing". With the auto-synthesized one you avoid that gap entirely.
 
-You can also set `ConfigUnmarshal` directly on a command to override all format detection for that command:
+`KeyTree` accepts nested maps in either `map[string]any` (yaml.v3, json, toml) or `map[any]any` (yaml.v2) shape — BOA coerces transparently.
+
+#### The `UniversalConfigFormat` helper
+
+Use it when you want to attach a format inline to `Cmd.ConfigFormat` without touching the global registry:
+
+```go
+boa.CmdT[Params]{
+    Use:          "app",
+    ConfigFormat: boa.UniversalConfigFormat(yaml.Unmarshal),
+    RunFunc:      func(p *Params, cmd *cobra.Command, args []string) { ... },
+}.Run()
+```
+
+`UniversalConfigFormat(nil)` panics, so typos surface at the construction site rather than silently falling through to the JSON handler at parse time.
+
+#### When to reach for `RegisterConfigFormatFull`
+
+Only when your parser **cannot** decode into `map[string]any`. Most of the time, "write a parser that fills only specific struct types" is an app-specific custom format, not a third-party library. In that case the auto-synthesized `KeyTree` would fail at parse time, so you hand-write it yourself:
+
+```go
+boa.RegisterConfigFormatFull(".mycustom", boa.ConfigFormat{
+    Unmarshal: mycustom.Decode,
+    KeyTree:   mycustom.KeysOnly, // returns map[string]any of key structure
+})
+```
+
+Resolution order for each config file load:
+
+1. `Cmd.ConfigFormat` — per-command escape hatch; locks that one command to a single format (rarely what you want)
+2. `Cmd.ConfigUnmarshal` — legacy, unmarshal-only, also command-locked
+3. **Registered format matched by file extension — the default path; any number of formats can coexist in one binary**
+4. Built-in JSON fallback
+
+#### Per-command escape hatch
+
+Setting a format directly on a command **bypasses** the extension registry and locks that command to one format. This is almost never what you want — prefer the global registry so your binary stays format-agnostic — but the escape hatch exists for custom-extension blobs from legacy systems and for injecting fake parsers in tests.
+
+```go
+boa.CmdT[Params]{
+    Use: "ingest-legacy-blob",
+    ConfigFormat: boa.ConfigFormat{
+        Unmarshal: myLegacyUnmarshal,
+        // KeyTree optional
+    },
+    RunFunc: func(p *Params, cmd *cobra.Command, args []string) { ... },
+}.Run()
+```
+
+The legacy unmarshal-only field still works:
 
 ```go
 boa.CmdT[Params]{

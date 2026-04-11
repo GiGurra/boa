@@ -75,10 +75,18 @@ type Params struct {
 - `boa:"configonly"` - Alias for `boa:"ignore"` (clearer intent for config-file-only fields)
 
 ### Config Format Registry
-- `boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)` registers custom config formats by file extension
-- JSON is the only format shipped by default
-- `boa.ConfigFormatExtensions()` returns all registered file extensions (used by `boaviper`)
-- Resolution: explicit `Cmd.ConfigUnmarshal` > file extension registry > `json.Unmarshal` fallback
+- Dispatch is **extension-driven**: every `loadConfigFileInto` call resolves the format from `filepath.Ext(filePath)` against the global `configFormats` map, so one binary can load any mix of registered formats at runtime.
+- `boa.ConfigFormat{Unmarshal, KeyTree}` describes a full format: an unmarshaler plus an optional `KeyTree func([]byte) (map[string]any, error)` used for set-by-config detection.
+- `boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)` is the one-liner for every mainstream Go parser. It wraps the unmarshaler in a `UniversalConfigFormat`, which synthesizes `KeyTree` by decoding the same bytes into `map[string]any`. Full key-presence detection is automatic; panics on nil.
+- `boa.UniversalConfigFormat(unmarshalFunc)` is the exported helper for inline use with `Cmd.ConfigFormat`. Panics on nil.
+- `boa.RegisterConfigFormatFull(".mycustom", boa.ConfigFormat{...})` is the advanced form — reach for it only when the parser cannot decode into `map[string]any` (e.g., a handwritten format that only populates specific struct types), in which case you supply a hand-written `KeyTree`.
+- JSON is the only format shipped by default (built-in `KeyTree` backed by `json.Unmarshal`).
+- Registry access is guarded by a `sync.RWMutex`; registration is goroutine-safe. Still, the normal pattern is to register from `init()` / startup for clarity.
+- `boa.ConfigFormatExtensions()` returns all registered file extensions, **sorted alphabetically** for deterministic iteration (important for `boaviper.FindConfig` which probes the same search path with every registered extension).
+- Snapshot fallback for formats without a usable `KeyTree` is scoped per-load — a failing sub-load only triggers fallback within its own subtree, so it cannot corrupt the precision of sibling loads whose KeyTree succeeded.
+- `Cmd.ConfigFormat` / legacy `Cmd.ConfigUnmarshal` are **per-command escape hatches** that lock that one command to a single format, bypassing the extension registry. Prefer registry-based dispatch unless you have a specific reason (legacy blob ingestion, test fixtures).
+- Resolution per load: `Cmd.ConfigFormat` > `Cmd.ConfigUnmarshal` > extension-registered format > JSON fallback.
+- `KeyTree` may return nested values as `map[string]any` (native) or `map[any]any` (e.g. yaml.v2); boa coerces transparently via `asKeyMap`.
 - Substruct `configfile:"true"` fields load their own config files; priority: CLI > env > root config > substruct config > defaults
 
 ### Custom Type Registration
@@ -88,7 +96,7 @@ type Params struct {
 
 ### Boaviper Subpackage (`pkg/boaviper/`)
 - `boaviper.AutoConfig[T]("appname")` - InitFunc for auto-discovering config files in standard paths
-- `boaviper.FindConfig("appname")` - Searches standard paths (`./<app>.json`, `~/.config/<app>/config.json`, `/etc/<app>/config.json`)
+- `boaviper.FindConfig("appname")` - Searches standard paths (`./<app>`, `~/.config/<app>/config`, `/etc/<app>/config`) trying every extension returned by `boa.ConfigFormatExtensions()` (so `.json` plus anything registered via `RegisterConfigFormat` / `RegisterConfigFormatFull`)
 - `boaviper.SetEnvPrefix("PREFIX")` - Enricher that combines `ParamEnricherEnv` + `ParamEnricherEnvPrefix`
 - Uses `boa.ConfigFormatExtensions()` to try all registered formats
 
@@ -137,7 +145,7 @@ CLI args > Environment vars > Root config file > Substruct config files > Defaul
 - `p.DB == nil` means nothing in the group was configured; `p.DB != nil` means at least one field was set
 - Defaults alone don't keep the struct alive — only explicit user input does
 - Nested pointer structs work: `Outer *OuterConfig` where OuterConfig has `Inner *InnerConfig`
-- Config file key-presence detection handles zero-value and same-as-default config entries (JSON only)
+- Config file key-presence detection handles zero-value and same-as-default config entries for any format whose `ConfigFormat` supplies a `KeyTree` probe. `RegisterConfigFormat(ext, fn)` auto-synthesizes one via `UniversalConfigFormat`, so YAML/TOML/HCL get it for free; only formats whose unmarshaler cannot decode into `map[string]any` need to supply their own.
 - Works with all features: validation tags, custom validators, alternatives, HookContext access
 
 ## Testing
