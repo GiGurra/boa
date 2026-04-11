@@ -20,7 +20,7 @@ Quick reference for all BOA struct tags.
 | `max` | | Max value (numeric) or max length (string/slice) | `max:"65535"` |
 | `pattern` | | Regex pattern (strings only) | `pattern:"^[a-z]+$"` |
 | `configfile` | | Auto-load config file (root or substruct) | `configfile:"true"` |
-| `boa` | | Special directives | `boa:"ignore"`, `boa:"configonly"` |
+| `boa` | | Special directives | `boa:"ignore"`, `boa:"configonly"`, `boa:"noflag"`, `boa:"nocli"`, `boa:"noenv"` |
 
 ## Special Field Types
 
@@ -38,21 +38,77 @@ type Params struct {
 
 ### The `boa:"ignore"` and `boa:"configonly"` Tags
 
-Fields tagged `boa:"ignore"` (or its alias `boa:"configonly"`) are skipped during CLI flag and environment variable registration. They do not appear in `--help` output and cannot be set via the command line or env vars.
+Both tags hide a field from the CLI and from env vars, but they differ in whether boa's mirror and validation still run:
 
-However, these fields **still receive values from config file loading**, since config files are loaded via `json.Unmarshal` (or the configured unmarshal function) which writes directly to struct fields. This makes these tags useful for config-file-only fields:
+- **`boa:"ignore"`** (aliases `boa:"ignored"`, `boa:"-"`) — field is **fully excluded** from boa. No mirror, no validation, no required check. Only raw config-file unmarshal writes to it.
+- **`boa:"configonly"`** — field is hidden from CLI and env (it's shorthand for `noflag` + `noenv`) but the **mirror is preserved** and validation, required checks, and custom validators still run. Use this when you want a config-file-only field that's still validated.
 
 ```go
 type Params struct {
-    ConfigFile string `configfile:"true" optional:"true" default:"config.json"`
-    Host       string `descr:"server host"`
-    Port       int    `descr:"server port"`
-    InternalID string `boa:"ignore"`     // only loaded from config file
-    Metadata   map[string]string `boa:"configonly"` // clearer intent: config-file-only
+    ConfigFile string            `configfile:"true" optional:"true" default:"config.json"`
+    Host       string            `descr:"server host"`
+    Port       int               `descr:"server port"`
+    InternalID string            `boa:"configonly" min:"8"` // validated
+    Metadata   map[string]string `boa:"ignore"`             // opaque, boa doesn't touch it
 }
 ```
 
-`boa:"configonly"` is functionally identical to `boa:"ignore"` but communicates intent more clearly.
+**Changed in this release:** `boa:"configonly"` used to be an alias for `boa:"ignore"`. Migrate by switching to `boa:"ignore"` if you need the old no-validation behavior, or leave it as-is for the new (validated) behavior.
+
+### The `boa:"noflag"` / `boa:"nocli"` Tag
+
+Fields tagged `boa:"noflag"` (or its alias `boa:"nocli"`) are **excluded from CLI flag registration only**. They do not appear in `--help` and cannot be set with a `--flag`, but they are fully processed in every other way: env vars, config files, defaults, `min`/`max`/`pattern` validation, and custom validators all still apply.
+
+```go
+type Params struct {
+    Name   string `descr:"public name"`
+    Secret string `descr:"api token" boa:"noflag" env:"API_TOKEN"`
+}
+```
+
+With the above, `--secret` is not a valid flag, but `API_TOKEN=...` still populates the field, and the user still sees a `missing required param 'secret' (env: API_TOKEN)` error if it is required and unset.
+
+Combining `boa:"noflag"` with `positional` is an error — a positional argument is, by definition, a CLI argument.
+
+Difference from `boa:"ignore"`: `ignore` skips boa processing entirely (no env reads, no validation) and only supports config-file unmarshal; `noflag` skips just the CLI flag layer.
+
+### The `boa:"noenv"` Tag
+
+Mirror image of `noflag`: the field is exposed as a CLI flag and still loads from config files, but **env var reading is suppressed**. This is mostly useful in combination with `ParamEnricherEnv`, where you want the enricher to auto-bind most fields to env vars but opt a few out:
+
+```go
+type Params struct {
+    Host     string `descr:"hostname"`
+    Internal string `descr:"internal knob" boa:"noenv"`
+}
+// With ParamEnricherEnv: $HOST populates Host, but $INTERNAL is ignored.
+```
+
+### Programmatic parity
+
+Anything configurable with a struct tag is also configurable programmatically through `HookContext.GetParam(&p.Field)` (or the typed `GetParamT`). This is the escape hatch for parameter structs you don't own and can't add tags to:
+
+```go
+boa.CmdT[ExternalConfig]{
+    Use: "cmd",
+    InitFuncCtx: func(ctx *boa.HookContext, p *ExternalConfig, cmd *cobra.Command) error {
+        secret := boa.GetParamT(ctx, &p.Secret)
+        secret.SetDescription("auth token (env or config only)")
+        secret.SetNoFlag(true)    // equivalent to `boa:"noflag"`
+        secret.SetEnv("APP_TOKEN")
+
+        port := boa.GetParamT(ctx, &p.Port)
+        min, max := 1.0, 65535.0
+        port.SetMin(&min)         // equivalent to `min:"1"`
+        port.SetMax(&max)         // equivalent to `max:"65535"`
+        return nil
+    },
+}
+```
+
+Available setters include `SetDescription`, `SetName`, `SetShort`, `SetEnv`, `SetPositional`, `SetRequired(bool)` / `SetRequiredFn`, `SetNoFlag`, `SetNoEnv`, `SetIgnored`, `SetMin`, `SetMax`, `SetPattern`, `SetAlternatives`, `SetAlternativesFunc`, `SetStrictAlts`, `SetDefault` / `SetDefaultT`, `SetCustomValidator` / `SetCustomValidatorT`, and `SetIsEnabledFn`.
+
+All programmatic setters must be called from `InitFunc` / `InitFuncCtx` (or `CfgStructInit` / `CfgStructInitCtx`) so they take effect before cobra flag binding and env parsing.
 
 ### Map Fields
 

@@ -382,11 +382,12 @@ Resolution order for each `loadConfigFileInto` call:
 3. Format registered by file extension — **the default path; supports any number of formats in one binary**
 4. Built-in JSON fallback (with `KeyTree`)
 
-## Config-File-Only Fields (`boa:"ignore"`)
+## Config-File-Only Fields (`boa:"configonly"` and `boa:"ignore"`)
 
-Fields tagged `boa:"ignore"` (or `boa:"configonly"`) are not exposed as CLI flags or env vars. They only get populated from config files.
+Two tags hide fields from the CLI and env but differ in whether boa still runs a mirror/validation:
 
-This is useful for complex settings that make sense in a file but not on the command line.
+- `boa:"configonly"` — mirror preserved, validation still runs (use for validated config-file-only fields)
+- `boa:"ignore"` — field fully excluded from boa, only raw config unmarshal writes to it (use for opaque blobs)
 
 ```go
 package main
@@ -401,9 +402,9 @@ type Params struct {
     ConfigFile string            `configfile:"true" optional:"true" default:"config.json"`
     Host       string            `descr:"Server host" default:"localhost"`
     Port       int               `descr:"Server port" default:"8080"`
-    InternalID string            `boa:"ignore"`     // config file only
-    Metadata   map[string]string `boa:"configonly"` // config file only (clearer alias)
-    Routes     []RouteConfig     `boa:"ignore"`     // complex nested config
+    InternalID string            `boa:"configonly" min:"8"` // config file only, validated
+    Metadata   map[string]string `boa:"configonly"`         // config file only
+    Routes     []RouteConfig     `boa:"ignore"`             // opaque, not validated by boa
 }
 
 type RouteConfig struct {

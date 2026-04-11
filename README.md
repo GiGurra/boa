@@ -440,13 +440,15 @@ boa.CmdT[Params]{
 | `max` | Max value or max length | `max:"65535"` |
 | `pattern` | Regex pattern | `pattern:"^[a-z]+$"` |
 | `configfile` | Auto-load config from path | `configfile:"true"` |
-| `boa` | Special directives | `boa:"ignore"`, `boa:"configonly"` |
+| `boa` | Special directives | `boa:"ignore"` (no mirror), `boa:"configonly"` (no CLI/env, mirror + validation preserved), `boa:"noflag"` / `"nocli"`, `boa:"noenv"` |
+
 </details>
 
 ## Further Reading
 
 - [Getting Started](https://gigurra.github.io/boa/getting-started/) — all parameter types, subcommands, config files
 - [Struct Tags](https://gigurra.github.io/boa/struct-tags/) — complete tag reference with auto-prefixing
+- [Bring Someone Else's Config](https://gigurra.github.io/boa/bring-someone-elses-config/) — wire up third-party / tag-less structs programmatically
 - [Validation](https://gigurra.github.io/boa/validation/) — required/optional, alternatives, conditional requirements
 - [Lifecycle Hooks](https://gigurra.github.io/boa/hooks/) — customize behavior at each stage
 - [Enrichers](https://gigurra.github.io/boa/enrichers/) — auto-derive flag names, env vars, short flags

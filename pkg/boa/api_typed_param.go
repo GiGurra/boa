@@ -68,6 +68,45 @@ type ParamT[T any] interface {
 	// SetRequiredFn sets a function that determines if this parameter is required.
 	// This allows making optional parameters conditionally required.
 	SetRequiredFn(fn func() bool)
+
+	// SetRequired is a convenience that pins the parameter as required/optional
+	// regardless of the original struct-tag default. It **replaces** any
+	// previously set SetRequiredFn — it does not compose with it. Call this
+	// last if you set both.
+	SetRequired(required bool)
+
+	// SetNoFlag toggles whether the parameter skips CLI flag registration.
+	// When true, the field is still populated from env vars and config files
+	// but does not appear as a `--flag`. Mirrors `boa:"noflag"` / `boa:"nocli"`.
+	SetNoFlag(noFlag bool)
+
+	// SetNoEnv toggles whether the parameter skips env var reading. Mirrors
+	// `boa:"noenv"`. CLI flags and config files still populate the field.
+	SetNoEnv(noEnv bool)
+
+	// SetIgnored fully excludes the parameter from boa processing (CLI, env,
+	// validation). Config-file unmarshal can still write to the field.
+	SetIgnored(ignored bool)
+
+	// SetDescription sets the help/description text for this parameter.
+	SetDescription(descr string)
+
+	// SetPositional toggles whether this parameter is a positional argument
+	// rather than a named flag. Cannot be combined with SetNoFlag(true).
+	SetPositional(positional bool)
+
+	// SetMin / SetMax set numeric/length bounds. Pass nil to clear a bound.
+	// For numeric types, the bound compares the value. For strings and slices,
+	// it compares length. Mirrors the `min:"..."` / `max:"..."` tags. Panics
+	// if called on a non-numeric / non-string / non-slice field (unlike the
+	// tag, which is silently ignored on unsupported types).
+	SetMin(min *float64)
+	SetMax(max *float64)
+
+	// SetPattern sets a regex pattern that string values must match. Pass
+	// an empty string to clear the pattern. Mirrors the `pattern:"..."` tag.
+	// Panics if called on a non-string field.
+	SetPattern(pattern string)
 }
 
 // GetParamT returns a typed ParamT[T] view for the given field pointer.
@@ -204,4 +243,50 @@ func (w *ParamTView[T]) SetIsEnabledFn(fn func() bool) {
 // SetRequiredFn sets a function that determines if this parameter is required.
 func (w *ParamTView[T]) SetRequiredFn(fn func() bool) {
 	w.param.SetRequiredFn(fn)
+}
+
+// SetRequired pins the parameter as required/optional regardless of the
+// original struct-tag default.
+func (w *ParamTView[T]) SetRequired(required bool) {
+	w.param.SetRequired(required)
+}
+
+// SetNoFlag toggles CLI flag suppression.
+func (w *ParamTView[T]) SetNoFlag(noFlag bool) {
+	w.param.SetNoFlag(noFlag)
+}
+
+// SetNoEnv toggles env var suppression.
+func (w *ParamTView[T]) SetNoEnv(noEnv bool) {
+	w.param.SetNoEnv(noEnv)
+}
+
+// SetIgnored fully excludes the parameter from boa processing.
+func (w *ParamTView[T]) SetIgnored(ignored bool) {
+	w.param.SetIgnored(ignored)
+}
+
+// SetDescription sets the help/description text.
+func (w *ParamTView[T]) SetDescription(descr string) {
+	w.param.SetDescription(descr)
+}
+
+// SetPositional toggles positional-argument mode.
+func (w *ParamTView[T]) SetPositional(positional bool) {
+	w.param.SetPositional(positional)
+}
+
+// SetMin sets a lower bound. Pass nil to clear.
+func (w *ParamTView[T]) SetMin(min *float64) {
+	w.param.SetMin(min)
+}
+
+// SetMax sets an upper bound. Pass nil to clear.
+func (w *ParamTView[T]) SetMax(max *float64) {
+	w.param.SetMax(max)
+}
+
+// SetPattern sets a regex pattern (empty string clears).
+func (w *ParamTView[T]) SetPattern(pattern string) {
+	w.param.SetPattern(pattern)
 }

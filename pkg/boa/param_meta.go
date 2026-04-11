@@ -59,6 +59,27 @@ type paramMeta struct {
 	minVal          *float64 // min value (numeric) or min length (string)
 	maxVal          *float64 // max value (numeric) or max length (string)
 	pattern         string   // regex pattern for string validation
+
+	// noFlag indicates the field should not be registered as a CLI flag,
+	// but is still populated from env vars and config files. Set via the
+	// `boa:"noflag"` tag (alias `boa:"nocli"`).
+	noFlag bool
+
+	// noEnv indicates the field should not read from environment variables.
+	// CLI flags and config files still populate it normally. Set via the
+	// `boa:"noenv"` tag.
+	noEnv bool
+
+	// ignored marks the mirror as fully ignored by boa: skip CLI flag,
+	// skip env reading, skip required/min/max/pattern validation. The
+	// only remaining write path is config-file unmarshal, which writes
+	// to the raw struct field directly. The tag-level equivalent
+	// (`boa:"ignore"` / `boa:"-"`) skips traversal entirely so the mirror
+	// never exists; this flag is for programmatic equivalence
+	// post-traversal. Note: `boa:"configonly"` is NOT an alias for this —
+	// it desugars to noFlag+noEnv with the mirror preserved so validation
+	// and required checks still run.
+	ignored bool
 }
 
 var _ Param = &paramMeta{}
@@ -304,6 +325,112 @@ func (f *paramMeta) customValidatorOfPtr() func(any) error {
 
 func (f *paramMeta) SetCustomValidator(validator func(any) error) {
 	f.customValidator = validator
+}
+
+// --- noFlag / ignored ---
+
+func (f *paramMeta) IsNoFlag() bool      { return f.noFlag }
+func (f *paramMeta) SetNoFlag(val bool)  { f.noFlag = val }
+func (f *paramMeta) IsNoEnv() bool       { return f.noEnv }
+func (f *paramMeta) SetNoEnv(val bool)   { f.noEnv = val }
+func (f *paramMeta) IsIgnored() bool     { return f.ignored }
+func (f *paramMeta) SetIgnored(val bool) { f.ignored = val }
+
+// --- min / max / pattern ---
+
+// supportsMinMax reports whether this param's underlying type is one the
+// min/max validator will actually check (numeric value, or length for
+// string/slice). Keep this in sync with validateMinMaxPattern's switch.
+func (f *paramMeta) supportsMinMax() bool {
+	switch f.fieldType.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64,
+		reflect.String,
+		reflect.Slice:
+		return true
+	}
+	return false
+}
+
+// supportsPattern reports whether this param's underlying type is one the
+// pattern validator will act on (strings only).
+func (f *paramMeta) supportsPattern() bool {
+	return f.fieldType.Kind() == reflect.String
+}
+
+func (f *paramMeta) GetMin() *float64 {
+	if f.minVal == nil {
+		return nil
+	}
+	v := *f.minVal
+	return &v
+}
+
+// SetMin sets a lower bound. Pass nil to clear. Panics if called on a field
+// whose type cannot be min/max validated (anything outside numeric / string /
+// slice). The equivalent struct tag (`min:"..."`) is silently no-op'd on
+// unsupported types today — the programmatic API is stricter because the
+// caller has the type in hand and a silent no-op is a foot-gun.
+func (f *paramMeta) SetMin(val *float64) {
+	if val != nil && !f.supportsMinMax() {
+		panic(fmt.Errorf("boa: SetMin on %q: type %s is not a numeric, string, or slice — min is only meaningful on those", f.name, f.fieldType.Kind()))
+	}
+	if val == nil {
+		f.minVal = nil
+		return
+	}
+	v := *val
+	f.minVal = &v
+}
+
+func (f *paramMeta) GetMax() *float64 {
+	if f.maxVal == nil {
+		return nil
+	}
+	v := *f.maxVal
+	return &v
+}
+
+// SetMax sets an upper bound. See SetMin for the type restriction.
+func (f *paramMeta) SetMax(val *float64) {
+	if val != nil && !f.supportsMinMax() {
+		panic(fmt.Errorf("boa: SetMax on %q: type %s is not a numeric, string, or slice — max is only meaningful on those", f.name, f.fieldType.Kind()))
+	}
+	if val == nil {
+		f.maxVal = nil
+		return
+	}
+	v := *val
+	f.maxVal = &v
+}
+
+func (f *paramMeta) GetPattern() string { return f.pattern }
+
+// SetPattern sets a regex pattern. Pass the empty string to clear. Panics if
+// called on a non-string field — pattern matching is only defined for strings.
+func (f *paramMeta) SetPattern(pat string) {
+	if pat != "" && !f.supportsPattern() {
+		panic(fmt.Errorf("boa: SetPattern on %q: type %s is not a string — pattern is only meaningful on strings", f.name, f.fieldType.Kind()))
+	}
+	f.pattern = pat
+}
+
+// --- exported description / positional / required convenience ---
+
+func (f *paramMeta) GetDescription() string      { return f.descr }
+func (f *paramMeta) SetDescription(descr string) { f.descr = descr }
+func (f *paramMeta) IsPositional() bool          { return f.positional }
+func (f *paramMeta) SetPositional(state bool)    { f.positional = state }
+
+// SetRequired pins the parameter as required/optional regardless of any
+// earlier tag or SetRequiredFn. It is equivalent to
+// SetRequiredFn(func() bool { return val }), which means it **replaces**
+// (not composes with) any previously installed SetRequiredFn. Call this
+// last if you use both.
+func (f *paramMeta) SetRequired(val bool) {
+	v := val
+	f.requiredFn = func() bool { return v }
 }
 
 // --- JSON marshaling ---

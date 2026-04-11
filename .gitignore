@@ -22,5 +22,6 @@ go.work
 
 /.idea/
 /.vscode/
+.claude/
 
 /testmain
