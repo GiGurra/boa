@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -28,8 +29,35 @@ func fakeKeyTree(data []byte) (map[string]any, error) {
 	return out, nil
 }
 
+// registerFormatCleanup registers a format and schedules its removal from the
+// global registry on test completion, so globally-scoped state doesn't leak
+// across tests within the same run.
+func registerFormatCleanup(t *testing.T, ext string, f ConfigFormat) {
+	t.Helper()
+	RegisterConfigFormatFull(ext, f)
+	t.Cleanup(func() { delete(configFormats, ext) })
+}
+
+func TestRegisterConfigFormatFull_NilUnmarshalPanics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected RegisterConfigFormatFull to panic when Unmarshal is nil")
+		}
+		// Also assert the panic message mentions the extension so users can
+		// trace the source without a stack walk.
+		if msg := fmt.Sprintf("%v", r); !strings.Contains(msg, ".fmtBroken") {
+			t.Errorf("panic message should mention the bad extension; got: %s", msg)
+		}
+	}()
+	RegisterConfigFormatFull(".fmtBroken", ConfigFormat{
+		// Unmarshal deliberately left nil — a user who forgot to wire it up.
+		KeyTree: fakeKeyTree,
+	})
+}
+
 func TestCustomConfigFormat_KeyTreeDetectsZeroValueWrite(t *testing.T) {
-	RegisterConfigFormatFull(".fmtA", ConfigFormat{
+	registerFormatCleanup(t, ".fmtA", ConfigFormat{
 		Unmarshal: fakeUnmarshal,
 		KeyTree:   fakeKeyTree,
 	})
@@ -82,6 +110,7 @@ func TestCustomConfigFormat_RegisteredFormatAppliesToCmd(t *testing.T) {
 	// the command still runs successfully (format resolution by extension,
 	// graceful snapshot fallback for key-presence detection).
 	RegisterConfigFormat(".fmtB", fakeUnmarshal)
+	t.Cleanup(func() { delete(configFormats, ".fmtB") })
 
 	type Params struct {
 		ConfigFile string `configfile:"true" optional:"true"`
@@ -113,7 +142,7 @@ func TestCustomConfigFormat_RegisteredFormatAppliesToCmd(t *testing.T) {
 func TestCustomConfigFormat_CmdConfigFormatOverridesExtension(t *testing.T) {
 	// Register an extension-level handler that would mangle the data, then
 	// use Cmd.ConfigFormat to override it per-command. The override must win.
-	RegisterConfigFormatFull(".fmtC", ConfigFormat{
+	registerFormatCleanup(t, ".fmtC", ConfigFormat{
 		Unmarshal: func(data []byte, target any) error {
 			return fmt.Errorf("extension handler should not be called when Cmd.ConfigFormat is set")
 		},
@@ -162,7 +191,7 @@ func TestCustomConfigFormat_CmdConfigFormatOverridesExtension(t *testing.T) {
 // --config-file extension — with no per-command override and no code changes
 // between deployments.
 func TestCustomConfigFormat_MultipleFormatsOneBinary(t *testing.T) {
-	RegisterConfigFormatFull(".fmtMulti", ConfigFormat{
+	registerFormatCleanup(t, ".fmtMulti", ConfigFormat{
 		Unmarshal: fakeUnmarshal,
 		KeyTree:   fakeKeyTree,
 	})
@@ -235,7 +264,7 @@ func TestCustomConfigFormat_MultipleFormatsOneBinary(t *testing.T) {
 // the parameter's default, so only a working KeyTree-based detector can keep
 // the pointer chain alive after cleanup.
 func TestCustomConfigFormat_DeepNestingUnderCustomFormat(t *testing.T) {
-	RegisterConfigFormatFull(".fmtDeep", ConfigFormat{
+	registerFormatCleanup(t, ".fmtDeep", ConfigFormat{
 		Unmarshal: fakeUnmarshal,
 		KeyTree:   fakeKeyTree,
 	})
@@ -329,7 +358,7 @@ func TestCustomConfigFormat_DeepNestingUnderCustomFormat(t *testing.T) {
 func TestCustomConfigFormat_KeyTreeHandlesMapAnyAny(t *testing.T) {
 	// yaml.v2 and some other parsers produce map[any]any for nested mappings.
 	// The walker's asKeyMap helper must coerce these transparently.
-	RegisterConfigFormatFull(".fmtD", ConfigFormat{
+	registerFormatCleanup(t, ".fmtD", ConfigFormat{
 		Unmarshal: fakeUnmarshal,
 		KeyTree: func(data []byte) (map[string]any, error) {
 			// Mimic yaml.v2: nested mappings come back as map[any]any.

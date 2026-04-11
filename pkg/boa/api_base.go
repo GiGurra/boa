@@ -559,6 +559,9 @@ func jsonKeyTree(data []byte) (map[string]any, error) {
 // detect zero-valued or default-matching writes to optional struct-pointer
 // groups — use RegisterConfigFormatFull.
 //
+// Registration is not goroutine-safe; call from init() or from main-goroutine
+// startup before any commands run. Passing a nil unmarshalFunc panics.
+//
 // Example:
 //
 //	boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
@@ -573,6 +576,11 @@ func RegisterConfigFormat(ext string, unmarshalFunc func([]byte, any) error) {
 //
 // The extension should include the dot (e.g., ".yaml", ".toml").
 //
+// Registration is not goroutine-safe; call from init() or from main-goroutine
+// startup before any commands run. Passing a ConfigFormat with a nil Unmarshal
+// panics — a missing parser is a programming error and is surfaced eagerly so
+// you don't silently fall through to the JSON handler at parse time.
+//
 // Example (using gopkg.in/yaml.v3):
 //
 //	boa.RegisterConfigFormatFull(".yaml", boa.ConfigFormat{
@@ -586,6 +594,9 @@ func RegisterConfigFormat(ext string, unmarshalFunc func([]byte, any) error) {
 //	    },
 //	})
 func RegisterConfigFormatFull(ext string, format ConfigFormat) {
+	if format.Unmarshal == nil {
+		panic(fmt.Errorf("boa: RegisterConfigFormatFull(%q): ConfigFormat.Unmarshal must be non-nil", ext))
+	}
 	configFormats[ext] = format
 }
 
@@ -630,8 +641,8 @@ func resolveConfigFormat(filePath string, override ConfigFormat) ConfigFormat {
 		return override
 	}
 	ext := filepath.Ext(filePath)
-	if fmt, ok := configFormats[ext]; ok && fmt.Unmarshal != nil {
-		return fmt
+	if cf, ok := configFormats[ext]; ok && cf.Unmarshal != nil {
+		return cf
 	}
 	return ConfigFormat{Unmarshal: json.Unmarshal, KeyTree: jsonKeyTree}
 }
