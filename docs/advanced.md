@@ -336,6 +336,26 @@ boa.CmdT[Params]{
 
 `ext` accepts `".yaml"`, `"yaml"`, or `""` (empty falls back to JSON). Empty or `nil` `data` is a no-op, so callers can hand in the result of an optional read without a preceding length check.
 
+### Writing Resolved Config Back Out
+
+Two serializers are available for the other direction:
+
+- `boa.DumpConfigBytes(v, ext, nil)` / `boa.DumpConfigFile(path, v, nil)` — naive dump, emits every exported field including Go zero values. Good for "generate an example config that shows every option".
+- `ctx.DumpBytes(ext, nil)` / `ctx.DumpFile(path, nil)` on `HookContext` — **source-aware**, emits only fields where `HasValue` is true (CLI, env, config file, default). Fields the user never touched are omitted entirely. This is the right helper for persisting resolved config between runs.
+
+Source-aware dump pins defaults into the file, which is deliberate: a future release can change the app's built-in defaults without silently changing behavior for users whose saved config said "I'm happy with what shipped in version 1.0". The `configfile` path parameter itself is omitted so the dumped file doesn't reference its own path on the next load.
+
+Key names honour format-appropriate struct tags (`json:"..."` for `.json`, `yaml:"..."` for `.yaml`/`.yml`, `toml:"..."` for `.toml`, `hcl:"..."` for `.hcl`); untagged fields fall back to Go field names. `json:"-"` skips the field entirely.
+
+Non-JSON formats need a marshaler registered alongside the unmarshaler:
+
+```go
+boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
+boa.RegisterConfigMarshaler(".yaml", yaml.Marshal)
+```
+
+JSON comes with both directions pre-registered (pretty-printed, 2-space indent, trailing newline). See [examples-config.md](examples-config.md#writing-config-back-out) for full examples.
+
 ## Checking Value Sources
 
 Use `HookContext` in your run function to check how values were set:
