@@ -75,10 +75,14 @@ type Params struct {
 - `boa:"configonly"` - Alias for `boa:"ignore"` (clearer intent for config-file-only fields)
 
 ### Config Format Registry
-- `boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)` registers custom config formats by file extension
-- JSON is the only format shipped by default
-- `boa.ConfigFormatExtensions()` returns all registered file extensions (used by `boaviper`)
-- Resolution: explicit `Cmd.ConfigUnmarshal` > file extension registry > `json.Unmarshal` fallback
+- `boa.ConfigFormat{Unmarshal, KeyTree}` describes a full format: an unmarshaler plus an optional `KeyTree func([]byte) (map[string]any, error)` used for set-by-config detection.
+- `boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)` is a shortcut for a format with only `Unmarshal`; falls back to snapshot comparison for detection.
+- `boa.RegisterConfigFormatFull(".yaml", boa.ConfigFormat{...})` registers the full form — required to detect zero-value or same-as-default writes to optional struct-pointer groups.
+- JSON is the only format shipped by default (built-in `KeyTree` backed by `json.Unmarshal`).
+- `boa.ConfigFormatExtensions()` returns all registered file extensions (used by `boaviper`).
+- Per-command overrides: `Cmd.ConfigFormat` (full form, preferred) and `Cmd.ConfigUnmarshal` (legacy, unmarshal-only). `ConfigFormat` wins when both are set.
+- Resolution: `Cmd.ConfigFormat` > `Cmd.ConfigUnmarshal` > extension-registered format > JSON fallback.
+- `KeyTree` may return nested values as `map[string]any` (native) or `map[any]any` (e.g. yaml.v2); boa coerces transparently via `asKeyMap`.
 - Substruct `configfile:"true"` fields load their own config files; priority: CLI > env > root config > substruct config > defaults
 
 ### Custom Type Registration

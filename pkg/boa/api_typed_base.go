@@ -77,7 +77,16 @@ type CmdT[Struct any] struct {
 	ValidArgsFunc func(params *Struct, cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
 	// ConfigUnmarshal specifies the unmarshal function for config files loaded via the configfile tag.
 	// If nil, defaults to json.Unmarshal.
+	//
+	// For richer support (including key-presence probing that lets boa detect
+	// zero-valued or default-matching writes to optional struct-pointer groups),
+	// prefer the ConfigFormat field. When both are set, ConfigFormat wins.
 	ConfigUnmarshal func([]byte, any) error
+	// ConfigFormat specifies a per-command config file format — both the
+	// unmarshaler and an optional key-tree probe used for set-by-config detection.
+	// When set, this takes precedence over ConfigUnmarshal and over any format
+	// registered via RegisterConfigFormat for the file extension.
+	ConfigFormat ConfigFormat
 	// RawArgs allows injecting command line arguments instead of using os.Args
 	RawArgs []string
 }
@@ -223,6 +232,7 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		PreValidateFuncCtx: preValidateFuncCtx,
 		PreExecuteFuncCtx:  preExecuteFuncCtx,
 		ConfigUnmarshal:    b.ConfigUnmarshal,
+		ConfigFormat:       b.ConfigFormat,
 		RawArgs:            b.RawArgs,
 	}
 }
