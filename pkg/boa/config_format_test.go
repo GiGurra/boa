@@ -277,6 +277,112 @@ func TestSnapshotFallbackIsScopedPerLoad(t *testing.T) {
 	}
 }
 
+// TestRegisterConfigFormatFull_NormalizesDotlessExtension covers the DX
+// that a forgotten leading dot doesn't silently break dispatch. Both "yaml"
+// and ".yaml" forms end up at the same canonical key, and a load of
+// config.yaml actually reaches the registered handler (instead of falling
+// through to JSON).
+func TestRegisterConfigFormatFull_NormalizesDotlessExtension(t *testing.T) {
+	// A sentinel Unmarshal that records whether it was called.
+	var called bool
+	sentinel := func(data []byte, target any) error {
+		called = true
+		return fakeUnmarshal(data, target)
+	}
+
+	// Register WITHOUT a leading dot.
+	registerFormatCleanup(t, "fmtNoDot", UniversalConfigFormat(sentinel))
+
+	// The canonical key in the registry should be ".fmtNoDot".
+	configFormatsMu.RLock()
+	_, canonicalOK := configFormats[".fmtNoDot"]
+	_, rawOK := configFormats["fmtNoDot"]
+	configFormatsMu.RUnlock()
+	if !canonicalOK {
+		t.Error("registration should normalize 'fmtNoDot' to '.fmtNoDot' in the registry")
+	}
+	if rawOK {
+		t.Error("the dot-less form should not appear as a separate registry key")
+	}
+
+	// ConfigFormatExtensions should report the canonical form only.
+	exts := ConfigFormatExtensions()
+	var sawCanonical, sawRaw bool
+	for _, e := range exts {
+		if e == ".fmtNoDot" {
+			sawCanonical = true
+		}
+		if e == "fmtNoDot" {
+			sawRaw = true
+		}
+	}
+	if !sawCanonical {
+		t.Error("ConfigFormatExtensions should list the canonical '.fmtNoDot'")
+	}
+	if sawRaw {
+		t.Error("ConfigFormatExtensions should not list the dot-less 'fmtNoDot' (would break boaviper's path construction)")
+	}
+
+	// Most important: actually loading a file through the normalized
+	// registration path should hit the sentinel unmarshaler. Before this
+	// fix, registering with "fmtNoDot" left the handler unreachable.
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Host       string `optional:"true"`
+	}
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.fmtNoDot")
+	if err := os.WriteFile(cfgPath, []byte(`{"Host":"x"}`), 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+	var gotHost string
+	if err := (CmdT[Params]{
+		Use: "test",
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+			gotHost = p.Host
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath}); err != nil {
+		t.Fatalf("RunArgsE: %v", err)
+	}
+	if !called {
+		t.Error("sentinel Unmarshal should have been invoked via normalized registry key")
+	}
+	if gotHost != "x" {
+		t.Errorf("Host = %q, want x", gotHost)
+	}
+}
+
+// TestRegisterConfigFormatFull_DottedExtensionUnchanged confirms that the
+// already-dotted form still works (no double-dot normalization bug).
+func TestRegisterConfigFormatFull_DottedExtensionUnchanged(t *testing.T) {
+	registerFormatCleanup(t, ".fmtDotted", UniversalConfigFormat(fakeUnmarshal))
+	configFormatsMu.RLock()
+	_, hasDotted := configFormats[".fmtDotted"]
+	_, hasDoubleDot := configFormats["..fmtDotted"]
+	configFormatsMu.RUnlock()
+	if !hasDotted {
+		t.Error("already-dotted form should be stored under '.fmtDotted'")
+	}
+	if hasDoubleDot {
+		t.Error("normalization should not prepend a second dot when one is already present")
+	}
+}
+
+// TestRegisterConfigFormatFull_EmptyExtPanics is the one case we still reject:
+// an outright empty string is unambiguously a programming mistake.
+func TestRegisterConfigFormatFull_EmptyExtPanics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected RegisterConfigFormatFull('') to panic")
+		}
+		if msg := fmt.Sprintf("%v", r); !strings.Contains(msg, "empty") {
+			t.Errorf("panic message should mention emptiness; got: %s", msg)
+		}
+	}()
+	RegisterConfigFormatFull("", ConfigFormat{Unmarshal: fakeUnmarshal})
+}
+
 func TestRegisterConfigFormatFull_NilUnmarshalPanics(t *testing.T) {
 	defer func() {
 		r := recover()

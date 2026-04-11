@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/spf13/cobra"
@@ -671,12 +672,28 @@ func RegisterConfigFormat(ext string, unmarshalFunc func([]byte, any) error) {
 //	    },
 //	})
 func RegisterConfigFormatFull(ext string, format ConfigFormat) {
+	normalized := normalizeConfigExt(ext)
 	if format.Unmarshal == nil {
 		panic(fmt.Errorf("boa: RegisterConfigFormatFull(%q): ConfigFormat.Unmarshal must be non-nil", ext))
 	}
 	configFormatsMu.Lock()
 	defer configFormatsMu.Unlock()
-	configFormats[ext] = format
+	configFormats[normalized] = format
+}
+
+// normalizeConfigExt canonicalises an extension registration key into the
+// dot-prefixed form that filepath.Ext produces at lookup time. Accepts either
+// "yaml" or ".yaml" — both become ".yaml" — so users don't have to remember
+// which form boa expects. An empty string panics because it's unambiguously
+// a programmer mistake.
+func normalizeConfigExt(ext string) string {
+	if ext == "" {
+		panic(fmt.Errorf("boa: config format extension must not be empty"))
+	}
+	if !strings.HasPrefix(ext, ".") {
+		return "." + ext
+	}
+	return ext
 }
 
 // ConfigFormatExtensions returns the file extensions that have registered
