@@ -532,10 +532,13 @@ func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys m
 			}
 			continue
 		}
-		// Leaf field present in config — mark its mirror
+		// Leaf field present in config — mark its mirror (unless the mirror
+		// was programmatically marked ignored, in which case we treat it like
+		// the tag form and leave setByConfig untouched so optional substruct
+		// cleanup cannot be kept alive by a key that boa is supposed to ignore).
 		if isSupportedType(field.Type) {
 			if mirror, ok := ctx.mirrorByPath[joinPath(childPath)]; ok {
-				if pm, isPM := mirror.(*paramMeta); isPM {
+				if pm, isPM := mirror.(*paramMeta); isPM && !pm.ignored {
 					pm.setByConfig = true
 				}
 			}
@@ -631,7 +634,7 @@ func markAllMirrorsInSubtree(ctx *processingContext, structPtr any, path []int) 
 		fieldVal := val.Field(i)
 		if isSupportedType(field.Type) {
 			if mirror, ok := ctx.mirrorByPath[joinPath(childPath)]; ok {
-				if pm, isPM := mirror.(*paramMeta); isPM {
+				if pm, isPM := mirror.(*paramMeta); isPM && !pm.ignored {
 					pm.setByConfig = true
 				}
 			}
@@ -665,6 +668,13 @@ func collectAndCheck(ctx *processingContext, structPtr any, path []int, anySet *
 		if isSupportedType(field.Type) {
 			if mirror, ok := ctx.mirrorByPath[joinPath(childPath)]; ok {
 				pm, isPM := mirror.(*paramMeta)
+				// A mirror marked ignored (the programmatic equivalent of
+				// `boa:"ignore"`) must not keep a substruct pointer alive,
+				// even if CLI/env/config-side state slipped through earlier.
+				// Parallels the tag path, where the mirror never exists.
+				if isPM && pm.ignored {
+					continue
+				}
 				if mirror.wasSetOnCli() || mirror.wasSetByEnv() {
 					*anySet = true
 					return
@@ -979,18 +989,20 @@ func toTypedSlice[T any](slice any) []T {
 
 func connect(f Param, cmd *cobra.Command, posArgs []Param, ctx *processingContext) error {
 
-	if f.GetName() == "" {
-		return fmt.Errorf("invalid conf for param '%s': long param name cannot be empty", f.GetName())
-	}
-
 	// Params marked noflag or ignored are not registered with cobra at all.
 	// They still participate in env-var reading (unless ignored), config-file
-	// loading, and validation — all of which happen outside of cobra.
+	// loading, and validation — all of which happen outside of cobra. This
+	// check runs first so that a programmatically-ignored field with an empty
+	// synthesized name still short-circuits cleanly.
 	if f.IsNoFlag() || f.IsIgnored() {
 		if f.IsNoFlag() && f.isPositional() {
-			return fmt.Errorf("param '%s': noflag cannot be combined with positional args", f.GetName())
+			return noFlagPositionalError(f.GetName())
 		}
 		return nil
+	}
+
+	if f.GetName() == "" {
+		return fmt.Errorf("invalid conf for param '%s': long param name cannot be empty", f.GetName())
 	}
 
 	if f.GetShort() == "h" {
@@ -1349,11 +1361,22 @@ func getBoaTags(field reflect.StructField) []string {
 	return results
 }
 
+// noFlagPositionalError returns the canonical error for a param that has been
+// marked both noflag and positional. Kept in one place so the tag-time check
+// in the enrichment loop and the runtime check in connect() can't drift.
+func noFlagPositionalError(name string) error {
+	return fmt.Errorf("param '%s': `boa:\"noflag\"` cannot be combined with positional args — a positional arg is, by definition, a CLI arg", name)
+}
+
+// isBoaIgnored reports whether a field is fully ignored by boa — no mirror,
+// no traversal. Only `boa:"ignore"` (aliases: `ignored`, `-`) triggers this.
+// `boa:"configonly"` is deliberately NOT ignored: it produces a mirror and
+// runs validation, but is suppressed from CLI and env (see the enrichment
+// loop where it is translated to SetNoFlag+SetNoEnv).
 func isBoaIgnored(field reflect.StructField) bool {
 	boaTags := getBoaTags(field)
 	return slices.Contains(boaTags, "ignore") ||
 		slices.Contains(boaTags, "ignored") ||
-		slices.Contains(boaTags, "configonly") ||
 		slices.Contains(boaTags, "-")
 }
 
@@ -1735,18 +1758,26 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			// without fully ignoring the param:
 			//   - noflag / nocli → skip CLI flag, keep env + config + validation
 			//   - noenv          → skip env var reading, keep CLI + config + validation
-			// These are orthogonal and can be combined (e.g. config-only fields
-			// that still want validation).
+			//   - configonly     → shorthand for noflag + noenv, config-file only,
+			//                      but mirror + validation are preserved. (The tag
+			//                      used to alias `ignore` and skip traversal entirely;
+			//                      the current form is strictly more useful since the
+			//                      field can still participate in min/max/pattern and
+			//                      custom validators.)
+			// These are orthogonal and can be combined.
 			for _, t := range strings.Split(tags.Get("boa"), ",") {
 				switch strings.TrimSpace(t) {
 				case "noflag", "nocli":
 					param.SetNoFlag(true)
 				case "noenv":
 					param.SetNoEnv(true)
+				case "configonly":
+					param.SetNoFlag(true)
+					param.SetNoEnv(true)
 				}
 			}
 			if param.IsNoFlag() && param.isPositional() {
-				return fmt.Errorf("param '%s': `boa:\"noflag\"` cannot be combined with positional args (a CLI positional arg must be a CLI arg)", param.GetName())
+				return noFlagPositionalError(param.GetName())
 			}
 
 			// Detect configfile tag
@@ -2330,6 +2361,14 @@ func syncMirrors(ctx *processingContext) {
 	for _, p := range ctx.pathOrder {
 		mirror, ok := ctx.mirrorByPath[p]
 		if !ok {
+			continue
+		}
+		// Ignored mirrors are opt-out-of-boa: we must not inject raw-field
+		// values into them, and must not push mirror values back out. Config
+		// files write directly to the raw struct via unmarshal, so the user's
+		// data still lands — but the mirror stays untouched, which mirrors
+		// the `boa:"ignore"` tag behavior where no mirror ever existed.
+		if pm, isPM := mirror.(*paramMeta); isPM && pm.ignored {
 			continue
 		}
 		rawFieldVal, resolved := ctx.resolveFieldValue(p)

@@ -38,21 +38,22 @@ type Params struct {
 
 ### The `boa:"ignore"` and `boa:"configonly"` Tags
 
-Fields tagged `boa:"ignore"` (or its alias `boa:"configonly"`) are skipped during CLI flag and environment variable registration. They do not appear in `--help` output and cannot be set via the command line or env vars.
+Both tags hide a field from the CLI and from env vars, but they differ in whether boa's mirror and validation still run:
 
-However, these fields **still receive values from config file loading**, since config files are loaded via `json.Unmarshal` (or the configured unmarshal function) which writes directly to struct fields. This makes these tags useful for config-file-only fields:
+- **`boa:"ignore"`** (aliases `boa:"ignored"`, `boa:"-"`) — field is **fully excluded** from boa. No mirror, no validation, no required check. Only raw config-file unmarshal writes to it.
+- **`boa:"configonly"`** — field is hidden from CLI and env (it's shorthand for `noflag` + `noenv`) but the **mirror is preserved** and validation, required checks, and custom validators still run. Use this when you want a config-file-only field that's still validated.
 
 ```go
 type Params struct {
-    ConfigFile string `configfile:"true" optional:"true" default:"config.json"`
-    Host       string `descr:"server host"`
-    Port       int    `descr:"server port"`
-    InternalID string `boa:"ignore"`     // only loaded from config file
-    Metadata   map[string]string `boa:"configonly"` // clearer intent: config-file-only
+    ConfigFile string            `configfile:"true" optional:"true" default:"config.json"`
+    Host       string            `descr:"server host"`
+    Port       int               `descr:"server port"`
+    InternalID string            `boa:"configonly" min:"8"` // validated
+    Metadata   map[string]string `boa:"ignore"`             // opaque, boa doesn't touch it
 }
 ```
 
-`boa:"configonly"` is functionally identical to `boa:"ignore"` but communicates intent more clearly.
+**Changed in this release:** `boa:"configonly"` used to be an alias for `boa:"ignore"`. Migrate by switching to `boa:"ignore"` if you need the old no-validation behavior, or leave it as-is for the new (validated) behavior.
 
 ### The `boa:"noflag"` / `boa:"nocli"` Tag
 

@@ -71,8 +71,8 @@ type Params struct {
 - `max` - Maximum value (numeric) or maximum length (string/slice)
 - `pattern` - Regex pattern for string validation
 - `configfile` - Auto-load config file from this field's path (works in root and nested structs)
-- `boa:"ignore"` - Skip CLI/env registration entirely (field still loaded from config files via unmarshal)
-- `boa:"configonly"` - Alias for `boa:"ignore"` (clearer intent for config-file-only fields)
+- `boa:"ignore"` (aliases `boa:"ignored"`, `boa:"-"`) - Fully excluded from boa: no mirror, no CLI flag, no env read, no validation. Only raw config-file unmarshal writes to the field. Use for opaque blobs.
+- `boa:"configonly"` - Hidden from CLI and env but the **mirror is preserved**: `min`/`max`/`pattern`, custom validators, and required checks still run. Desugars to `noflag + noenv`. Use for validated config-file-only fields. (Was an alias for `boa:"ignore"` in older releases — the current semantics are strictly more useful.)
 - `boa:"noflag"` / `boa:"nocli"` - Skip CLI flag registration **only**; env vars, config files, validation, and defaults still apply. Cannot be combined with `positional`.
 - `boa:"noenv"` - Skip env var reading **only**; CLI flags and config files still apply. Most useful with `ParamEnricherEnv` to opt individual fields out of the auto-generated env binding.
 
@@ -86,7 +86,7 @@ Every struct-tag feature has a matching method on `Param` / `ParamT[T]` so field
 - `SetRequired(bool)` — convenience over `SetRequiredFn`
 - `SetNoFlag(bool)` / `IsNoFlag() bool` — mirrors `boa:"noflag"`
 - `SetNoEnv(bool)` / `IsNoEnv() bool` — mirrors `boa:"noenv"`
-- `SetIgnored(bool)` / `IsIgnored() bool` — post-traversal equivalent of `boa:"ignore"` (the tag itself skips traversal entirely, so the mirror never exists; the programmatic form marks an existing mirror as ignored so CLI/env/validation are all skipped)
+- `SetIgnored(bool)` / `IsIgnored() bool` — post-traversal equivalent of `boa:"ignore"` (the tag itself skips traversal entirely, so the mirror never exists; the programmatic form marks an existing mirror as ignored so CLI/env/validation/sync are all skipped). For `boa:"configonly"`, call `SetNoFlag(true)` + `SetNoEnv(true)` instead.
 - `SetMin(*float64)` / `GetMin() *float64`, `SetMax(*float64)` / `GetMax() *float64`, `SetPattern(string)` / `GetPattern() string`
 - `SetDefault(any)` / typed `ParamT[T].SetDefaultT(T)`
 - `SetAlternatives([]string)`, `SetAlternativesFunc(...)`, `SetStrictAlts(bool)`

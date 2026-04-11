@@ -70,7 +70,9 @@ type ParamT[T any] interface {
 	SetRequiredFn(fn func() bool)
 
 	// SetRequired is a convenience that pins the parameter as required/optional
-	// regardless of the original struct-tag default.
+	// regardless of the original struct-tag default. It **replaces** any
+	// previously set SetRequiredFn — it does not compose with it. Call this
+	// last if you set both.
 	SetRequired(required bool)
 
 	// SetNoFlag toggles whether the parameter skips CLI flag registration.
@@ -95,12 +97,15 @@ type ParamT[T any] interface {
 
 	// SetMin / SetMax set numeric/length bounds. Pass nil to clear a bound.
 	// For numeric types, the bound compares the value. For strings and slices,
-	// it compares length. Mirrors the `min:"..."` / `max:"..."` tags.
+	// it compares length. Mirrors the `min:"..."` / `max:"..."` tags. Panics
+	// if called on a non-numeric / non-string / non-slice field (unlike the
+	// tag, which is silently ignored on unsupported types).
 	SetMin(min *float64)
 	SetMax(max *float64)
 
 	// SetPattern sets a regex pattern that string values must match. Pass
 	// an empty string to clear the pattern. Mirrors the `pattern:"..."` tag.
+	// Panics if called on a non-string field.
 	SetPattern(pattern string)
 }
 

@@ -52,7 +52,9 @@ func TestBoaIgnore_StillLoadedFromConfigFile(t *testing.T) {
 }
 
 func TestBoaConfigOnly_LoadedFromConfigFile(t *testing.T) {
-	// boa:"configonly" is an explicit alias for config-file-only fields
+	// boa:"configonly" is now a noflag+noenv shorthand (NOT an ignore alias).
+	// The mirror still exists — validation runs — but the field is hidden
+	// from CLI and env, so config files are the only remaining write path.
 	type Params struct {
 		ConfigFile string            `configfile:"true" default:"" optional:"true"`
 		Name       string            `descr:"name"`
