@@ -95,13 +95,15 @@ type ParamT[T any] interface {
 	// rather than a named flag. Cannot be combined with SetNoFlag(true).
 	SetPositional(positional bool)
 
-	// SetMin / SetMax set numeric/length bounds. Pass nil to clear a bound.
-	// For numeric types, the bound compares the value. For strings and slices,
-	// it compares length. Mirrors the `min:"..."` / `max:"..."` tags. Panics
-	// if called on a non-numeric / non-string / non-slice field (unlike the
-	// tag, which is silently ignored on unsupported types).
-	SetMin(min *float64)
-	SetMax(max *float64)
+	// SetMin / SetMax set numeric/length bounds. For numeric types, the bound
+	// compares the value. For strings and slices, it compares length. Mirrors
+	// the `min:"..."` / `max:"..."` tags. Panics if called on a non-numeric /
+	// non-string / non-slice field (unlike the tag, which is silently ignored
+	// on unsupported types). Use ClearMin / ClearMax to remove a bound.
+	SetMin(min float64)
+	ClearMin()
+	SetMax(max float64)
+	ClearMax()
 
 	// SetPattern sets a regex pattern that string values must match. Pass
 	// an empty string to clear the pattern. Mirrors the `pattern:"..."` tag.
@@ -276,14 +278,24 @@ func (w *ParamTView[T]) SetPositional(positional bool) {
 	w.param.SetPositional(positional)
 }
 
-// SetMin sets a lower bound. Pass nil to clear.
-func (w *ParamTView[T]) SetMin(min *float64) {
+// SetMin sets a lower bound. Use ClearMin to remove it.
+func (w *ParamTView[T]) SetMin(min float64) {
 	w.param.SetMin(min)
 }
 
-// SetMax sets an upper bound. Pass nil to clear.
-func (w *ParamTView[T]) SetMax(max *float64) {
+// ClearMin removes a previously set lower bound.
+func (w *ParamTView[T]) ClearMin() {
+	w.param.ClearMin()
+}
+
+// SetMax sets an upper bound. Use ClearMax to remove it.
+func (w *ParamTView[T]) SetMax(max float64) {
 	w.param.SetMax(max)
+}
+
+// ClearMax removes a previously set upper bound.
+func (w *ParamTView[T]) ClearMax() {
+	w.param.ClearMax()
 }
 
 // SetPattern sets a regex pattern (empty string clears).

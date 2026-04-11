@@ -98,15 +98,14 @@ boa.CmdT[ExternalConfig]{
         secret.SetEnv("APP_TOKEN")
 
         port := boa.GetParamT(ctx, &p.Port)
-        min, max := 1.0, 65535.0
-        port.SetMin(&min)         // equivalent to `min:"1"`
-        port.SetMax(&max)         // equivalent to `max:"65535"`
+        port.SetMin(1)            // equivalent to `min:"1"`
+        port.SetMax(65535)        // equivalent to `max:"65535"`
         return nil
     },
 }
 ```
 
-Available setters include `SetDescription`, `SetName`, `SetShort`, `SetEnv`, `SetPositional`, `SetRequired(bool)` / `SetRequiredFn`, `SetNoFlag`, `SetNoEnv`, `SetIgnored`, `SetMin`, `SetMax`, `SetPattern`, `SetAlternatives`, `SetAlternativesFunc`, `SetStrictAlts`, `SetDefault` / `SetDefaultT`, `SetCustomValidator` / `SetCustomValidatorT`, and `SetIsEnabledFn`.
+Available setters include `SetDescription`, `SetName`, `SetShort`, `SetEnv`, `SetPositional`, `SetRequired(bool)` / `SetRequiredFn`, `SetNoFlag`, `SetNoEnv`, `SetIgnored`, `SetMin` / `ClearMin`, `SetMax` / `ClearMax`, `SetPattern`, `SetAlternatives`, `SetAlternativesFunc`, `SetStrictAlts`, `SetDefault` / `SetDefaultT`, `SetCustomValidator` / `SetCustomValidatorT`, and `SetIsEnabledFn`.
 
 All programmatic setters must be called from `InitFunc` / `InitFuncCtx` (or `CfgStructInit` / `CfgStructInitCtx`) so they take effect before cobra flag binding and env parsing.
 

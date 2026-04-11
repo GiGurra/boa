@@ -525,15 +525,13 @@ func TestSetMinMax_Programmatic(t *testing.T) {
 	type Params struct {
 		Port int `descr:"port" optional:"true"`
 	}
-	minV := float64(1)
-	maxV := float64(100)
 	err := (CmdT[Params]{
 		Use:         "test",
 		ParamEnrich: ParamEnricherName,
 		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
 			p := GetParamT(ctx, &params.Port)
-			p.SetMin(&minV)
-			p.SetMax(&maxV)
+			p.SetMin(1)
+			p.SetMax(100)
 			return nil
 		},
 		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
@@ -648,8 +646,7 @@ func TestSetMin_PanicsOnUnsupportedType(t *testing.T) {
 	_ = (CmdT[Params]{
 		Use: "test",
 		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
-			v := float64(1)
-			GetParamT(ctx, &params.Flag).SetMin(&v)
+			GetParamT(ctx, &params.Flag).SetMin(1)
 			return nil
 		},
 		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
@@ -669,8 +666,7 @@ func TestSetMax_PanicsOnUnsupportedType(t *testing.T) {
 	_ = (CmdT[Params]{
 		Use: "test",
 		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
-			v := float64(1)
-			GetParamT(ctx, &params.Flag).SetMax(&v)
+			GetParamT(ctx, &params.Flag).SetMax(1)
 			return nil
 		},
 		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
@@ -700,21 +696,213 @@ func TestSetPattern_PanicsOnNonString(t *testing.T) {
 	}).RunArgsE([]string{})
 }
 
-func TestSetMin_NilClearsEvenOnUnsupportedType(t *testing.T) {
-	// Passing nil is always allowed — it's a clear, not a set.
+func TestClearMin_AllowedOnUnsupportedType(t *testing.T) {
+	// ClearMin is always safe — it's a no-op when no bound is set, and the
+	// type guard only applies to SetMin.
 	type Params struct {
 		Flag bool `optional:"true"`
 	}
 	err := (CmdT[Params]{
 		Use: "test",
 		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
-			GetParamT(ctx, &params.Flag).SetMin(nil) // no-op, must not panic
+			GetParamT(ctx, &params.Flag).ClearMin() // no-op, must not panic
 			return nil
 		},
 		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
 	}).RunArgsE([]string{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// --- programmatic SetMin/SetMax across the supported type spectrum ---
+
+func TestSetMin_Programmatic_BelowIntMin(t *testing.T) {
+	type Params struct {
+		Port int `descr:"port" optional:"true"`
+	}
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
+			p := GetParamT(ctx, &params.Port)
+			p.SetMin(10)
+			p.SetMax(100)
+			return nil
+		},
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--port", "5"})
+	if err == nil {
+		t.Fatal("expected validation error from programmatic min")
+	}
+	if !strings.Contains(err.Error(), "min") {
+		t.Errorf("expected error mentioning 'min', got: %v", err)
+	}
+}
+
+func TestSetMinMax_Programmatic_Float(t *testing.T) {
+	type Params struct {
+		Rate float64 `descr:"rate" optional:"true"`
+	}
+	for _, tc := range []struct {
+		name    string
+		arg     string
+		wantErr string // substring to look for; "" = expect success
+	}{
+		{"below_min", "-0.1", "min"},
+		{"above_max", "1.5", "max"},
+		{"in_range", "0.5", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := (CmdT[Params]{
+				Use:         "test",
+				ParamEnrich: ParamEnricherName,
+				InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
+					p := GetParamT(ctx, &params.Rate)
+					p.SetMin(0)
+					p.SetMax(1)
+					return nil
+				},
+				RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
+			}).RunArgsE([]string{"--rate", tc.arg})
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("expected error containing %q, got: %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestSetMinMax_Programmatic_StringLength(t *testing.T) {
+	type Params struct {
+		Name string `descr:"name" optional:"true"`
+	}
+	makeCmd := func() CmdT[Params] {
+		return CmdT[Params]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
+				p := GetParamT(ctx, &params.Name)
+				p.SetMin(3)
+				p.SetMax(10)
+				return nil
+			},
+			RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
+		}
+	}
+	if err := makeCmd().RunArgsE([]string{"--name", "ab"}); err == nil || !strings.Contains(err.Error(), "min") {
+		t.Errorf("expected min error for short name, got: %v", err)
+	}
+	if err := makeCmd().RunArgsE([]string{"--name", "abcdefghijk"}); err == nil || !strings.Contains(err.Error(), "max") {
+		t.Errorf("expected max error for long name, got: %v", err)
+	}
+	if err := makeCmd().RunArgsE([]string{"--name", "okay"}); err != nil {
+		t.Errorf("unexpected error for valid-length name: %v", err)
+	}
+}
+
+func TestSetMinMax_Programmatic_SliceLength(t *testing.T) {
+	type Params struct {
+		Tags []string `descr:"tags" optional:"true"`
+	}
+	makeCmd := func() CmdT[Params] {
+		return CmdT[Params]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
+				p := GetParamT(ctx, &params.Tags)
+				p.SetMin(2)
+				p.SetMax(3)
+				return nil
+			},
+			RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
+		}
+	}
+	if err := makeCmd().RunArgsE([]string{"--tags", "a"}); err == nil || !strings.Contains(err.Error(), "min") {
+		t.Errorf("expected min error for 1-tag input, got: %v", err)
+	}
+	if err := makeCmd().RunArgsE([]string{"--tags", "a,b,c,d"}); err == nil || !strings.Contains(err.Error(), "max") {
+		t.Errorf("expected max error for 4-tag input, got: %v", err)
+	}
+	if err := makeCmd().RunArgsE([]string{"--tags", "a,b"}); err != nil {
+		t.Errorf("unexpected error for 2-tag input: %v", err)
+	}
+}
+
+func TestClearMinMax_Programmatic_RemovesBound(t *testing.T) {
+	// Set a bound and then clear it — the validation must not run.
+	type Params struct {
+		Port int `descr:"port" optional:"true"`
+	}
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
+			p := GetParamT(ctx, &params.Port)
+			p.SetMin(10)
+			p.SetMax(20)
+			p.ClearMin()
+			p.ClearMax()
+			return nil
+		},
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--port", "999"})
+	if err != nil {
+		t.Fatalf("expected no validation error after ClearMin/ClearMax, got: %v", err)
+	}
+}
+
+func TestSetMin_Programmatic_GetMinRoundTrip(t *testing.T) {
+	// SetMin / GetMin should round-trip, and ClearMin should reset to nil.
+	// GetMin / GetMax live on the non-generic Param interface (the typed view
+	// only exposes setters), so we read them via ctx.GetParam.
+	type Params struct {
+		Port int `descr:"port" optional:"true"`
+	}
+	var sawMinSet, sawMinCleared *float64
+	var sawMaxSet, sawMaxCleared *float64
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
+			tp := GetParamT(ctx, &params.Port)
+			tp.SetMin(42)
+			tp.SetMax(99)
+
+			raw := ctx.GetParam(&params.Port)
+			sawMinSet = raw.GetMin()
+			sawMaxSet = raw.GetMax()
+
+			tp.ClearMin()
+			tp.ClearMax()
+			sawMinCleared = raw.GetMin()
+			sawMaxCleared = raw.GetMax()
+			return nil
+		},
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"--port", "100"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sawMinSet == nil || *sawMinSet != 42 {
+		t.Errorf("expected GetMin to return 42 after SetMin, got: %v", sawMinSet)
+	}
+	if sawMaxSet == nil || *sawMaxSet != 99 {
+		t.Errorf("expected GetMax to return 99 after SetMax, got: %v", sawMaxSet)
+	}
+	if sawMinCleared != nil {
+		t.Errorf("expected GetMin to return nil after ClearMin, got: %v", *sawMinCleared)
+	}
+	if sawMaxCleared != nil {
+		t.Errorf("expected GetMax to return nil after ClearMax, got: %v", *sawMaxCleared)
 	}
 }
 

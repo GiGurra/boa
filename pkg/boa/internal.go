@@ -200,12 +200,15 @@ type Param interface {
 	IsPositional() bool
 	SetPositional(bool)
 
-	// GetMin / SetMin / GetMax / SetMax / GetPattern / SetPattern mirror the
-	// validation tags. Pass nil to clear a min/max bound.
+	// GetMin / SetMin / ClearMin / GetMax / SetMax / ClearMax / GetPattern /
+	// SetPattern mirror the validation tags. GetMin / GetMax return nil when
+	// no bound is set; ClearMin / ClearMax remove a previously set bound.
 	GetMin() *float64
-	SetMin(*float64)
+	SetMin(float64)
+	ClearMin()
 	GetMax() *float64
-	SetMax(*float64)
+	SetMax(float64)
+	ClearMax()
 	GetPattern() string
 	SetPattern(string)
 

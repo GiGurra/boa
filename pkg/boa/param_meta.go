@@ -367,21 +367,23 @@ func (f *paramMeta) GetMin() *float64 {
 	return &v
 }
 
-// SetMin sets a lower bound. Pass nil to clear. Panics if called on a field
-// whose type cannot be min/max validated (anything outside numeric / string /
-// slice). The equivalent struct tag (`min:"..."`) is silently no-op'd on
-// unsupported types today — the programmatic API is stricter because the
-// caller has the type in hand and a silent no-op is a foot-gun.
-func (f *paramMeta) SetMin(val *float64) {
-	if val != nil && !f.supportsMinMax() {
+// SetMin sets a lower bound. Panics if called on a field whose type cannot be
+// min/max validated (anything outside numeric / string / slice). The equivalent
+// struct tag (`min:"..."`) is silently no-op'd on unsupported types today — the
+// programmatic API is stricter because the caller has the type in hand and a
+// silent no-op is a foot-gun. Use ClearMin to remove a previously set bound.
+func (f *paramMeta) SetMin(val float64) {
+	if !f.supportsMinMax() {
 		panic(fmt.Errorf("boa: SetMin on %q: type %s is not a numeric, string, or slice — min is only meaningful on those", f.name, f.fieldType.Kind()))
 	}
-	if val == nil {
-		f.minVal = nil
-		return
-	}
-	v := *val
+	v := val
 	f.minVal = &v
+}
+
+// ClearMin removes any lower bound previously set on this parameter. Safe to
+// call on any type.
+func (f *paramMeta) ClearMin() {
+	f.minVal = nil
 }
 
 func (f *paramMeta) GetMax() *float64 {
@@ -392,17 +394,20 @@ func (f *paramMeta) GetMax() *float64 {
 	return &v
 }
 
-// SetMax sets an upper bound. See SetMin for the type restriction.
-func (f *paramMeta) SetMax(val *float64) {
-	if val != nil && !f.supportsMinMax() {
+// SetMax sets an upper bound. See SetMin for the type restriction. Use
+// ClearMax to remove a previously set bound.
+func (f *paramMeta) SetMax(val float64) {
+	if !f.supportsMinMax() {
 		panic(fmt.Errorf("boa: SetMax on %q: type %s is not a numeric, string, or slice — max is only meaningful on those", f.name, f.fieldType.Kind()))
 	}
-	if val == nil {
-		f.maxVal = nil
-		return
-	}
-	v := *val
+	v := val
 	f.maxVal = &v
+}
+
+// ClearMax removes any upper bound previously set on this parameter. Safe to
+// call on any type.
+func (f *paramMeta) ClearMax() {
+	f.maxVal = nil
 }
 
 func (f *paramMeta) GetPattern() string { return f.pattern }

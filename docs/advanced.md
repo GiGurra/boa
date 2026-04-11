@@ -596,9 +596,8 @@ boa.CmdT[ThirdPartyConfig]{
         token.SetDescription("API token")   // like descr:"API token"
 
         port := boa.GetParamT(ctx, &p.Port)
-        min, max := 1.0, 65535.0
-        port.SetMin(&min)                   // like min:"1"
-        port.SetMax(&max)                   // like max:"65535"
+        port.SetMin(1)                      // like min:"1"
+        port.SetMax(65535)                  // like max:"65535"
         port.SetRequired(true)              // like required:"true"
         return nil
     },
@@ -617,8 +616,8 @@ boa.CmdT[ThirdPartyConfig]{
 | `optional` / `opt` | `SetRequired(false)` |
 | `alts` / `alternatives` | `SetAlternatives([]string)`, `SetAlternativesFunc(...)` |
 | `strict` / `strict-alts` | `SetStrictAlts(bool)` |
-| `min` | `SetMin(*float64)` (nil clears) |
-| `max` | `SetMax(*float64)` (nil clears) |
+| `min` | `SetMin(float64)` (use `ClearMin()` to remove) |
+| `max` | `SetMax(float64)` (use `ClearMax()` to remove) |
 | `pattern` | `SetPattern(string)` |
 | `boa:"noflag"` / `"nocli"` | `SetNoFlag(bool)` |
 | `boa:"noenv"` | `SetNoEnv(bool)` |
