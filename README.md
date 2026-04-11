@@ -2,6 +2,7 @@
 
 [![CI Status](https://github.com/GiGurra/boa/actions/workflows/ci.yml/badge.svg)](https://github.com/GiGurra/boa/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/GiGurra/boa)](https://goreportcard.com/report/github.com/GiGurra/boa)
+[![Docs](https://img.shields.io/badge/docs-gigurra.github.io%2Fboa-blue)](https://gigurra.github.io/boa/)
 
 Like if [kong](https://github.com/alecthomas/kong) and [urfave/cli](https://github.com/urfave/cli) had a baby and made it [cobra](https://github.com/spf13/cobra) compatible.
 
