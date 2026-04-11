@@ -92,6 +92,19 @@ type Cmd struct {
 	ConfigFormat ConfigFormat
 	// RawArgs allows injecting command line arguments instead of using os.Args
 	RawArgs []string
+
+	// reloadFactory, when non-nil, allocates a fresh copy of the params
+	// struct and re-runs the full post-flag-parse pipeline (defaults →
+	// env → config files → CLI precedence → validation → pre-validate
+	// hooks) against it, returning the validated fresh struct. It is
+	// populated by CmdT[T].ToCmd so that the generic type parameter is
+	// captured *before* the generic→non-generic bridge, letting
+	// HookContext.Reload / boa.Reload return typed structs.
+	//
+	// Unexported so users can't accidentally wire it themselves — reload
+	// only makes sense when it goes through the same pipeline the command
+	// was built with.
+	reloadFactory func() (any, error)
 }
 
 // HasValue checks if a parameter has a value from any source.
@@ -480,6 +493,128 @@ func (c *HookContext) HasValue(fieldPtr any) bool {
 		return false
 	}
 	return HasValue(param)
+}
+
+// WatchedConfigFiles returns every config file path the pipeline read
+// during the most recent run, plus any paths explicitly registered via
+// WatchConfigFile. This is the input a live-reload watcher needs: the set
+// of filesystem paths whose changes should trigger a Reload.
+//
+// Auto-tracked sources:
+//
+//   - `configfile:"true"` tagged fields (single path or []string overlay chain)
+//   - Per-command `Cmd.ConfigFormat` / `Cmd.ConfigUnmarshal` escape hatches
+//     (they go through the same internal loader)
+//
+// Not auto-tracked:
+//
+//   - Files loaded via boa.LoadConfigFile / boa.LoadConfigFiles /
+//     boa.LoadConfigBytes called from inside user hooks. Those are public
+//     helpers outside boa's internal pipeline, so boa doesn't see them.
+//     Call ctx.WatchConfigFile(path) inside the same hook to opt those
+//     in — the registry is reset at the top of every pipeline run, so a
+//     reload that re-runs the hook re-registers cleanly.
+//
+// Order is stable: tagged / escape-hatch loads first (in the order they
+// fired), followed by explicit WatchConfigFile registrations in call
+// order. Duplicate paths are preserved as-is — dedup at the watcher
+// level if it matters to you.
+func (c *HookContext) WatchedConfigFiles() []string {
+	if c == nil || c.ctx == nil {
+		return nil
+	}
+	total := len(c.ctx.LoadedConfigFiles) + len(c.ctx.ExtraWatchedConfigFiles)
+	if total == 0 {
+		return nil
+	}
+	out := make([]string, 0, total)
+	out = append(out, c.ctx.LoadedConfigFiles...)
+	out = append(out, c.ctx.ExtraWatchedConfigFiles...)
+	return out
+}
+
+// WatchConfigFile registers an extra config file path so a live-reload
+// watcher covers it even though boa's internal pipeline didn't load it.
+// The typical caller is a PreValidateFunc that called LoadConfigFile /
+// LoadConfigFiles / LoadConfigBytes manually and wants those paths
+// watched alongside the auto-tracked tagged fields.
+//
+// Empty paths are silently ignored so callers don't need a length check
+// around optional overrides. The registry is reset at the top of every
+// pipeline run (including reloads), so hooks that re-run will
+// re-register cleanly without duplicating.
+func (c *HookContext) WatchConfigFile(path string) {
+	if c == nil || c.ctx == nil || path == "" {
+		return
+	}
+	c.ctx.ExtraWatchedConfigFiles = append(c.ctx.ExtraWatchedConfigFiles, path)
+}
+
+// reloadAny re-runs the full post-flag-parse pipeline on a freshly
+// allocated params struct, using the original CLI arguments captured at
+// startup. On success it returns the fresh struct; on validation or load
+// failure the old struct held by the caller is untouched.
+//
+// This is the non-generic core of the reload primitive. Users should
+// call the generic boa.Reload[T] wrapper, which type-asserts the result
+// back to *T so they never see the any.
+func (c *HookContext) reloadAny() (any, error) {
+	if c == nil || c.ctx == nil {
+		return nil, fmt.Errorf("boa: HookContext.Reload: uninitialized HookContext")
+	}
+	if c.ctx.reloadFactory == nil {
+		return nil, fmt.Errorf("boa: HookContext.Reload: no reload factory registered — this HookContext came from a Cmd that was constructed without CmdT[T].ToCmd (the generic wrapper is what installs the factory)")
+	}
+	return c.ctx.reloadFactory()
+}
+
+// Reload re-runs the full post-flag-parse pipeline on a freshly
+// allocated *T and returns the new struct. CLI values from the original
+// invocation still win over env / config / defaults, environment
+// variables are re-read, and every auto-tracked config file is re-read
+// from disk. Validation runs against the new struct; on failure the old
+// struct the caller is holding is untouched and the error is returned.
+//
+// Reload does NOT mutate the params struct that RunFunc / RunFuncCtx was
+// originally called with. Callers get a fresh *T and decide what to do
+// with it: atomic pointer swap, diff-and-notify, copy specific fields,
+// discard. Boa does not dictate a concurrency model — you pick.
+//
+// Hooks that run on reload: InitFunc, PostCreateFunc, PreValidateFunc,
+// and their Ctx variants, plus any CfgStructInit / CfgStructPreValidate
+// interface methods implemented on params. Hooks that DO NOT run on
+// reload: PreExecuteFunc (and Ctx) and the command's own RunFunc — a
+// reload is value-sourcing + validation, not command execution.
+//
+// Typical use:
+//
+//	boa.CmdT[Params]{
+//	    RunFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command, args []string) {
+//	        // Wire some trigger — SIGHUP, an admin HTTP endpoint,
+//	        // fsnotify, a timer. On fire:
+//	        newP, err := boa.Reload[Params](ctx)
+//	        if err != nil {
+//	            log.Printf("config reload rejected: %v", err)
+//	            return // old state preserved
+//	        }
+//	        // atomic swap, diff, notify subscribers, etc.
+//	        cfg.Store(newP)
+//	    },
+//	}.Run()
+//
+// Reload is safe to call from any goroutine, but it's the caller's
+// responsibility to coordinate readers against whatever swap model they
+// choose (atomic.Pointer, RWMutex, etc.).
+func Reload[T any](ctx *HookContext) (*T, error) {
+	raw, err := ctx.reloadAny()
+	if err != nil {
+		return nil, err
+	}
+	typed, ok := raw.(*T)
+	if !ok {
+		return nil, fmt.Errorf("boa.Reload: reloaded params is %T, not *%T — check that the type parameter matches CmdT[T]", raw, *new(T))
+	}
+	return typed, nil
 }
 
 // DumpBytes serializes the parameters associated with this HookContext to
