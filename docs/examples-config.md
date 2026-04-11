@@ -712,6 +712,89 @@ Typical sources:
 - HTTP / S3 / secrets manager responses — treat the response body as config bytes
 - In-memory test fixtures — no temp files required
 
+## Writing Config Back Out
+
+BOA can also serialize a resolved parameter set back out to a config file. Two variants are provided:
+
+| API | When to use |
+|-----|-------------|
+| `boa.DumpConfigBytes(v, ext, nil)` / `boa.DumpConfigFile(path, v, nil)` | **Naive dump.** Emits every exported field on `v`, including Go zero values. Good for "generate an example config that shows every option". |
+| `ctx.DumpBytes(ext, nil)` / `ctx.DumpFile(path, nil)` (on `HookContext`) | **Source-aware dump.** Emits only fields that have a value from CLI, environment, config file, or a default — fields the user never touched are omitted entirely. This is the right helper for persisting resolved config between runs. |
+
+Source-aware dump is the useful one for most production apps: because defaults count as "set", the dumped file pins the current default values in place, so a future release that ships different built-in defaults won't silently change behavior for users whose saved config said "I'm happy with what you shipped in version 1.0".
+
+```go
+package main
+
+import (
+    "github.com/GiGurra/boa/pkg/boa"
+    "github.com/spf13/cobra"
+    "gopkg.in/yaml.v3"
+)
+
+type Params struct {
+    Name    string `optional:"true"`
+    Host    string `optional:"true" default:"localhost"`
+    Port    int    `optional:"true" default:"8080"`
+    Verbose bool   `optional:"true"`
+}
+
+func main() {
+    boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
+    boa.RegisterConfigMarshaler(".yaml", yaml.Marshal)
+
+    boa.CmdT[Params]{
+        Use: "app",
+        RunFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command, args []string) {
+            // Persist the resolved config so the next run reuses it.
+            // CLI-set values, env-set values, config-file values, and
+            // defaults all get written out. Fields the user never
+            // touched stay omitted.
+            if err := ctx.DumpFile("~/.myapp/config.yaml", nil); err != nil {
+                // ...
+            }
+        },
+    }.Run()
+}
+```
+
+API signatures:
+
+```go
+// Naive — whole struct, zero values and all.
+func DumpConfigBytes[T any](v *T, ext string, marshalFunc func(v any) ([]byte, error)) ([]byte, error)
+func DumpConfigFile[T any](filePath string, v *T, marshalFunc func(v any) ([]byte, error)) error
+
+// Source-aware — only fields with HasValue=true.
+func (c *HookContext) DumpBytes(ext string, marshalFunc func(v any) ([]byte, error)) ([]byte, error)
+func (c *HookContext) DumpFile(filePath string, marshalFunc func(v any) ([]byte, error)) error
+```
+
+### Enabling dump for non-JSON formats
+
+`RegisterConfigFormat` only installs an unmarshaler. To also enable `Dump*`, pair it with `RegisterConfigMarshaler`:
+
+```go
+boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
+boa.RegisterConfigMarshaler(".yaml", yaml.Marshal)
+```
+
+JSON comes with both directions pre-registered, indented with two spaces and terminated with a trailing newline.
+
+If you try to dump to a format with no registered marshaler, `Dump*` returns a clear error rather than silently falling through to JSON — writing JSON bytes to a file named `.yaml` would be a nasty surprise.
+
+### What gets omitted from a source-aware dump
+
+- **Unset fields** — fields where nothing (CLI, env, config, inject, default) has ever supplied a value. `Silent bool` without a default stays out of the dump rather than appearing as `"Silent": false` for every user who never touched it.
+- **The `configfile` field** — the path to the config file itself is never written into the dumped file, because a config file that references its own path is self-referential and surprising on the next load.
+- **Nested structs with no set descendants** — if nothing in `DB` is set, the whole `DB` key is omitted (not emitted as an empty object).
+- **Nil optional struct-pointer groups** (`DB *DBConfig`) — same as the above.
+
+### What gets kept
+
+- **CLI / env / config / inject values** — always.
+- **Defaults** — always, to pin them against future app upgrades that might change them. The one exception is bool fields whose only claim to "set" is the auto-installed `false` default from `ParamEnricherBool`; those are treated as unset unless the user explicitly flipped them.
+
 ## Mixed Config Formats
 
 Different config files can use different formats. The format is detected by file extension when using the registry.
