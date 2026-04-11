@@ -108,6 +108,8 @@ Programmatic calls must happen in `InitFunc` / `InitFuncCtx` so they take effect
 - `Cmd.ConfigFormat` / legacy `Cmd.ConfigUnmarshal` are **per-command escape hatches** that lock that one command to a single format, bypassing the extension registry. Prefer registry-based dispatch unless you have a specific reason (legacy blob ingestion, test fixtures).
 - Resolution per load: `Cmd.ConfigFormat` > `Cmd.ConfigUnmarshal` > extension-registered format > JSON fallback.
 - `KeyTree` may return nested values as `map[string]any` (native) or `map[any]any` (e.g. yaml.v2); boa coerces transparently via `asKeyMap`.
+- Set-by-config detection is **format-aware via a single extension→struct-tag mapping**, shared with the dump path. `structTagForExt(ext)` picks the tag boa uses when matching KeyTree keys to Go fields: `.yaml`/`.yml`→`yaml`, `.toml`→`toml`, `.hcl`→`hcl`, `.json`/`""`→`json`, and any other registered extension defaults to the extension minus its leading dot (`.mycustom`→`mycustom`). A raw KeyTree is first canonicalised to Go-field-name keys in one pass; the walker (`markConfigKeysPresentInStruct`) then does plain Go-field-name lookups like mirrors do, with no tag awareness of its own. Renames live entirely in the canonicalisation step, so mixing multiple formats in one binary "just works".
+- The key-presence walker runs for every root load regardless of whether any preallocated struct-pointer groups exist. That means flat structs also get precise set-by-config detection for zero-value writes and same-as-default writes, not just struct-pointer groups.
 - Substruct `configfile:"true"` fields load their own config files; priority: CLI > env > root config > substruct config > defaults
 
 ### Custom Type Registration

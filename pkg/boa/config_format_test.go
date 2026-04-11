@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -747,4 +749,987 @@ func TestCustomConfigFormat_KeyTreeHandlesMapAnyAny(t *testing.T) {
 	if gotDB == nil {
 		t.Fatal("expected DB pointer group to survive when KeyTree returns map[any]any for nested mappings")
 	}
+}
+
+// --- Mini "kvp" config format: a hand-rolled `key: value` parser used to
+// prove the format-aware field-tag path end-to-end without pulling in a
+// real YAML/TOML/HCL dependency. Supports:
+//
+//   - Flat scalar lines:           name: value
+//   - Dot-nested keys:              svc.port: 8080
+//   - String, int, and bool leaves
+//   - Per-field renames via `kvp:"name"` struct tag, with `kvp:"-"`
+//     to skip and `kvp:"name,opt,opt"` option-list handling
+//   - `#` line comments and blank lines
+//
+// It deliberately does not support arrays / maps / multiline values —
+// the failing test doesn't need those and the parser stays ~80 lines.
+// ---
+
+func miniKVUnmarshal(data []byte, target any) error {
+	tree, err := miniKVKeyTree(data)
+	if err != nil {
+		return err
+	}
+	v := reflect.ValueOf(target)
+	if v.Kind() != reflect.Ptr || v.IsNil() {
+		return fmt.Errorf("mini-kv: target must be a non-nil pointer")
+	}
+	return miniKVAssign(v.Elem(), tree)
+}
+
+func miniKVKeyTree(data []byte) (map[string]any, error) {
+	out := map[string]any{}
+	for i, line := range strings.Split(string(data), "\n") {
+		s := strings.TrimSpace(line)
+		if s == "" || strings.HasPrefix(s, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(s, ":")
+		if !ok {
+			return nil, fmt.Errorf("mini-kv line %d: missing ':'", i+1)
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		// Support dot-nested keys: foo.bar.baz: v
+		parts := strings.Split(k, ".")
+		m := out
+		for _, p := range parts[:len(parts)-1] {
+			sub, ok := m[p].(map[string]any)
+			if !ok {
+				sub = map[string]any{}
+				m[p] = sub
+			}
+			m = sub
+		}
+		m[parts[len(parts)-1]] = v
+	}
+	return out, nil
+}
+
+func miniKVAssign(v reflect.Value, tree map[string]any) error {
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			v.Set(reflect.New(v.Type().Elem()))
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return nil
+	}
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		sf := t.Field(i)
+		if !sf.IsExported() {
+			continue
+		}
+		key := sf.Name
+		if tv := sf.Tag.Get("kvp"); tv != "" {
+			name := strings.SplitN(tv, ",", 2)[0]
+			switch name {
+			case "-":
+				continue
+			case "":
+				// bare options, e.g. `kvp:",omitempty"` → fall back to field name
+			default:
+				key = name
+			}
+		}
+		// Case-insensitive raw-key lookup, matching encoding/json behaviour.
+		raw, ok := tree[key]
+		if !ok {
+			for k, val := range tree {
+				if strings.EqualFold(k, key) {
+					raw, ok = val, true
+					break
+				}
+			}
+		}
+		if !ok {
+			continue
+		}
+		fv := v.Field(i)
+		// Nested struct / *struct: recurse when the raw value is a map.
+		ft := sf.Type
+		inner := fv
+		if ft.Kind() == reflect.Ptr {
+			if fv.IsNil() {
+				fv.Set(reflect.New(ft.Elem()))
+			}
+			inner = fv.Elem()
+			ft = ft.Elem()
+		}
+		if sub, isMap := raw.(map[string]any); isMap && ft.Kind() == reflect.Struct {
+			if err := miniKVAssign(inner, sub); err != nil {
+				return err
+			}
+			continue
+		}
+		// Leaf — the raw value is a string scalar. For slice and map
+		// fields we decode a mini CSV / key=value shape inline so the
+		// complex-struct tests can exercise those kinds without pulling
+		// in a real YAML/TOML parser.
+		s, _ := raw.(string)
+		if err := miniKVAssignScalar(inner, s, sf.Name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func miniKVAssignScalar(inner reflect.Value, s, fieldName string) error {
+	switch inner.Kind() {
+	case reflect.String:
+		inner.SetString(s)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return fmt.Errorf("mini-kv %s: %w", fieldName, err)
+		}
+		inner.SetInt(n)
+	case reflect.Bool:
+		b, err := strconv.ParseBool(s)
+		if err != nil {
+			return fmt.Errorf("mini-kv %s: %w", fieldName, err)
+		}
+		inner.SetBool(b)
+	case reflect.Slice:
+		// Comma-separated scalar slice (e.g. "a,b,c" or "1,2,3").
+		// Empty string means an empty (but non-nil) slice so the
+		// mirror sees "something was written here".
+		parts := []string{}
+		if s != "" {
+			parts = strings.Split(s, ",")
+		}
+		sl := reflect.MakeSlice(inner.Type(), len(parts), len(parts))
+		for i, p := range parts {
+			if err := miniKVAssignScalar(sl.Index(i), strings.TrimSpace(p), fieldName); err != nil {
+				return err
+			}
+		}
+		inner.Set(sl)
+	case reflect.Map:
+		// `k1=v1;k2=v2` inline map. Value parsing delegates back to
+		// miniKVAssignScalar so map[string]int etc. Just Work™.
+		if inner.IsNil() {
+			inner.Set(reflect.MakeMapWithSize(inner.Type(), 0))
+		}
+		if s == "" {
+			return nil
+		}
+		for _, pair := range strings.Split(s, ";") {
+			k, v, ok := strings.Cut(pair, "=")
+			if !ok {
+				return fmt.Errorf("mini-kv %s: map entry %q missing '='", fieldName, pair)
+			}
+			keyVal := reflect.New(inner.Type().Key()).Elem()
+			if err := miniKVAssignScalar(keyVal, strings.TrimSpace(k), fieldName); err != nil {
+				return err
+			}
+			valVal := reflect.New(inner.Type().Elem()).Elem()
+			if err := miniKVAssignScalar(valVal, strings.TrimSpace(v), fieldName); err != nil {
+				return err
+			}
+			inner.SetMapIndex(keyVal, valVal)
+		}
+	}
+	return nil
+}
+
+// TestConfigFile_FormatAwareFieldTag_MiniKV reproduces — and, after the
+// fix, exercises — the behaviour that config-file set-detection honours
+// the format-appropriate struct tag. Before the fix, the walker hard-
+// coded a `json` tag lookup so a field renamed via ANY other tag
+// (`yaml`, `toml`, `hcl`, or a custom `kvp` here) was never marked as
+// set-by-config. After the fix, tag resolution lives on the dump/load
+// shared helper (structTagForExt) and defaults to the file extension
+// minus its leading dot, so registering `.kvp` is all that's needed —
+// no extra plumbing, no ConfigFormat field.
+func TestConfigFile_FormatAwareFieldTag_MiniKV(t *testing.T) {
+	registerFormatCleanup(t, ".kvp", ConfigFormat{
+		Unmarshal: miniKVUnmarshal,
+		KeyTree:   miniKVKeyTree,
+	})
+
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		// kvp tag renames the field. No json tag — the walker must not
+		// fall back to the Go field name here; it must consult `kvp`
+		// because the file extension is ".kvp".
+		Retries int `descr:"retries" kvp:"retry_count" optional:"true"`
+	}
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.kvp")
+	if err := os.WriteFile(cfgPath, []byte("retry_count: 0\n"), 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	// Check setByConfig directly — HasValue would also be true if the
+	// parameter had a default, which would confound this test. Here we
+	// want: "the config file mentioned this key, therefore setByConfig".
+	var gotRetries int
+	var retriesSetByConfig bool
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			gotRetries = p.Retries
+			if pm, ok := ctx.GetParam(&p.Retries).(*paramMeta); ok {
+				retriesSetByConfig = pm.setByConfig
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// The mini parser itself is correct (it reads the kvp tag), so value
+	// loading works regardless of the bug — this assertion guards the
+	// test's own fixture.
+	if gotRetries != 0 {
+		t.Errorf("Retries = %d, want 0 from config", gotRetries)
+	}
+	// The headline assertion: the walker must recognise the kvp tag so
+	// it marks Retries as set-by-config, even though the value happens
+	// to be the zero value.
+	if !retriesSetByConfig {
+		t.Error("Retries.setByConfig should be true — kvp:\"retry_count\" is present in the config, but set-detection is only consulting the json tag")
+	}
+}
+
+// TestConfigFile_FormatAwareFieldTag_MiniKV_NonZeroValue is the
+// complement to the zero-value test — with a non-zero value the
+// snapshot fallback can also catch the change, so this test pins the
+// "happy path" and guards against a regression where the fix stopped
+// running the key-presence walker for non-zero writes.
+func TestConfigFile_FormatAwareFieldTag_MiniKV_NonZeroValue(t *testing.T) {
+	registerFormatCleanup(t, ".kvp", ConfigFormat{
+		Unmarshal: miniKVUnmarshal,
+		KeyTree:   miniKVKeyTree,
+	})
+
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Retries    int    `descr:"retries" kvp:"retry_count" optional:"true"`
+	}
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.kvp")
+	if err := os.WriteFile(cfgPath, []byte("retry_count: 7\n"), 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	var gotRetries int
+	var retriesSetByConfig bool
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			gotRetries = p.Retries
+			if pm, ok := ctx.GetParam(&p.Retries).(*paramMeta); ok {
+				retriesSetByConfig = pm.setByConfig
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotRetries != 7 {
+		t.Errorf("Retries = %d, want 7", gotRetries)
+	}
+	if !retriesSetByConfig {
+		t.Error("Retries.setByConfig should be true for a non-zero write via kvp:\"retry_count\"")
+	}
+}
+
+// TestConfigFile_FormatAwareFieldTag_MiniKV_NestedPointerGroup is the
+// most realistic shape: an optional struct-pointer group (e.g. a
+// database section) whose child fields are renamed via kvp tags, and
+// whose values in the config happen to be zero. Without the fix, the
+// walker never matches the renamed keys, cleanup nils out the group,
+// and the user's "DB section was explicitly configured" signal is lost.
+func TestConfigFile_FormatAwareFieldTag_MiniKV_NestedPointerGroup(t *testing.T) {
+	registerFormatCleanup(t, ".kvp", ConfigFormat{
+		Unmarshal: miniKVUnmarshal,
+		KeyTree:   miniKVKeyTree,
+	})
+
+	type DB struct {
+		Host string `descr:"db host" kvp:"host_name" default:"localhost"`
+		Port int    `descr:"db port" kvp:"listen_port" default:"5432"`
+	}
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		DB         *DB
+	}
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.kvp")
+	// Both leaves are the zero value for their Go type, so only a
+	// working KeyTree + canonicalisation can keep the DB pointer alive
+	// past cleanup.
+	raw := []byte("db.host_name: \ndb.listen_port: 0\n")
+	if err := os.WriteFile(cfgPath, raw, 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	var gotDB *DB
+	var hostSet, portSet bool
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			gotDB = p.DB
+			if p.DB != nil {
+				if pm, ok := ctx.GetParam(&p.DB.Host).(*paramMeta); ok {
+					hostSet = pm.setByConfig
+				}
+				if pm, ok := ctx.GetParam(&p.DB.Port).(*paramMeta); ok {
+					portSet = pm.setByConfig
+				}
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotDB == nil {
+		t.Fatal("DB pointer group should survive cleanup when children are mentioned in config via kvp tags")
+	}
+	if !hostSet {
+		t.Error("DB.Host.setByConfig should be true — kvp:\"host_name\" present in the config")
+	}
+	if !portSet {
+		t.Error("DB.Port.setByConfig should be true — kvp:\"listen_port\" present in the config")
+	}
+}
+
+// TestConfigFile_FormatAwareFieldTag_MiniKV_TagDashSkipsField pins the
+// tag-value-"-" contract: a format that explicitly excludes a field
+// (e.g. `kvp:"-"`) must not have boa mark that field as set-by-config,
+// even if a same-named key happens to appear in the config file.
+// This matches how encoding/json handles `json:"-"`.
+func TestConfigFile_FormatAwareFieldTag_MiniKV_TagDashSkipsField(t *testing.T) {
+	registerFormatCleanup(t, ".kvp", ConfigFormat{
+		Unmarshal: miniKVUnmarshal,
+		KeyTree:   miniKVKeyTree,
+	})
+
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Secret     string `descr:"secret" kvp:"-" optional:"true"`
+	}
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.kvp")
+	// A stray line mentioning "Secret" — the kvp:"-" tag means the
+	// format owner declared this field off-limits for kvp files,
+	// so set-detection must not pick it up.
+	if err := os.WriteFile(cfgPath, []byte("Secret: leaked\n"), 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	var secretSet bool
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			if pm, ok := ctx.GetParam(&p.Secret).(*paramMeta); ok {
+				secretSet = pm.setByConfig
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if secretSet {
+		t.Error("Secret should NOT be marked setByConfig — kvp:\"-\" means the format excludes this field")
+	}
+}
+
+// TestConfigFile_FormatAwareFieldTag_MiniKV_TagWithOptions covers the
+// `name,opt1,opt2` tag value shape that encoding/json popularised and
+// every mainstream format parser inherits. Only the first comma-
+// separated segment is the raw key name; the rest are format-specific
+// options (omitempty, inline, …) that boa doesn't care about.
+func TestConfigFile_FormatAwareFieldTag_MiniKV_TagWithOptions(t *testing.T) {
+	registerFormatCleanup(t, ".kvp", ConfigFormat{
+		Unmarshal: miniKVUnmarshal,
+		KeyTree:   miniKVKeyTree,
+	})
+
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Name       string `descr:"name" kvp:"display_name,omitempty,extra" optional:"true"`
+	}
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.kvp")
+	if err := os.WriteFile(cfgPath, []byte("display_name: boa\n"), 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	var gotName string
+	var nameSet bool
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			gotName = p.Name
+			if pm, ok := ctx.GetParam(&p.Name).(*paramMeta); ok {
+				nameSet = pm.setByConfig
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotName != "boa" {
+		t.Errorf("Name = %q, want boa", gotName)
+	}
+	if !nameSet {
+		t.Error("Name.setByConfig should be true — tag options after the first comma must not break key matching")
+	}
+}
+
+// TestConfigFile_FormatAwareFieldTag_MiniKV_CaseInsensitiveLookup
+// locks in encoding/json's case-insensitive matching rule for non-
+// JSON formats too, since the canonicalization step reuses the same
+// configKeyLookup helper. A config file that writes `DISPLAY_NAME`
+// (upper-cased) must still match a field tagged `kvp:"display_name"`.
+func TestConfigFile_FormatAwareFieldTag_MiniKV_CaseInsensitiveLookup(t *testing.T) {
+	registerFormatCleanup(t, ".kvp", ConfigFormat{
+		Unmarshal: miniKVUnmarshal,
+		KeyTree:   miniKVKeyTree,
+	})
+
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Name       string `descr:"name" kvp:"display_name" optional:"true"`
+	}
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.kvp")
+	if err := os.WriteFile(cfgPath, []byte("DISPLAY_NAME: boa\n"), 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	var nameSet bool
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			if pm, ok := ctx.GetParam(&p.Name).(*paramMeta); ok {
+				nameSet = pm.setByConfig
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !nameSet {
+		t.Error("Name.setByConfig should be true — case-insensitive raw-key match must still work with a custom tag")
+	}
+}
+
+// TestConfigFile_FormatAwareFieldTag_YmlExtensionUsesYamlTag verifies
+// the one hand-wired special case in structTagForExt: `.yml` files map
+// to the `yaml` struct tag, because yaml parsers (yaml.v2, yaml.v3,
+// goccy/go-yaml, …) all consult the yaml tag regardless of which file
+// extension the user wrote. Without this special case, a `.yml` file
+// would try the `yml` tag, which nobody uses.
+func TestConfigFile_FormatAwareFieldTag_YmlExtensionUsesYamlTag(t *testing.T) {
+	// Fake yaml: reuse fakeUnmarshal (JSON bytes) and synthesize a
+	// KeyTree that uses yaml-style key names. Registering `.yml`
+	// directly pins the special case to the load path.
+	registerFormatCleanup(t, ".yml", ConfigFormat{
+		Unmarshal: fakeUnmarshal,
+		KeyTree: func(data []byte) (map[string]any, error) {
+			return map[string]any{"retry_count": 0}, nil
+		},
+	})
+
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Retries    int    `descr:"retries" yaml:"retry_count" optional:"true"`
+	}
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.yml")
+	if err := os.WriteFile(cfgPath, []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	var retriesSet bool
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			if pm, ok := ctx.GetParam(&p.Retries).(*paramMeta); ok {
+				retriesSet = pm.setByConfig
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !retriesSet {
+		t.Error(".yml files should consult the `yaml` struct tag (structTagForExt special case)")
+	}
+}
+
+// TestConfigFile_FormatAwareFieldTag_UnknownExtDefaultsToExtMinusDot
+// pins the "ext minus leading dot" fallback in structTagForExt: any
+// registered extension that isn't in the explicit special-case list
+// picks up the extension name as its struct tag by default. So
+// registering `.bespoke` automatically consults the `bespoke` tag
+// with no extra configuration.
+func TestConfigFile_FormatAwareFieldTag_UnknownExtDefaultsToExtMinusDot(t *testing.T) {
+	registerFormatCleanup(t, ".bespoke", ConfigFormat{
+		Unmarshal: fakeUnmarshal,
+		KeyTree: func(data []byte) (map[string]any, error) {
+			return map[string]any{"magic_field": 0}, nil
+		},
+	})
+
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Magic      int    `descr:"magic" bespoke:"magic_field" optional:"true"`
+	}
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.bespoke")
+	if err := os.WriteFile(cfgPath, []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	var magicSet bool
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			if pm, ok := ctx.GetParam(&p.Magic).(*paramMeta); ok {
+				magicSet = pm.setByConfig
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !magicSet {
+		t.Error("Magic.setByConfig should be true — `.bespoke` should auto-resolve to the `bespoke` struct tag")
+	}
+}
+
+// TestConfigFile_FormatAwareFieldTag_ZeroIntFlatJsonNoTag regresses the
+// original user report: a JSON config file writes an integer field to
+// 0, the struct has no rename tag, and the field sits at the top level
+// (flat — no optional pointer group). Before the fix, set-by-config
+// detection was gated on `len(PreallocatedPtrs) > 0`, so a flat struct
+// with a zero-value write was never marked. After the fix, the walker
+// runs for every root load, so the zero write is correctly detected.
+func TestConfigFile_FormatAwareFieldTag_ZeroIntFlatJsonNoTag(t *testing.T) {
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Retries    int    `descr:"retries" optional:"true"`
+	}
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.json")
+	if err := os.WriteFile(cfgPath, []byte(`{"Retries": 0}`), 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	var gotRetries int
+	var retriesSet bool
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			gotRetries = p.Retries
+			if pm, ok := ctx.GetParam(&p.Retries).(*paramMeta); ok {
+				retriesSet = pm.setByConfig
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotRetries != 0 {
+		t.Errorf("Retries = %d, want 0", gotRetries)
+	}
+	if !retriesSet {
+		t.Error("Retries.setByConfig should be true for a flat zero-value JSON write — this was the original bug report")
+	}
+}
+
+// TestConfigFile_FormatAwareFieldTag_MixedFormatsInOneBinary proves
+// that per-format tag resolution is fully per-load: the SAME struct
+// type can be loaded from two different files in the same process,
+// each honouring its own rename convention. `.json` uses `json` tags,
+// `.kvp` uses `kvp` tags, no cross-contamination.
+func TestConfigFile_FormatAwareFieldTag_MixedFormatsInOneBinary(t *testing.T) {
+	registerFormatCleanup(t, ".kvp", ConfigFormat{
+		Unmarshal: miniKVUnmarshal,
+		KeyTree:   miniKVKeyTree,
+	})
+
+	// Two different tag names on the same field — the format-aware
+	// walker must pick the one matching each file's extension.
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Retries    int    `descr:"retries" json:"json_retries" kvp:"kvp_retries" optional:"true"`
+	}
+
+	dir := t.TempDir()
+	jsonPath := filepath.Join(dir, "cfg.json")
+	if err := os.WriteFile(jsonPath, []byte(`{"json_retries": 3}`), 0o644); err != nil {
+		t.Fatalf("write json: %v", err)
+	}
+	kvpPath := filepath.Join(dir, "cfg.kvp")
+	if err := os.WriteFile(kvpPath, []byte("kvp_retries: 5\n"), 0o644); err != nil {
+		t.Fatalf("write kvp: %v", err)
+	}
+
+	run := func(cfgPath string) (int, bool) {
+		var gotRetries int
+		var retriesSet bool
+		err := (CmdT[Params]{
+			Use:         "test",
+			ParamEnrich: ParamEnricherName,
+			RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+				gotRetries = p.Retries
+				if pm, ok := ctx.GetParam(&p.Retries).(*paramMeta); ok {
+					retriesSet = pm.setByConfig
+				}
+			},
+		}).RunArgsE([]string{"--config-file", cfgPath})
+		if err != nil {
+			t.Fatalf("RunArgsE(%s): %v", cfgPath, err)
+		}
+		return gotRetries, retriesSet
+	}
+
+	jsonRetries, jsonSet := run(jsonPath)
+	if jsonRetries != 3 {
+		t.Errorf(".json load: Retries = %d, want 3 (via json tag)", jsonRetries)
+	}
+	if !jsonSet {
+		t.Error(".json load: Retries.setByConfig should be true")
+	}
+
+	kvpRetries, kvpSet := run(kvpPath)
+	if kvpRetries != 5 {
+		t.Errorf(".kvp load: Retries = %d, want 5 (via kvp tag)", kvpRetries)
+	}
+	if !kvpSet {
+		t.Error(".kvp load: Retries.setByConfig should be true")
+	}
+}
+
+// --- Deep / complex config-file tests ---
+//
+// These tests exercise the whole config-file machinery on a realistic
+// three-level shape (app → service → network), with mixed scalars,
+// slices, maps, renamed fields, and optional struct-pointer groups.
+// Each test picks a single config file format (JSON or the custom
+// kvp format), writes either a partial or a full payload, and asserts
+// two things end-to-end:
+//
+//   1. Every field that the config mentioned loaded to the expected
+//      value.
+//   2. Every mentioned field reports setByConfig=true, and fields that
+//      the config did NOT mention report setByConfig=false, so the
+//      "was this written by the user?" signal stays trustworthy even
+//      when a written value equals the Go zero value or the default.
+//
+// Both tests share the same struct shape so we can compare apples to
+// apples across formats.
+
+type deepNet struct {
+	// Leaf scalars, a slice, and a map — the four kinds the walker
+	// treats as terminal nodes.
+	Host    string            `descr:"host" json:"host_name" kvp:"host_name" default:"localhost"`
+	Port    int               `descr:"port" json:"listen_port" kvp:"listen_port" default:"8080"`
+	TLS     bool              `descr:"tls" json:"tls_enabled" kvp:"tls_enabled" optional:"true"`
+	Origins []string          `descr:"allowed origins" json:"allowed_origins" kvp:"allowed_origins" optional:"true"`
+	Labels  map[string]string `descr:"labels" json:"labels" kvp:"labels" optional:"true"`
+}
+
+type deepSvc struct {
+	Name    string `descr:"service name" json:"svc_name" kvp:"svc_name" optional:"true"`
+	Retries int    `descr:"retries" json:"retry_count" kvp:"retry_count" default:"3"`
+	// Nested optional pointer group — the "level 3" target.
+	Net *deepNet `json:"net" kvp:"net"`
+}
+
+type deepApp struct {
+	ConfigFile string `configfile:"true" optional:"true"`
+	AppName    string `descr:"app name" json:"app_name" kvp:"app_name" default:"boa-app"`
+	// Nested optional pointer group — the "level 2" target. deepSvc
+	// contains a further pointer group so key-presence detection has
+	// to survive two boundaries to reach the deepest leaves.
+	Svc *deepSvc `json:"svc" kvp:"svc"`
+}
+
+func runDeepApp(t *testing.T, cfgPath string) (*deepApp, map[string]bool) {
+	t.Helper()
+	var got deepApp
+	marked := map[string]bool{}
+	// Record setByConfig for every mirror we care about. Using direct
+	// paramMeta access keeps the assertions precise — HasValue is
+	// polluted by defaults and would give spurious passes.
+	err := (CmdT[deepApp]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *deepApp, cmd *cobra.Command, args []string) {
+			got = *p
+			record := func(label string, addr any) {
+				if pm, ok := ctx.GetParam(addr).(*paramMeta); ok {
+					marked[label] = pm.setByConfig
+				} else {
+					marked[label] = false
+				}
+			}
+			record("app_name", &p.AppName)
+			if p.Svc != nil {
+				record("svc_name", &p.Svc.Name)
+				record("retries", &p.Svc.Retries)
+				if p.Svc.Net != nil {
+					record("host", &p.Svc.Net.Host)
+					record("port", &p.Svc.Net.Port)
+					record("tls", &p.Svc.Net.TLS)
+					record("origins", &p.Svc.Net.Origins)
+					record("labels", &p.Svc.Net.Labels)
+				}
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+	if err != nil {
+		t.Fatalf("RunArgsE: %v", err)
+	}
+	return &got, marked
+}
+
+func assertMarked(t *testing.T, marked map[string]bool, wantSet, wantUnset []string) {
+	t.Helper()
+	for _, k := range wantSet {
+		if !marked[k] {
+			t.Errorf("expected %q setByConfig=true, got false", k)
+		}
+	}
+	for _, k := range wantUnset {
+		if marked[k] {
+			t.Errorf("expected %q setByConfig=false, got true", k)
+		}
+	}
+}
+
+// TestConfigFile_Deep_Json_FullPayload exercises the full three-level
+// tree in JSON, with every leaf kind populated, including zero-value
+// writes and same-as-default writes that would defeat a snapshot-only
+// detector.
+func TestConfigFile_Deep_Json_FullPayload(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.json")
+	// Deliberate mix: host="" (zero), port=8080 (same-as-default),
+	// tls=false (zero), origins=[] (empty slice), labels={} (empty
+	// map), retry_count=3 (same-as-default). Only KeyTree-based
+	// detection can mark all of these.
+	raw := []byte(`{
+		"app_name": "boa-app",
+		"svc": {
+			"svc_name": "api",
+			"retry_count": 3,
+			"net": {
+				"host_name": "",
+				"listen_port": 8080,
+				"tls_enabled": false,
+				"allowed_origins": [],
+				"labels": {}
+			}
+		}
+	}`)
+	if err := os.WriteFile(cfgPath, raw, 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	got, marked := runDeepApp(t, cfgPath)
+
+	// Values.
+	if got.AppName != "boa-app" {
+		t.Errorf("AppName = %q, want boa-app", got.AppName)
+	}
+	if got.Svc == nil {
+		t.Fatal("Svc pointer group should survive cleanup (config mentioned it)")
+	}
+	if got.Svc.Name != "api" {
+		t.Errorf("Svc.Name = %q, want api", got.Svc.Name)
+	}
+	if got.Svc.Retries != 3 {
+		t.Errorf("Svc.Retries = %d, want 3", got.Svc.Retries)
+	}
+	if got.Svc.Net == nil {
+		t.Fatal("Svc.Net pointer group should survive cleanup")
+	}
+	if got.Svc.Net.Host != "" {
+		t.Errorf("Svc.Net.Host = %q, want empty", got.Svc.Net.Host)
+	}
+	if got.Svc.Net.Port != 8080 {
+		t.Errorf("Svc.Net.Port = %d, want 8080", got.Svc.Net.Port)
+	}
+	if got.Svc.Net.TLS != false {
+		t.Errorf("Svc.Net.TLS = %v, want false", got.Svc.Net.TLS)
+	}
+
+	// Every leaf the config mentioned must be reported as set.
+	assertMarked(t, marked,
+		[]string{"app_name", "svc_name", "retries", "host", "port", "tls", "origins", "labels"},
+		nil,
+	)
+}
+
+// TestConfigFile_Deep_Json_PartialPayload covers the "partial config"
+// case: some leaves are present, others are absent. The present leaves
+// must report setByConfig=true, the absent ones must report false —
+// even when the absent fields have defaults that make HasValue true.
+// This is the reason the test reads setByConfig directly instead of
+// relying on HasValue.
+func TestConfigFile_Deep_Json_PartialPayload(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.json")
+	// Only two leaves written. Everything else must come from
+	// defaults (AppName="boa-app", Retries=3, Port=8080, Host="localhost")
+	// but defaults must NOT leak into setByConfig.
+	raw := []byte(`{
+		"svc": {
+			"net": {
+				"tls_enabled": true,
+				"allowed_origins": ["https://a", "https://b"]
+			}
+		}
+	}`)
+	if err := os.WriteFile(cfgPath, raw, 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	got, marked := runDeepApp(t, cfgPath)
+
+	if got.AppName != "boa-app" {
+		t.Errorf("AppName = %q, want default boa-app", got.AppName)
+	}
+	if got.Svc == nil || got.Svc.Net == nil {
+		t.Fatal("Svc/Svc.Net should survive — config mentioned them")
+	}
+	if got.Svc.Net.TLS != true {
+		t.Errorf("Svc.Net.TLS = %v, want true", got.Svc.Net.TLS)
+	}
+	if len(got.Svc.Net.Origins) != 2 || got.Svc.Net.Origins[0] != "https://a" {
+		t.Errorf("Svc.Net.Origins = %v, want [https://a https://b]", got.Svc.Net.Origins)
+	}
+
+	// Exactly the written keys should be marked; the rest must not be.
+	assertMarked(t, marked,
+		[]string{"tls", "origins"},
+		[]string{"app_name", "svc_name", "retries", "host", "port", "labels"},
+	)
+}
+
+// TestConfigFile_Deep_MiniKV_FullPayload mirrors the JSON full-payload
+// test with the custom kvp format, so the three-level walk, the slice
+// and map leaves, the zero-value / same-as-default writes, and the
+// per-field renames are all exercised together under a non-JSON
+// format's struct tag.
+func TestConfigFile_Deep_MiniKV_FullPayload(t *testing.T) {
+	registerFormatCleanup(t, ".kvp", ConfigFormat{
+		Unmarshal: miniKVUnmarshal,
+		KeyTree:   miniKVKeyTree,
+	})
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.kvp")
+	// Dot-nested keys walk into nested structs; slice is comma
+	// separated, map is `k=v;k=v`.
+	raw := []byte(strings.Join([]string{
+		"app_name: boa-app",
+		"svc.svc_name: api",
+		"svc.retry_count: 3",
+		"svc.net.host_name: ",
+		"svc.net.listen_port: 8080",
+		"svc.net.tls_enabled: false",
+		"svc.net.allowed_origins: https://a,https://b",
+		"svc.net.labels: team=core;tier=gold",
+		"",
+	}, "\n"))
+	if err := os.WriteFile(cfgPath, raw, 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	got, marked := runDeepApp(t, cfgPath)
+
+	if got.Svc == nil || got.Svc.Net == nil {
+		t.Fatal("Svc/Svc.Net should survive — kvp config mentioned both")
+	}
+	if got.Svc.Name != "api" {
+		t.Errorf("Svc.Name = %q, want api", got.Svc.Name)
+	}
+	if got.Svc.Retries != 3 {
+		t.Errorf("Svc.Retries = %d, want 3", got.Svc.Retries)
+	}
+	if got.Svc.Net.Host != "" {
+		t.Errorf("Svc.Net.Host = %q, want empty (zero-value write)", got.Svc.Net.Host)
+	}
+	if got.Svc.Net.Port != 8080 {
+		t.Errorf("Svc.Net.Port = %d, want 8080", got.Svc.Net.Port)
+	}
+	if len(got.Svc.Net.Origins) != 2 || got.Svc.Net.Origins[0] != "https://a" {
+		t.Errorf("Svc.Net.Origins = %v, want [https://a https://b]", got.Svc.Net.Origins)
+	}
+	if got.Svc.Net.Labels["team"] != "core" || got.Svc.Net.Labels["tier"] != "gold" {
+		t.Errorf("Svc.Net.Labels = %v, want team=core tier=gold", got.Svc.Net.Labels)
+	}
+
+	assertMarked(t, marked,
+		[]string{"app_name", "svc_name", "retries", "host", "port", "tls", "origins", "labels"},
+		nil,
+	)
+}
+
+// TestConfigFile_Deep_MiniKV_PartialPayload is the kvp counterpart to
+// TestConfigFile_Deep_Json_PartialPayload: a partial config that only
+// mentions a couple of deep leaves. Un-mentioned fields must still
+// report setByConfig=false, and the optional pointer groups above a
+// mentioned leaf must stay alive through cleanup.
+func TestConfigFile_Deep_MiniKV_PartialPayload(t *testing.T) {
+	registerFormatCleanup(t, ".kvp", ConfigFormat{
+		Unmarshal: miniKVUnmarshal,
+		KeyTree:   miniKVKeyTree,
+	})
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.kvp")
+	raw := []byte("svc.net.listen_port: 0\nsvc.net.tls_enabled: true\n")
+	if err := os.WriteFile(cfgPath, raw, 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	got, marked := runDeepApp(t, cfgPath)
+
+	if got.AppName != "boa-app" {
+		t.Errorf("AppName = %q, want default boa-app", got.AppName)
+	}
+	if got.Svc == nil || got.Svc.Net == nil {
+		t.Fatal("Svc/Svc.Net pointer groups should survive — config reached into them")
+	}
+	if got.Svc.Net.Port != 0 {
+		t.Errorf("Svc.Net.Port = %d, want 0 (zero-value kvp write)", got.Svc.Net.Port)
+	}
+	if !got.Svc.Net.TLS {
+		t.Errorf("Svc.Net.TLS = %v, want true", got.Svc.Net.TLS)
+	}
+
+	assertMarked(t, marked,
+		[]string{"port", "tls"},
+		[]string{"app_name", "svc_name", "retries", "host", "origins", "labels"},
+	)
 }

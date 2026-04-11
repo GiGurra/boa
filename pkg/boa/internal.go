@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -412,20 +413,23 @@ func cleanupPreallocatedPtrs(ctx *processingContext) {
 }
 
 // markConfigKeysPresent probes the raw config file data for key presence to detect
-// which preallocated struct pointer fields were explicitly mentioned in the config,
-// even if the values are zero or match the defaults.
+// which struct fields — flat leaves and preallocated struct-pointer groups alike —
+// were explicitly mentioned in the config, even if the written values are zero
+// or match the defaults.
 //
 // It delegates to the ConfigFormat's KeyTree to build a nested map[string]any
-// representing the raw bytes' key structure, then matches entries against
-// struct field names using case-insensitive logic (the same rule encoding/json
-// applies). For nested structs, it recurses into sub-maps.
+// representing the raw bytes' key structure. That raw tree is then canonicalised
+// in one pass: format-tag key names (e.g. a yaml `retry_count`) are rewritten to
+// the matching Go field names via the tag picked by structTagForExt(ext). After
+// canonicalisation the walker works purely in Go-field-name space, the same way
+// boa's mirrors are keyed — no tag awareness inside the walker itself.
 //
-// Returns true if key-presence detection succeeded. Returns false when the
-// format has no KeyTree, when the probe errors out, or when there are no
-// preallocated pointer groups to care about — in those cases the caller
-// should fall back to snapshot comparison.
-func markConfigKeysPresent(ctx *processingContext, target any, targetPath fieldPath, rawData []byte, format ConfigFormat) bool {
-	if len(ctx.PreallocatedPtrs) == 0 || len(rawData) == 0 {
+// Returns true if key-presence detection succeeded (the walker was run). Returns
+// false when the format has no KeyTree or the probe errors out — in those cases
+// the caller should fall back to snapshot comparison for any struct-pointer groups
+// inside this subtree.
+func markConfigKeysPresent(ctx *processingContext, target any, targetPath fieldPath, rawData []byte, format ConfigFormat, ext string) bool {
+	if len(rawData) == 0 {
 		return false
 	}
 	if format.KeyTree == nil {
@@ -435,8 +439,95 @@ func markConfigKeysPresent(ctx *processingContext, target any, targetPath fieldP
 	if err != nil || topLevel == nil {
 		return false
 	}
-	markConfigKeysPresentInStruct(ctx, target, topLevel, splitPath(targetPath))
+	canonical := canonicalizeKeyTree(topLevel, reflect.TypeOf(target), structTagForExt(ext))
+	if canonical == nil {
+		return false
+	}
+	markConfigKeysPresentInStruct(ctx, target, canonical, splitPath(targetPath))
 	return true
+}
+
+// canonicalizeKeyTree walks a raw KeyTree (keyed by the format's own tag
+// names) alongside the target struct type, and returns an equivalent tree
+// whose keys are Go field names. Nested struct and struct-pointer fields
+// recurse so sub-trees end up canonical too.
+//
+// tag names the struct tag to consult for per-field renaming. When empty,
+// or when a field has no such tag, the Go field name is used directly.
+// Raw-key lookups are case-insensitive so the resulting matching rule
+// mirrors what encoding/json does, which keeps previously-passing tests
+// passing after the walker stops doing its own lookups.
+//
+// Unknown raw keys (with no matching struct field) are dropped — they
+// have no mirror for the walker to mark anyway. Scalar / slice / map
+// leaf values are passed through unchanged so the walker can still
+// treat them as "something was written here".
+func canonicalizeKeyTree(raw map[string]any, targetType reflect.Type, tag string) map[string]any {
+	if raw == nil {
+		return nil
+	}
+	for targetType != nil && targetType.Kind() == reflect.Ptr {
+		targetType = targetType.Elem()
+	}
+	if targetType == nil || targetType.Kind() != reflect.Struct {
+		// No struct to walk against — hand the raw map through. The
+		// walker will then either find keys by Go field name or not at
+		// all, which matches the pre-canonicalisation behaviour for
+		// unusual call sites.
+		return raw
+	}
+	out := make(map[string]any, len(raw))
+	for i := 0; i < targetType.NumField(); i++ {
+		sf := targetType.Field(i)
+		if !sf.IsExported() {
+			continue
+		}
+		rawKey := fieldRawKey(sf, tag)
+		if rawKey == "" {
+			continue // tag value was "-" — field deliberately skipped by the format
+		}
+		rawVal, ok := configKeyLookup(raw, rawKey)
+		if !ok {
+			continue
+		}
+		// Recurse into nested struct / *struct fields so their sub-keys
+		// also end up keyed by Go field name before the walker sees them.
+		ft := sf.Type
+		for ft.Kind() == reflect.Ptr {
+			ft = ft.Elem()
+		}
+		if ft.Kind() == reflect.Struct && !isSupportedType(sf.Type) {
+			if subMap := asKeyMap(rawVal); subMap != nil {
+				out[sf.Name] = canonicalizeKeyTree(subMap, ft, tag)
+				continue
+			}
+		}
+		out[sf.Name] = rawVal
+	}
+	return out
+}
+
+// fieldRawKey returns the raw key name that tag would use for this field.
+// Empty tag or missing tag value → Go field name. Tag value "-" means
+// "skip" (returns ""). Tag value with options (e.g. "name,omitempty") is
+// split on the first comma. This matches the conventions of encoding/json
+// and of every mainstream YAML/TOML/HCL parser boa is likely to meet.
+func fieldRawKey(sf reflect.StructField, tag string) string {
+	if tag == "" {
+		return sf.Name
+	}
+	tv := sf.Tag.Get(tag)
+	if tv == "" {
+		return sf.Name
+	}
+	name := strings.SplitN(tv, ",", 2)[0]
+	switch name {
+	case "":
+		return sf.Name
+	case "-":
+		return ""
+	}
+	return name
 }
 
 // splitPath parses a fieldPath string back into the []int index path form.
@@ -462,21 +553,6 @@ func splitPath(p fieldPath) []int {
 		out[i] = n
 	}
 	return out
-}
-
-// jsonFieldKey returns the key that encoding/json would use for a struct field.
-// If a json tag is present, use its name. Otherwise, use the Go field name.
-func jsonFieldKey(field reflect.StructField) string {
-	if tag := field.Tag.Get("json"); tag != "" {
-		parts := strings.SplitN(tag, ",", 2)
-		if parts[0] != "" && parts[0] != "-" {
-			return parts[0]
-		}
-		if parts[0] == "-" {
-			return "" // explicitly skipped
-		}
-	}
-	return field.Name
 }
 
 // configKeyLookup does a case-insensitive key lookup matching encoding/json behavior:
@@ -518,6 +594,11 @@ func asKeyMap(v any) map[string]any {
 	return nil
 }
 
+// markConfigKeysPresentInStruct walks a canonicalised KeyTree (Go field
+// names) alongside the target struct, marking mirrors and preallocated
+// struct-pointer groups that the config file mentioned. The walker has
+// no tag awareness — canonicalizeKeyTree already folded the format's
+// rename rules into Go-field-name space before the walker was called.
 func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys map[string]any, path []int) {
 	val := reflect.ValueOf(structPtr).Elem()
 	typ := val.Type()
@@ -527,8 +608,7 @@ func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys m
 			continue
 		}
 		childPath := append(append([]int(nil), path...), i)
-		key := jsonFieldKey(field)
-		rawVal, keyPresent := configKeyLookup(keys, key)
+		rawVal, keyPresent := keys[field.Name]
 		if !keyPresent {
 			continue
 		}
@@ -2083,6 +2163,11 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 				targetPath fieldPath
 				rawData    []byte
 				format     ConfigFormat
+				// ext is the file extension (dot-prefixed) we loaded from,
+				// or "" for a programmatic load. Used later to drive
+				// format-aware field-tag resolution in the key-presence
+				// walker via structTagForExt.
+				ext string
 			}
 			var configResults []configLoadResult
 
@@ -2113,7 +2198,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 							if err != nil {
 								return NewUserInputError(fmt.Errorf("configfile %s: %w", entry.mirror.GetName(), err))
 							}
-							configResults = append(configResults, configLoadResult{target: entry.target, targetPath: entry.targetPath, rawData: rawData, format: effective})
+							configResults = append(configResults, configLoadResult{target: entry.target, targetPath: entry.targetPath, rawData: rawData, format: effective, ext: filepath.Ext(filePath)})
 						}
 					}
 				}
@@ -2126,7 +2211,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 							if err != nil {
 								return NewUserInputError(fmt.Errorf("configfile %s: %w", entry.mirror.GetName(), err))
 							}
-							configResults = append(configResults, configLoadResult{target: entry.target, targetPath: entry.targetPath, rawData: rawData, format: effective})
+							configResults = append(configResults, configLoadResult{target: entry.target, targetPath: entry.targetPath, rawData: rawData, format: effective, ext: filepath.Ext(filePath)})
 						}
 					}
 				}
@@ -2142,7 +2227,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			// precision of sibling loads whose KeyTree succeeded.
 			var fallbackRoots []fieldPath
 			for _, cr := range configResults {
-				if !markConfigKeysPresent(ctx, cr.target, cr.targetPath, cr.rawData, cr.format) {
+				if !markConfigKeysPresent(ctx, cr.target, cr.targetPath, cr.rawData, cr.format, cr.ext) {
 					fallbackRoots = append(fallbackRoots, cr.targetPath)
 				}
 			}

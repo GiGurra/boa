@@ -331,9 +331,11 @@ DB:
   Port: 5432   # same as the default
 ```
 
-Without a `KeyTree`, BOA falls back to snapshot comparison — it compares struct values before and after loading. Those writes don't change anything, so BOA concludes "nothing set" and `p.DB` is nil'd back out after cleanup. With a `KeyTree`, BOA sees the literal key structure, recognises that `DB`, `DB.Host`, and `DB.Port` were mentioned, and keeps the pointer group alive.
+Without a `KeyTree`, BOA falls back to snapshot comparison — it compares struct values before and after loading. Those writes don't change anything, so BOA concludes "nothing set": `p.DB` is nil'd back out after cleanup, and `HookContext.HasValue(&p.DB.Port)` keeps reporting `false` (since the snapshot saw no change) even for flat top-level fields with a zero-value write. With a `KeyTree`, BOA sees the literal key structure, recognises that `DB`, `DB.Host`, and `DB.Port` were mentioned, keeps the pointer group alive, and correctly reports `HasValue` / set-by-config for every leaf the file actually wrote.
 
-This matters only for struct-pointer parameter groups; plain fields and non-pointer substructs work with either form. `RegisterConfigFormat` already wires up the `KeyTree` for you whenever the parser can decode into `map[string]any` — which is every mainstream Go parser.
+This matters whenever you care about the difference between "the config file mentioned this field" and "the field kept its default". It applies both to optional struct-pointer parameter groups (where the difference decides whether the group survives cleanup) and to plain top-level fields (where the difference is visible via `HookContext.HasValue`). `RegisterConfigFormat` already wires up the `KeyTree` for you whenever the parser can decode into `map[string]any` — which is every mainstream Go parser.
+
+**Field name matching is format-aware.** Because the dump and load paths share a single extension→struct-tag mapping, BOA looks up each field using the struct tag the parser itself respects: `json` for `.json`, `yaml` for `.yaml` / `.yml`, `toml` for `.toml`, `hcl` for `.hcl`, and for any other registered extension the tag defaults to the extension name minus its leading dot (so `.mycustom` consults the `mycustom` tag). Renames like `Host string \`yaml:"host_name"\`` are therefore picked up by set-by-config detection too, not just by the Go-side unmarshaler. Tag value `"-"` skips the field, and tag value `"name,opt,opt"` uses just `name` — same conventions every mainstream Go config parser already follows.
 
 ### The `UniversalConfigFormat` Helper
 
