@@ -335,10 +335,16 @@ func TestReassignToNilAndBack(t *testing.T) {
 // the fallback walk in GetParam not only finds the mirror but also *repairs
 // the cache* so subsequent lookups for the same field address are O(1) again.
 //
-// This is a white-box test — it reaches into the internal addrToPath map to
-// verify the repair — because the optimization is not observable through the
-// public API except by microbenchmark. Verifying the map state is the direct
-// evidence that the repair code path ran.
+// The test makes four independent observations:
+//
+//  1. Pre-condition: the new address is not in addrToPath before the lookup.
+//  2. Exactly one fallback walk runs for the post-reassignment lookup.
+//  3. Post-condition: the new address IS in addrToPath after the lookup.
+//  4. A second lookup through the same new address does NOT trigger another
+//     fallback walk — the repair made it O(1) again.
+//
+// This is a white-box test: it reaches into processingContext internals
+// because the optimization is invisible through the public API.
 func TestGetParam_AutoRepairsCacheAfterReassignment(t *testing.T) {
 	type DB struct {
 		Host string `descr:"host" default:"localhost"`
@@ -351,6 +357,10 @@ func TestGetParam_AutoRepairsCacheAfterReassignment(t *testing.T) {
 		newHostAddr           unsafe.Pointer
 		cacheHadNewAddrBefore bool
 		cacheHadNewAddrAfter  bool
+		walksAfterFirstLookup int
+		walksAfterSecondLookup int
+		rebuildsAfterFirst    int
+		rebuildsAfterSecond   int
 	)
 
 	cmd := (CmdT[Params]{
@@ -371,19 +381,32 @@ func TestGetParam_AutoRepairsCacheAfterReassignment(t *testing.T) {
 			if _, ok := ctx.ctx.addrToPath[newHostAddr]; ok {
 				cacheHadNewAddrBefore = true
 			}
+			walksBefore := ctx.ctx.walkFallbackCount
+			rebuildsBefore := ctx.ctx.cacheRebuildCount
 
-			// Step 3: do the lookup through the new address. The cache lookup
-			// will miss, the fallback walk will succeed, and (per the repair
-			// code) the new address should then be written into addrToPath.
-			m := ctx.GetParam(&params.DB.Host)
-			if m == nil {
+			// Step 3: first lookup through the new address. Expect the fallback
+			// walk to fire exactly once and repair the cache.
+			if m := ctx.GetParam(&params.DB.Host); m == nil {
 				t.Fatal("post-reassignment lookup returned nil")
 			}
+			walksAfterFirstLookup = ctx.ctx.walkFallbackCount - walksBefore
+			rebuildsAfterFirst = ctx.ctx.cacheRebuildCount - rebuildsBefore
 
 			// Check: after the lookup, the new address must now be in the cache.
 			if _, ok := ctx.ctx.addrToPath[newHostAddr]; ok {
 				cacheHadNewAddrAfter = true
 			}
+
+			// Step 4: second lookup through the same new address. The cache
+			// repair from step 3 should make this an O(1) cache hit — no walk,
+			// no rebuild, no further state change.
+			walksMid := ctx.ctx.walkFallbackCount
+			rebuildsMid := ctx.ctx.cacheRebuildCount
+			if m := ctx.GetParam(&params.DB.Host); m == nil {
+				t.Fatal("second post-reassignment lookup returned nil")
+			}
+			walksAfterSecondLookup = ctx.ctx.walkFallbackCount - walksMid
+			rebuildsAfterSecond = ctx.ctx.cacheRebuildCount - rebuildsMid
 			return nil
 		},
 		RunFunc: func(p *Params, c *cobra.Command, args []string) {},
@@ -395,15 +418,97 @@ func TestGetParam_AutoRepairsCacheAfterReassignment(t *testing.T) {
 	}
 
 	// Pre-condition: the new address was not cached before the fallback ran.
-	// (If this fires, the test setup is broken — we accidentally pre-populated
-	// the cache somehow.)
 	if cacheHadNewAddrBefore {
 		t.Errorf("precondition violated: new address was already cached before the fallback lookup")
+	}
+
+	// The first post-reassignment lookup should fire exactly one fallback walk.
+	if walksAfterFirstLookup != 1 {
+		t.Errorf("first post-reassignment lookup: expected 1 fallback walk, got %d", walksAfterFirstLookup)
+	}
+	// And no cache rebuild (rebuilds are only triggered when addrToPath is nil;
+	// here it's just stale, not nil).
+	if rebuildsAfterFirst != 0 {
+		t.Errorf("first post-reassignment lookup: expected 0 cache rebuilds, got %d", rebuildsAfterFirst)
 	}
 
 	// Post-condition: the fallback walk repaired the cache.
 	if !cacheHadNewAddrAfter {
 		t.Errorf("cache repair did not happen: new address is still not in addrToPath after fallback lookup")
+	}
+
+	// The second lookup for the same address must hit the cache — no walk, no rebuild.
+	if walksAfterSecondLookup != 0 {
+		t.Errorf("second post-reassignment lookup walked the tree again: got %d walks, want 0 (cache repair did not take effect)", walksAfterSecondLookup)
+	}
+	if rebuildsAfterSecond != 0 {
+		t.Errorf("second post-reassignment lookup triggered a cache rebuild: got %d, want 0", rebuildsAfterSecond)
+	}
+}
+
+// TestGetParam_HappyPathNoWalkNoRebuild verifies that in ordinary usage (no
+// substruct reassignment, no subtree removal), GetParam never triggers the
+// fallback walk or a cache rebuild — it always hits the cache that was
+// populated incrementally during traverse.
+//
+// This pins the performance expectation: users calling ctx.GetParam(&p.X)
+// from InitFuncCtx, PostCreateFuncCtx, PreValidateFuncCtx, or RunFuncCtx on
+// a stable parameters tree pay zero walk / zero rebuild cost per call.
+func TestGetParam_HappyPathNoWalkNoRebuild(t *testing.T) {
+	type DB struct {
+		Host string `descr:"host" default:"localhost"`
+		Port int    `descr:"port" default:"5432"`
+	}
+	type Params struct {
+		Name string `descr:"name" default:"default"`
+		DB   DB
+	}
+
+	var (
+		walksAtEnd    int
+		rebuildsAtEnd int
+	)
+
+	cmd := (CmdT[Params]{
+		Use: "test",
+		InitFuncCtx: func(ctx *HookContext, p *Params, c *cobra.Command) error {
+			// Record baseline AFTER traverse has populated the cache, so we're
+			// only measuring GetParam call costs, not traverse overhead.
+			walksBefore := ctx.ctx.walkFallbackCount
+			rebuildsBefore := ctx.ctx.cacheRebuildCount
+
+			// Exercise a handful of lookups across the struct — root field and
+			// nested substruct fields. Every one should be a cache hit because
+			// nothing has invalidated addrToPath.
+			for i := 0; i < 5; i++ {
+				if m := ctx.GetParam(&p.Name); m == nil {
+					t.Fatalf("lookup %d: p.Name returned nil", i)
+				}
+				if m := ctx.GetParam(&p.DB.Host); m == nil {
+					t.Fatalf("lookup %d: p.DB.Host returned nil", i)
+				}
+				if m := ctx.GetParam(&p.DB.Port); m == nil {
+					t.Fatalf("lookup %d: p.DB.Port returned nil", i)
+				}
+			}
+
+			walksAtEnd = ctx.ctx.walkFallbackCount - walksBefore
+			rebuildsAtEnd = ctx.ctx.cacheRebuildCount - rebuildsBefore
+			return nil
+		},
+		RunFunc: func(p *Params, c *cobra.Command, args []string) {},
+	}).ToCobra()
+
+	cmd.SetArgs([]string{})
+	if err := Execute(cmd); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	if walksAtEnd != 0 {
+		t.Errorf("happy-path lookups walked the tree %d times, want 0 (cache was missed unexpectedly)", walksAtEnd)
+	}
+	if rebuildsAtEnd != 0 {
+		t.Errorf("happy-path lookups rebuilt the cache %d times, want 0 (cache was invalidated unexpectedly)", rebuildsAtEnd)
 	}
 }
 

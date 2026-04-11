@@ -238,6 +238,12 @@ type processingContext struct {
 	// root parameters struct is reassigned mid-flight, this cache can be
 	// invalidated and rebuilt — mirrorByPath remains correct regardless.
 	addrToPath map[unsafe.Pointer]fieldPath
+	// walkFallbackCount / cacheRebuildCount are instrumentation counters for
+	// tests that need to assert whether a GetParam call hit the fast path or
+	// fell through to the slower fallback walk / cache rebuild. Incremented
+	// unconditionally — cheap, zero-cost for production code.
+	walkFallbackCount int
+	cacheRebuildCount int
 	// ConfigFiles tracks all configfile:"true" fields and their target structs.
 	// Ordered: substruct entries first, root entry last (so root overrides inner).
 	ConfigFiles []configFileEntry
@@ -2130,6 +2136,7 @@ func (ctx *processingContext) resolveFieldValue(path fieldPath) (reflect.Value, 
 // and rebuilds the reverse address index. Called on demand when the cache has been
 // invalidated (e.g., after a subtree removal).
 func (ctx *processingContext) rebuildAddrToPath() {
+	ctx.cacheRebuildCount++
 	ctx.addrToPath = map[unsafe.Pointer]fieldPath{}
 	for _, p := range ctx.pathOrder {
 		v, ok := ctx.resolveFieldValue(p)
@@ -2144,6 +2151,7 @@ func (ctx *processingContext) rebuildAddrToPath() {
 // matches. Used as a fallback when the reverse index is stale (e.g., a substruct
 // was reassigned by user code).
 func (ctx *processingContext) findPathByAddr(addr unsafe.Pointer) (fieldPath, bool) {
+	ctx.walkFallbackCount++
 	for _, p := range ctx.pathOrder {
 		v, ok := ctx.resolveFieldValue(p)
 		if !ok || !v.CanAddr() {
