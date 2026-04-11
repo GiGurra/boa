@@ -441,6 +441,7 @@ boa.CmdT[Params]{
 | `pattern` | Regex pattern | `pattern:"^[a-z]+$"` |
 | `configfile` | Auto-load config from path | `configfile:"true"` |
 | `boa` | Special directives | `boa:"ignore"` (no mirror), `boa:"configonly"` (no CLI/env, mirror + validation preserved), `boa:"noflag"` / `"nocli"`, `boa:"noenv"` |
+
 </details>
 
 ## Further Reading

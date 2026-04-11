@@ -224,6 +224,50 @@ func TestNoFlag_WithPositionalIsError(t *testing.T) {
 	}
 }
 
+func TestSetIgnored_WithPositionalIsError(t *testing.T) {
+	// Programmatically marking a positional field ignored must be rejected:
+	// a positional needs argv consumption, which the ignored branch short-
+	// circuits. Without this check the positional bookkeeping would hold
+	// an entry with no binder attached.
+	type Params struct {
+		Target string `positional:"true"`
+	}
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
+			GetParamT(ctx, &params.Target).SetIgnored(true)
+			return nil
+		},
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"hello"})
+	if err == nil {
+		t.Fatal("expected error for ignored+positional combo")
+	}
+	if !strings.Contains(err.Error(), "positional") {
+		t.Errorf("expected error mentioning 'positional', got: %v", err)
+	}
+}
+
+func TestSetNoFlag_WithPositionalProgrammaticIsError(t *testing.T) {
+	// Same for flipping noflag on a positional field programmatically.
+	type Params struct {
+		Target string `positional:"true"`
+	}
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
+			GetParamT(ctx, &params.Target).SetNoFlag(true)
+			return nil
+		},
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{"hello"})
+	if err == nil {
+		t.Fatal("expected error for noflag+positional combo set programmatically")
+	}
+}
+
 func TestNoFlag_ProgrammaticViaHook(t *testing.T) {
 	// Set noflag programmatically via InitFuncCtx on a field that has no tag.
 	type Params struct {

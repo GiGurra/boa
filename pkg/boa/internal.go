@@ -994,9 +994,18 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param, ctx *processingContex
 	// loading, and validation — all of which happen outside of cobra. This
 	// check runs first so that a programmatically-ignored field with an empty
 	// synthesized name still short-circuits cleanly.
+	//
+	// Positional arguments are not compatible with either skip mode: a
+	// positional consumes argv, so skipping its cobra binding would leave the
+	// positional bookkeeping inconsistent (the binder never attaches, but the
+	// field is still in positional[]).
 	if f.IsNoFlag() || f.IsIgnored() {
-		if f.IsNoFlag() && f.isPositional() {
-			return noFlagPositionalError(f.GetName())
+		if f.isPositional() {
+			skipKind := "ignore"
+			if f.IsNoFlag() {
+				skipKind = "noflag"
+			}
+			return positionalSkipError(f.GetName(), skipKind)
 		}
 		return nil
 	}
@@ -1361,11 +1370,13 @@ func getBoaTags(field reflect.StructField) []string {
 	return results
 }
 
-// noFlagPositionalError returns the canonical error for a param that has been
-// marked both noflag and positional. Kept in one place so the tag-time check
-// in the enrichment loop and the runtime check in connect() can't drift.
-func noFlagPositionalError(name string) error {
-	return fmt.Errorf("param '%s': `boa:\"noflag\"` cannot be combined with positional args — a positional arg is, by definition, a CLI arg", name)
+// positionalSkipError returns the canonical error for a param that is marked
+// both positional and "skipped from cobra" (either noflag or ignored). A
+// positional param must consume argv, so skipping its cobra binding leaves
+// the positional bookkeeping inconsistent. Kept in one place so the tag-time
+// check and the connect-time check can't drift.
+func positionalSkipError(name, skipKind string) error {
+	return fmt.Errorf("param '%s': `boa:\"%s\"` cannot be combined with positional args — a positional arg is, by definition, a CLI arg", name, skipKind)
 }
 
 // isBoaIgnored reports whether a field is fully ignored by boa — no mirror,
@@ -1776,8 +1787,16 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 					param.SetNoEnv(true)
 				}
 			}
-			if param.IsNoFlag() && param.isPositional() {
-				return noFlagPositionalError(param.GetName())
+			// A positional arg that's been hidden from cobra via noflag or
+			// ignored can never consume argv, so catch the combo here as
+			// well — the connect-time check is a safety net for the
+			// programmatic path (where these flags can flip after enrichment).
+			if param.isPositional() && (param.IsNoFlag() || param.IsIgnored()) {
+				skipKind := "ignore"
+				if param.IsNoFlag() {
+					skipKind = "noflag"
+				}
+				return positionalSkipError(param.GetName(), skipKind)
 			}
 
 			// Detect configfile tag
