@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -33,11 +34,18 @@ func fakeKeyTree(data []byte) (map[string]any, error) {
 // previous registry entry (if any) on test completion. Snapshot + restore
 // keeps the suite hermetic even when a test overrides a built-in or
 // previously-registered format — a blind delete would silently drop those.
+//
+// All direct mutations of configFormats go through configFormatsMu so the
+// race detector stays happy alongside concurrent test runs.
 func registerFormatCleanup(t *testing.T, ext string, f ConfigFormat) {
 	t.Helper()
+	configFormatsMu.RLock()
 	prev, hadPrev := configFormats[ext]
+	configFormatsMu.RUnlock()
 	RegisterConfigFormatFull(ext, f)
 	t.Cleanup(func() {
+		configFormatsMu.Lock()
+		defer configFormatsMu.Unlock()
 		if hadPrev {
 			configFormats[ext] = prev
 			return
@@ -147,6 +155,126 @@ func registerSimpleFormatCleanup(t *testing.T, ext string, fn func([]byte, any) 
 		}
 		delete(configFormats, ext)
 	})
+}
+
+// TestConfigFormatExtensions_Sorted proves ConfigFormatExtensions returns a
+// stable sorted slice, not randomized map iteration order. boaviper's
+// FindConfig relies on a deterministic probe order when the same search path
+// could match several registered extensions; without the sort, which file
+// wins would depend on goroutine state.
+func TestConfigFormatExtensions_Sorted(t *testing.T) {
+	registerFormatCleanup(t, ".bbb", ConfigFormat{Unmarshal: fakeUnmarshal})
+	registerFormatCleanup(t, ".aaa", ConfigFormat{Unmarshal: fakeUnmarshal})
+	registerFormatCleanup(t, ".zzz", ConfigFormat{Unmarshal: fakeUnmarshal})
+
+	exts := ConfigFormatExtensions()
+	if !sort.StringsAreSorted(exts) {
+		t.Fatalf("ConfigFormatExtensions should return sorted slice, got %v", exts)
+	}
+	// Quick sanity: all three test extensions must be present and .json too.
+	seen := map[string]bool{}
+	for _, e := range exts {
+		seen[e] = true
+	}
+	for _, want := range []string{".aaa", ".bbb", ".zzz", ".json"} {
+		if !seen[want] {
+			t.Errorf("expected %q in extensions, got %v", want, exts)
+		}
+	}
+}
+
+// TestSnapshotFallbackIsScopedPerLoad reproduces the bug CodeRabbit flagged:
+// a sub-load whose format lacks a KeyTree used to trigger a whole-tree
+// snapshot fallback, which over-marked fields in *other* subtrees whose
+// root-level KeyTree load had already covered them precisely.
+//
+// Setup:
+//
+//   - Root config (.json, built-in KeyTree): writes DB.Host to a non-default
+//     value. Precise KeyTree detection should mark DB.Host as set-by-config
+//     and leave DB.Port alone.
+//   - Substruct config (.nokt, no KeyTree): forces a fallback that, with the
+//     old whole-tree behaviour, would blanket-mark everything inside the DB
+//     pointer group — including DB.Port — because snapshot comparison sees
+//     DB changed from the root's write.
+//
+// With the per-subtree scoping fix, the fallback is limited to the substruct's
+// own subtree, so DB.Port correctly reports HasValue=false.
+func TestSnapshotFallbackIsScopedPerLoad(t *testing.T) {
+	// .nokt: valid unmarshal, but deliberately no KeyTree → forces fallback.
+	registerFormatCleanup(t, ".nokt", ConfigFormat{Unmarshal: fakeUnmarshal})
+
+	type DB struct {
+		Host string `descr:"db host" default:"localhost"`
+		Port int    `descr:"db port" default:"5432"`
+	}
+	type SubCfg struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Note       string `descr:"sub note" default:"defaultnote"`
+	}
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		DB         *DB
+		Sub        SubCfg
+	}
+
+	dir := t.TempDir()
+
+	// Root config writes DB.Host to a non-default value. KeyTree works.
+	rootPath := filepath.Join(dir, "root.json")
+	if err := os.WriteFile(rootPath, []byte(`{"DB":{"Host":"rootval"}}`), 0o644); err != nil {
+		t.Fatalf("write root cfg: %v", err)
+	}
+
+	// Sub config uses the .nokt format (no KeyTree). Writes Sub.Note to a
+	// non-default value so the sub load actually does something.
+	subPath := filepath.Join(dir, "sub.nokt")
+	if err := os.WriteFile(subPath, []byte(`{"Note":"fromsub"}`), 0o644); err != nil {
+		t.Fatalf("write sub cfg: %v", err)
+	}
+
+	// Check setByConfig directly (we're in-package) instead of HasValue(),
+	// because HasValue() also returns true when a parameter has a default,
+	// which would confound this test — both DB.Host and DB.Port have
+	// defaults, so only the setByConfig flag distinguishes "the config
+	// file wrote this" from "the parameter has a default".
+	var gotDB *DB
+	var hostSetByConfig, portSetByConfig bool
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			gotDB = p.DB
+			if p.DB == nil {
+				return
+			}
+			if pm, ok := ctx.GetParam(&p.DB.Host).(*paramMeta); ok {
+				hostSetByConfig = pm.setByConfig
+			}
+			if pm, ok := ctx.GetParam(&p.DB.Port).(*paramMeta); ok {
+				portSetByConfig = pm.setByConfig
+			}
+		},
+	}).RunArgsE([]string{"--config-file", rootPath, "--sub-config-file", subPath})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotDB == nil {
+		t.Fatal("expected DB pointer group to survive (root KeyTree marked Host)")
+	}
+	if gotDB.Host != "rootval" {
+		t.Errorf("DB.Host = %q, want rootval", gotDB.Host)
+	}
+	if !hostSetByConfig {
+		t.Error("DB.Host setByConfig should be true (root KeyTree marked it precisely)")
+	}
+	// The headline assertion: without per-subtree scoping, the sub-load's
+	// fallback would over-mark DB.Port here. With the fix, DB.Port is
+	// correctly reported as NOT set by config.
+	if portSetByConfig {
+		t.Error("DB.Port setByConfig should be false — the sub-load's snapshot fallback must not leak into the DB subtree covered by the root KeyTree")
+	}
 }
 
 func TestRegisterConfigFormatFull_NilUnmarshalPanics(t *testing.T) {

@@ -513,10 +513,26 @@ func snapshotPreallocatedStructs(ctx *processingContext) []reflect.Value {
 
 // markConfigChangedStructs compares preallocated struct values against pre-config
 // snapshots. If any struct changed, marks all its mirrors as setByConfig.
-// This is the fallback for non-JSON formats where key-presence detection can't work.
-func markConfigChangedStructs(ctx *processingContext, snapshots []reflect.Value) {
+// This is the fallback for formats whose KeyTree cannot describe the literal
+// key structure (no KeyTree set, or the KeyTree returned an error).
+//
+// The fallback is scoped per-load via fallbackRoots: a preallocated pointer
+// is only considered if its path lies within one of those subtrees. This
+// prevents a failing sub-load from blanket-marking fields that a *separate*
+// load already covered precisely via its own KeyTree. An empty fieldPath in
+// the list means "the entire root" (the legacy whole-tree behaviour, used
+// when the root config itself has no KeyTree).
+//
+// An empty fallbackRoots slice is a no-op.
+func markConfigChangedStructs(ctx *processingContext, snapshots []reflect.Value, fallbackRoots []fieldPath) {
+	if len(fallbackRoots) == 0 {
+		return
+	}
 	for i, info := range ctx.PreallocatedPtrs {
 		if info.ptrField.IsNil() || !snapshots[i].IsValid() {
+			continue
+		}
+		if !pathWithinAny(info.path, fallbackRoots) {
 			continue
 		}
 		current := info.ptrField.Elem()
@@ -524,6 +540,13 @@ func markConfigChangedStructs(ctx *processingContext, snapshots []reflect.Value)
 			markAllMirrorsInSubtree(ctx, info.ptrField.Interface(), splitPath(info.path))
 		}
 	}
+}
+
+// pathWithinAny reports whether child lies within (or equals) any of roots.
+// Uses fieldPath.hasSubtreePrefix so segment boundaries are respected (i.e.,
+// path "12" is NOT considered within root "1"; only "1", "1.X", "1.X.Y"... are).
+func pathWithinAny(child fieldPath, roots []fieldPath) bool {
+	return slices.ContainsFunc(roots, child.hasSubtreePrefix)
 }
 
 // markStructPtrPresentByConfig records that a preallocated struct pointer was
@@ -1881,18 +1904,18 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			// Probe raw config data for key presence to detect which preallocated
 			// struct pointers were mentioned in config files. This detects writes
 			// even when the value equals Go's zero value or the field's default.
-			// Formats whose ConfigFormat has no KeyTree fall back to snapshot comparison.
-			allDetected := true
+			// Formats whose ConfigFormat has no KeyTree (or whose KeyTree errors
+			// out) fall back to snapshot comparison — but only for the subtree
+			// of that particular load, so a failing sub-load can't corrupt the
+			// precision of sibling loads whose KeyTree succeeded.
+			var fallbackRoots []fieldPath
 			for _, cr := range configResults {
 				if !markConfigKeysPresent(ctx, cr.target, cr.targetPath, cr.rawData, cr.format) {
-					allDetected = false
+					fallbackRoots = append(fallbackRoots, cr.targetPath)
 				}
 			}
-			if !allDetected && preConfigSnapshots != nil {
-				// Non-JSON config format: fall back to comparing struct values
-				// before and after config loading. This catches changed values
-				// but can't detect zero-value or same-as-default writes.
-				markConfigChangedStructs(ctx, preConfigSnapshots)
+			if len(fallbackRoots) > 0 && preConfigSnapshots != nil {
+				markConfigChangedStructs(ctx, preConfigSnapshots, fallbackRoots)
 			}
 
 			// Clean up preallocated struct pointers that had no fields set.

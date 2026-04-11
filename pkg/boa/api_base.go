@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
+	"sync"
 
 	"github.com/spf13/cobra"
 )
@@ -540,12 +542,20 @@ type ConfigFormat struct {
 // JSON is registered by default with both Unmarshal and KeyTree. Users can
 // register additional formats (e.g., YAML, TOML) via RegisterConfigFormat
 // or RegisterConfigFormatFull.
-var configFormats = map[string]ConfigFormat{
-	".json": {
-		Unmarshal: json.Unmarshal,
-		KeyTree:   jsonKeyTree,
-	},
-}
+//
+// Access to configFormats MUST go through configFormatsMu. Registration
+// (write) takes the exclusive lock; resolution / extension enumeration take
+// the read lock. The read path is hot — every config file load hits it —
+// but it's a pure map lookup so RWMutex contention is negligible in practice.
+var (
+	configFormatsMu sync.RWMutex
+	configFormats   = map[string]ConfigFormat{
+		".json": {
+			Unmarshal: json.Unmarshal,
+			KeyTree:   jsonKeyTree,
+		},
+	}
+)
 
 // jsonKeyTree is the built-in KeyTree implementation for JSON.
 func jsonKeyTree(data []byte) (map[string]any, error) {
@@ -620,8 +630,10 @@ func UniversalConfigFormat(unmarshalFunc func([]byte, any) error) ConfigFormat {
 //	boa.RegisterConfigFormat(".toml", toml.Unmarshal)
 //	boa.RegisterConfigFormat(".hcl", hcl.Decode)
 //
-// Registration is not goroutine-safe; call from init() or from main-goroutine
-// startup before any commands run. Passing a nil unmarshalFunc panics.
+// Registration is goroutine-safe (the registry is guarded by a
+// sync.RWMutex), but the common pattern is still to call from init() or
+// from main-goroutine startup before any commands run. Passing a nil
+// unmarshalFunc panics.
 //
 // Use RegisterConfigFormatFull instead only when your parser cannot decode
 // into map[string]any (e.g., a custom format that only populates specific
@@ -632,15 +644,19 @@ func RegisterConfigFormat(ext string, unmarshalFunc func([]byte, any) error) {
 }
 
 // RegisterConfigFormatFull registers a complete ConfigFormat for a config file
-// extension. Use this when you want boa to honour key-presence detection for
-// your format (zero-valued writes, same-as-default writes).
+// extension. Use this when your parser cannot decode into map[string]any and
+// you need to supply a hand-written KeyTree for set-by-config detection.
 //
-// The extension should include the dot (e.g., ".yaml", ".toml").
+// The extension should include the dot (e.g., ".mycustom").
 //
-// Registration is not goroutine-safe; call from init() or from main-goroutine
-// startup before any commands run. Passing a ConfigFormat with a nil Unmarshal
-// panics — a missing parser is a programming error and is surfaced eagerly so
-// you don't silently fall through to the JSON handler at parse time.
+// Registration is goroutine-safe — the registry is guarded by a sync.RWMutex,
+// so you can register formats from any goroutine. In practice, calling from
+// init() or main-goroutine startup (before any commands run) is still the
+// clearest model.
+//
+// Passing a ConfigFormat with a nil Unmarshal panics — a missing parser is a
+// programming error and is surfaced eagerly so you don't silently fall
+// through to the JSON handler at parse time.
 //
 // Example (using gopkg.in/yaml.v3):
 //
@@ -658,16 +674,27 @@ func RegisterConfigFormatFull(ext string, format ConfigFormat) {
 	if format.Unmarshal == nil {
 		panic(fmt.Errorf("boa: RegisterConfigFormatFull(%q): ConfigFormat.Unmarshal must be non-nil", ext))
 	}
+	configFormatsMu.Lock()
+	defer configFormatsMu.Unlock()
 	configFormats[ext] = format
 }
 
-// ConfigFormatExtensions returns the file extensions that have registered config format handlers.
-// Always includes ".json" (registered by default). Additional formats are added via RegisterConfigFormat.
+// ConfigFormatExtensions returns the file extensions that have registered
+// config format handlers, sorted alphabetically for deterministic iteration.
+// Always includes ".json" (registered by default). Additional formats are
+// added via RegisterConfigFormat or RegisterConfigFormatFull.
+//
+// The sort matters for callers like boaviper.FindConfig that probe the same
+// search path with every registered extension: without a stable order, which
+// file wins is nondeterministic when two extensions' files both exist.
 func ConfigFormatExtensions() []string {
+	configFormatsMu.RLock()
 	exts := make([]string, 0, len(configFormats))
 	for ext := range configFormats {
 		exts = append(exts, ext)
 	}
+	configFormatsMu.RUnlock()
+	sort.Strings(exts)
 	return exts
 }
 
@@ -702,7 +729,10 @@ func resolveConfigFormat(filePath string, override ConfigFormat) ConfigFormat {
 		return override
 	}
 	ext := filepath.Ext(filePath)
-	if cf, ok := configFormats[ext]; ok && cf.Unmarshal != nil {
+	configFormatsMu.RLock()
+	cf, ok := configFormats[ext]
+	configFormatsMu.RUnlock()
+	if ok && cf.Unmarshal != nil {
 		return cf
 	}
 	return ConfigFormat{Unmarshal: json.Unmarshal, KeyTree: jsonKeyTree}
