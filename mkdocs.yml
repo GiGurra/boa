@@ -49,6 +49,7 @@ nav:
     - Config File Examples: examples-config.md
     - Advanced Examples: examples-advanced.md
   - Advanced: advanced.md
+  - Live Config Reload: live-reload.md
   - Global Config: global-config.md
   - Cobra Interoperability: cobra-interop.md
   - Migration Guide: migration.md

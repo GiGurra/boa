@@ -212,6 +212,51 @@ boa.RegisterConfigFormat(".toml", toml.Unmarshal)
 </details>
 
 <details>
+<summary><b>Live Config Reload</b></summary>
+
+For long-running programs, `boa.Reload[T](ctx)` re-reads every config file, re-applies precedence (CLI still wins), re-validates, and returns a **brand-new `*T`**. The struct you originally got in `RunFunc` is never touched — every reload is a fresh allocation, and callers swap the pointer (typically via `atomic.Pointer[T]`) only when they're ready. On any failure — parse error, validation failure, missing file — Reload returns `(nil, err)` and nothing else changes, so noisy triggers (fsnotify fires multiple events per save) are safe to wire directly.
+
+```go
+import (
+    "os"
+    "os/signal"
+    "sync/atomic"
+    "syscall"
+)
+
+var active atomic.Pointer[Params]
+
+boa.CmdT[Params]{
+    Use: "server",
+    RunFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command, args []string) {
+        active.Store(p)
+
+        sighup := make(chan os.Signal, 1)
+        signal.Notify(sighup, syscall.SIGHUP)
+        go func() {
+            for range sighup {
+                fresh, err := boa.Reload[Params](ctx)
+                if err != nil {
+                    log.Printf("reload rejected: %v", err) // old config still serving
+                    continue
+                }
+                active.Store(fresh)
+            }
+        }()
+
+        startServer()
+    },
+}.Run()
+```
+
+Readers elsewhere in the program just do `cfg := active.Load()` — lock-free, always-consistent snapshots. `ctx.WatchedConfigFiles()` returns the paths you should hand to your trigger (fsnotify, timer, etc.).
+
+**No fsnotify in core.** Wire your own trigger: SIGHUP, an admin HTTP endpoint, fsnotify, a timer. The primitive just answers "give me a fresh validated config now". A higher-level watcher subpackage is planned as a follow-up.
+
+See the [Live Config Reload](https://gigurra.github.io/boa/live-reload/) page for SIGHUP / HTTP / fsnotify / timer recipes, error semantics, and the atomic-pointer swap pattern.
+</details>
+
+<details>
 <summary><b>Struct Composition</b></summary>
 
 Named fields auto-prefix their children. Embedded fields stay flat:
@@ -455,4 +500,5 @@ boa.CmdT[Params]{
 - [Enrichers](https://gigurra.github.io/boa/enrichers/) — auto-derive flag names, env vars, short flags
 - [Error Handling](https://gigurra.github.io/boa/error-handling/) — Run() vs RunE() and error propagation
 - [Advanced](https://gigurra.github.io/boa/advanced/) — custom types, config format registry, viper-like discovery
+- [Live Config Reload](https://gigurra.github.io/boa/live-reload/) — re-read config without restart via `boa.Reload[T](ctx)`
 - [Cobra Interop](https://gigurra.github.io/boa/cobra-interop/) — access cobra primitives, migrate incrementally

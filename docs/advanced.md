@@ -394,95 +394,9 @@ JSON comes with both directions pre-registered (pretty-printed, 2-space indent, 
 
 ## Live Config Reload
 
-Long-running programs (servers, daemons, background workers) often want to re-read config without restarting. BOA ships a primitive for this: `boa.Reload[T](ctx) (*T, error)`. It re-runs the entire post-flag-parse pipeline — CLI → env → config files → defaults → validation — on a **freshly allocated** `*T` and returns it.
+For long-running programs that want to re-read config without restarting, BOA ships `boa.Reload[T](ctx) (*T, error)`. Every call allocates a brand-new `*T` and runs the full pipeline against it — the struct you originally received in `RunFunc` is never mutated. On success you get back the fresh snapshot to swap in (typically via `atomic.Pointer[T]`). On any failure — parse error, validation failure, missing file — Reload returns `(nil, err)` and nothing changes at all. Wire it to any trigger: SIGHUP, an admin HTTP endpoint, fsnotify, a timer.
 
-```go
-import (
-    "log"
-    "sync/atomic"
-
-    "github.com/GiGurra/boa/pkg/boa"
-    "github.com/spf13/cobra"
-)
-
-type Params struct {
-    ConfigFile string `configfile:"true" optional:"true"`
-    Host       string `optional:"true"`
-    Port       int    `optional:"true" default:"8080"`
-}
-
-var active atomic.Pointer[Params]
-
-func main() {
-    boa.CmdT[Params]{
-        Use: "server",
-        RunFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command, args []string) {
-            active.Store(p)
-
-            // Wire any trigger — SIGHUP, admin HTTP endpoint, fsnotify,
-            // a timer. On fire:
-            onReloadTrigger(func() {
-                fresh, err := boa.Reload[Params](ctx)
-                if err != nil {
-                    log.Printf("config reload rejected: %v", err) // old state preserved
-                    return
-                }
-                active.Store(fresh)
-            })
-
-            startServer()
-        },
-    }.Run()
-}
-```
-
-### What Reload does
-
-1. Allocates a fresh `*T` — the struct you were handed in `RunFunc` is **not mutated**. Callers decide what to do with the new snapshot: atomic pointer swap, diff for "did the field I care about actually change?", notify subscribers, or discard entirely. BOA doesn't dictate a concurrency model.
-2. Re-runs the full pipeline: defaults → env (re-read from the current process environment) → config files (re-read from disk) → CLI precedence (the original startup args still win) → validation → PreValidate hooks.
-3. Skips `PreExecuteFunc` and the command's `RunFunc` — a reload is value-sourcing, not command execution.
-
-### Error handling: reload is transactional
-
-Any failure during the reload — parse error from a partially-written config file, validation failure, missing file, a custom `PreValidateFunc` returning an error — causes `Reload` to return `(nil, err)`. The fresh struct is discarded and **the old struct you're holding is untouched**. Specifically:
-
-- **File parse error** (malformed JSON/YAML/TOML, truncated mid-write): the error names the offending file so operators can see what went wrong, and your atomic swap target keeps pointing at the last-known-good config.
-- **Validation failure** (`min`/`max`/`pattern`/custom validator): the error describes which field failed, old state preserved.
-- **File disappeared**: clean read error naming the path, old state preserved.
-- **PreValidate hook error**: propagated as-is, old state preserved.
-
-No "half-applied" reload is possible. This is deliberate so you can wire `Reload` to a noisy trigger (fsnotify fires 2–5 times per save on most editors) and safely ignore the errors — each failed attempt just logs and keeps serving the existing config.
-
-### What Reload does NOT do
-
-- **No fsnotify, no SIGHUP handler, no HTTP endpoint.** Wire whatever trigger makes sense for your app. The primitive just answers "give me a fresh validated config now". A higher-level watcher subpackage is planned; until then, `signal.Notify(SIGHUP)`, a timer, or a tiny admin endpoint are all ~5 lines.
-- **No concurrency coordination.** If your goroutines read from a shared `*Params`, you have to coordinate reads against whatever swap model you pick (`atomic.Pointer[T]` is the cleanest). BOA refuses to dictate sync for you.
-- **No deep merging**, no partial reload of a single file from a chain — the whole pipeline re-runs against the whole input set. Simplest semantics, easiest to reason about.
-
-### Which files get watched?
-
-`ctx.WatchedConfigFiles()` returns the paths a live-reload watcher should listen on. Auto-tracked:
-
-- Every `configfile:"true"` tagged field (single path or `[]string` overlay chain)
-- `Cmd.ConfigFormat` / `Cmd.ConfigUnmarshal` per-command escape hatches
-
-Not auto-tracked:
-
-- `boa.LoadConfigFile` / `LoadConfigFiles` / `LoadConfigBytes` called from inside a user hook — these are public helpers outside BOA's internal pipeline. Register those explicitly with `ctx.WatchConfigFile(path)` inside the same hook. The registration persists across reloads because the hook re-runs during the replay.
-
-```go
-PreValidateFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command, args []string) error {
-    if err := boa.LoadConfigFile("/etc/myapp/overrides.json", p, nil); err != nil {
-        return err
-    }
-    ctx.WatchConfigFile("/etc/myapp/overrides.json") // opt in to watching
-    return nil
-},
-```
-
-### Hook behavior on reload
-
-Re-run on reload: `InitFunc`, `PostCreateFunc`, `PreValidateFunc`, and their `Ctx` variants, plus any `CfgStructInit` / `CfgStructPreValidate` interface methods on the params struct. Skipped: `PreExecuteFunc` (no action to execute) and the command's `RunFunc`. If you have state-heavy init you don't want re-run on reload, guard with a sync.Once or an "already initialized" sentinel.
+See the dedicated [Live Config Reload](live-reload.md) page for the full guide.
 
 ## Checking Value Sources
 
