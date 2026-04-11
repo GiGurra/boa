@@ -87,6 +87,7 @@ Every struct-tag feature has a matching method on `Param` / `ParamT[T]` so field
 - `SetNoFlag(bool)` / `IsNoFlag() bool` — mirrors `boa:"noflag"`
 - `SetNoEnv(bool)` / `IsNoEnv() bool` — mirrors `boa:"noenv"`
 - `SetIgnored(bool)` / `IsIgnored() bool` — post-traversal equivalent of `boa:"ignore"` (the tag itself skips traversal entirely, so the mirror never exists; the programmatic form marks an existing mirror as ignored so CLI/env/validation/sync are all skipped). For `boa:"configonly"`, call `SetNoFlag(true)` + `SetNoEnv(true)` instead.
+- `SetConfigFile(bool)` / `IsConfigFile() bool` — programmatic equivalent of `configfile:"true"`. Field must be a string; tag-processing pass normalizes both tag and programmatic flag into a single config-file registry entry, so either source works identically. Non-string fields produce a clean user-input error rather than a panic.
 - `SetMinT(T)` / `SetMaxT(T)` on `ParamT[T]` for numeric `T` (stores at full int64/float64 precision). `SetMinLen(int)` / `SetMaxLen(int)` for string / slice / map fields. `ClearMin()` / `ClearMax()` on both. The non-generic `Param` exposes `GetMin() any` / `SetMin(any)` / `ClearMin()` (same for Max), returning a typed pointer: `*int64` for signed ints, `*float64` for floats, `*int` for length-based fields. `SetPattern(string)` / `GetPattern() string` unchanged.
 - `SetDefault(any)` / typed `ParamT[T].SetDefaultT(T)`
 - `SetAlternatives([]string)`, `SetAlternativesFunc(...)`, `SetStrictAlts(bool)`

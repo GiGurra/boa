@@ -90,6 +90,13 @@ type paramMeta struct {
 	// it desugars to noFlag+noEnv with the mirror preserved so validation
 	// and required checks still run.
 	ignored bool
+
+	// isConfigFile marks this string parameter as the config-file path for
+	// its parent struct. Mirrors `configfile:"true"`. When set, the field
+	// must be a string and its value (CLI / env / default) is used as a
+	// path to a config file that's unmarshaled into the enclosing struct.
+	// Set either via the tag or programmatically via SetConfigFile(true).
+	isConfigFile bool
 }
 
 var _ Param = &paramMeta{}
@@ -339,12 +346,14 @@ func (f *paramMeta) SetCustomValidator(validator func(any) error) {
 
 // --- noFlag / ignored ---
 
-func (f *paramMeta) IsNoFlag() bool      { return f.noFlag }
-func (f *paramMeta) SetNoFlag(val bool)  { f.noFlag = val }
-func (f *paramMeta) IsNoEnv() bool       { return f.noEnv }
-func (f *paramMeta) SetNoEnv(val bool)   { f.noEnv = val }
-func (f *paramMeta) IsIgnored() bool     { return f.ignored }
-func (f *paramMeta) SetIgnored(val bool) { f.ignored = val }
+func (f *paramMeta) IsNoFlag() bool         { return f.noFlag }
+func (f *paramMeta) SetNoFlag(val bool)     { f.noFlag = val }
+func (f *paramMeta) IsNoEnv() bool          { return f.noEnv }
+func (f *paramMeta) SetNoEnv(val bool)      { f.noEnv = val }
+func (f *paramMeta) IsIgnored() bool        { return f.ignored }
+func (f *paramMeta) SetIgnored(val bool)    { f.ignored = val }
+func (f *paramMeta) IsConfigFile() bool     { return f.isConfigFile }
+func (f *paramMeta) SetConfigFile(val bool) { f.isConfigFile = val }
 
 // --- min / max / pattern ---
 
