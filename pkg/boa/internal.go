@@ -366,6 +366,13 @@ func markConfigKeysPresent(ctx *processingContext, target any, targetPath fieldP
 
 // splitPath parses a fieldPath string back into the []int index path form.
 // Accepts an empty path.
+//
+// splitPath is internal and its only legal input is a string previously emitted
+// by joinPath — which always produces digit segments separated by dots. A parse
+// error therefore represents a library-internal invariant violation, not user
+// input, and has no sensible recovery: silently substituting 0 would corrupt
+// downstream FieldByIndex lookups and surface as a confusing "mirror not found"
+// failure far from the real bug. Panic is the right response.
 func splitPath(p fieldPath) []int {
 	if p == "" {
 		return nil
@@ -373,7 +380,10 @@ func splitPath(p fieldPath) []int {
 	parts := strings.Split(string(p), ".")
 	out := make([]int, len(parts))
 	for i, s := range parts {
-		n, _ := strconv.Atoi(s)
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			panic(fmt.Errorf("boa: malformed fieldPath %q: segment %q is not a valid integer (this is a library bug, not user input)", p, s))
+		}
 		out[i] = n
 	}
 	return out

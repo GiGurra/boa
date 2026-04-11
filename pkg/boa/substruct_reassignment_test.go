@@ -284,11 +284,16 @@ func TestReassignToNilAndBack(t *testing.T) {
 
 			// Nil the substruct — while nil, the path cannot be resolved.
 			params.DB = nil
-			// We cannot call &params.DB.Host here (it would segfault); probe via the
-			// authoritative store instead using a known path.
+			// We cannot call &params.DB.Host here (it would segfault on the nil
+			// dereference), so we intentionally reach into the internal mirrorByPath
+			// to verify the invariant this test exists to prove: the mirror stays in
+			// the authoritative store even while the pointer that used to address it
+			// is nil. This is a deliberate test-only coupling to internal state —
+			// the mirror store is the single source of truth, and field-address
+			// resolution is just a convenience layered on top.
 			if ctx != nil && ctx.ctx != nil {
 				if m, ok := ctx.ctx.mirrorByPath["0.0"]; ok {
-					mDuringNil = m // mirror still present in authoritative store
+					mDuringNil = m
 				}
 			}
 
