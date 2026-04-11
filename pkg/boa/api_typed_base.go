@@ -203,6 +203,43 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		params = b.Params
 	}
 
+	// reloadFactory is built at the typed layer so the generic Struct
+	// parameter is captured in the closure. When invoked, it allocates a
+	// fresh *Struct, constructs a copy of b with the new params and every
+	// run/execute hook replaced by no-ops, and re-runs the full pipeline
+	// through the standard CmdT[Struct].RunArgsE entry point. The no-op
+	// RunFunc is important: cobra skips PreRunE (and therefore all of
+	// boa's value-sourcing + validation) when the command has nothing to
+	// run. We want the pipeline to fire but we don't want the user's real
+	// action, so we substitute the quietest possible runner.
+	reloadFactory := func() (any, error) {
+		bCopy := b
+		fresh := new(Struct)
+		bCopy.Params = fresh
+
+		// Replace every run hook with a no-op. Only one run hook may be
+		// set at a time (boa enforces this), so clearing the others and
+		// installing exactly one no-op keeps validation happy. We use
+		// RunFunc as the designated slot.
+		bCopy.RunFunc = func(*Struct, *cobra.Command, []string) {}
+		bCopy.RunFuncCtx = nil
+		bCopy.RunFuncE = nil
+		bCopy.RunFuncCtxE = nil
+
+		// Pre-execute hooks represent "right before the main action" —
+		// there's no main action on a reload, so drop them. Init, Post-
+		// Create, and PreValidate all re-run because they're part of
+		// value-sourcing / derivation and often load additional state.
+		bCopy.PreExecuteFunc = nil
+		bCopy.PreExecuteFuncCtx = nil
+
+		bCopy.RawArgs = b.RawArgs
+		if err := bCopy.RunArgsE(b.RawArgs); err != nil {
+			return nil, err
+		}
+		return fresh, nil
+	}
+
 	return Cmd{
 		Use:                b.Use,
 		Short:              b.Short,
@@ -234,6 +271,7 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 		ConfigUnmarshal:    b.ConfigUnmarshal,
 		ConfigFormat:       b.ConfigFormat,
 		RawArgs:            b.RawArgs,
+		reloadFactory:      reloadFactory,
 	}
 }
 

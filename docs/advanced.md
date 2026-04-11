@@ -392,6 +392,12 @@ boa.RegisterConfigMarshaler(".yaml", yaml.Marshal)
 
 JSON comes with both directions pre-registered (pretty-printed, 2-space indent, trailing newline). See [examples-config.md](examples-config.md#writing-config-back-out) for full examples.
 
+## Live Config Reload
+
+For long-running programs that want to re-read config without restarting, BOA ships `boa.Reload[T](ctx) (*T, error)`. Every call allocates a brand-new `*T` and runs the full pipeline against it — the struct you originally received in `RunFunc` is never mutated. On success you get back the fresh snapshot to swap in (typically via `atomic.Pointer[T]`). On any failure — parse error, validation failure, missing file — Reload returns `(nil, err)` and nothing changes at all. Wire it to any trigger: SIGHUP, an admin HTTP endpoint, fsnotify, a timer.
+
+See the dedicated [Live Config Reload](live-reload.md) page for the full guide.
+
 ## Checking Value Sources
 
 Use `HookContext` in your run function to check how values were set:

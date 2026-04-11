@@ -343,6 +343,34 @@ type processingContext struct {
 	// mentioned in a config file (even if no child fields were set, e.g., "DB": {}).
 	// These survive cleanup regardless of whether individual fields were set.
 	ConfigPresentPtrs map[uintptr]bool
+
+	// LoadedConfigFiles records every config file path the pipeline actually
+	// read during this run — both from configfile:"true" tagged fields and
+	// from Cmd.ConfigFormat / ConfigUnmarshal escape hatches. Populated
+	// inside the PreRunE wrapper as files are loaded; cleared at the start
+	// of every reload. Exposed to users via HookContext.WatchedConfigFiles
+	// so the live-reload watcher knows which paths to listen on.
+	//
+	// Files loaded via the public helpers LoadConfigFile / LoadConfigFiles
+	// called from inside a user hook are NOT auto-tracked — those are
+	// outside boa's internal pipeline. Users who load files manually can
+	// register them explicitly via HookContext.WatchConfigFile so they
+	// show up in the watched list too.
+	LoadedConfigFiles []string
+
+	// ExtraWatchedConfigFiles holds paths that users registered via
+	// HookContext.WatchConfigFile — typically config files they loaded
+	// themselves inside a PreValidateFunc via boa.LoadConfigFile /
+	// boa.LoadConfigFiles. These are surfaced alongside LoadedConfigFiles
+	// in HookContext.WatchedConfigFiles so the live-reload watcher covers
+	// them too.
+	ExtraWatchedConfigFiles []string
+
+	// reloadFactory mirrors Cmd.reloadFactory for in-pipeline access. It
+	// is populated from b.reloadFactory at the top of toCobraBaseImpl so
+	// HookContext.reloadAny / boa.Reload can invoke it without knowing
+	// about the outer Cmd.
+	reloadFactory func() (any, error)
 }
 
 // preallocateStructPtrs walks the struct tree and allocates any nil struct pointer fields,
@@ -1747,6 +1775,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 		mirrorByPath:  map[fieldPath]Param{},
 		pathOrder:     []fieldPath{},
 		addrToPath:    map[unsafe.Pointer]fieldPath{},
+		reloadFactory: b.reloadFactory,
 	}
 
 	// Preallocate nil struct pointer fields so traverse can discover their children.
@@ -2165,6 +2194,12 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		if b.Params != nil {
 
+			// Reset the live-reload path registries at the top of every
+			// pipeline run so a reload sees a fresh list that reflects
+			// only what this run actually loaded.
+			ctx.LoadedConfigFiles = ctx.LoadedConfigFiles[:0]
+			ctx.ExtraWatchedConfigFiles = ctx.ExtraWatchedConfigFiles[:0]
+
 			// Must read env values before running any prevalidate code
 			if err := parseEnv(ctx, b.Params); err != nil {
 				return err
@@ -2243,6 +2278,11 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 							format:     effective,
 							ext:        filepath.Ext(filePath),
 						})
+						// Record the path so HookContext.WatchedConfigFiles
+						// can hand it to a live-reload watcher. Reset at
+						// the top of PreRunE above so a reload sees a
+						// fresh list.
+						ctx.LoadedConfigFiles = append(ctx.LoadedConfigFiles, filePath)
 					}
 					return nil
 				}
