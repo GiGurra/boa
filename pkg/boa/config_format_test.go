@@ -228,6 +228,104 @@ func TestCustomConfigFormat_MultipleFormatsOneBinary(t *testing.T) {
 	}
 }
 
+// TestCustomConfigFormat_DeepNestingUnderCustomFormat proves that the KeyTree
+// walker is format-agnostic and descends arbitrarily deep. Three levels of
+// optional struct-pointer groups, plus a non-pointer substruct in the middle
+// for good measure — every leaf value is written as either the zero value or
+// the parameter's default, so only a working KeyTree-based detector can keep
+// the pointer chain alive after cleanup.
+func TestCustomConfigFormat_DeepNestingUnderCustomFormat(t *testing.T) {
+	RegisterConfigFormatFull(".fmtDeep", ConfigFormat{
+		Unmarshal: fakeUnmarshal,
+		KeyTree:   fakeKeyTree,
+	})
+
+	type Leaf struct {
+		Host string `descr:"leaf host" default:"localhost"`
+		Port int    `descr:"leaf port" default:"5432"`
+	}
+	type Middle struct {
+		// Non-pointer substruct inside a pointer group.
+		Region string `descr:"middle region" default:"us-east-1"`
+		Deepest *Leaf
+	}
+	type Top struct {
+		Name   string `descr:"top name" default:"primary"`
+		Middle *Middle
+	}
+	type Params struct {
+		ConfigFile string `configfile:"true" optional:"true"`
+		Top        *Top
+	}
+
+	// Every written value either equals the zero value or equals the default.
+	// Snapshot comparison alone would say "nothing changed" and nil all three
+	// pointers out during cleanup.
+	raw := []byte(`{
+		"Top": {
+			"Name": "primary",
+			"Middle": {
+				"Region": "us-east-1",
+				"Deepest": {
+					"Host": "",
+					"Port": 5432
+				}
+			}
+		}
+	}`)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "deep.fmtDeep")
+	if err := os.WriteFile(cfgPath, raw, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var gotTop *Top
+	var deepestHostSet, deepestPortSet bool
+	var middleRegionSet, topNameSet bool
+	err := (CmdT[Params]{
+		Use:         "test",
+		ParamEnrich: ParamEnricherName,
+		RunFuncCtx: func(ctx *HookContext, p *Params, cmd *cobra.Command, args []string) {
+			gotTop = p.Top
+			if p.Top != nil {
+				topNameSet = ctx.HasValue(&p.Top.Name)
+				if p.Top.Middle != nil {
+					middleRegionSet = ctx.HasValue(&p.Top.Middle.Region)
+					if p.Top.Middle.Deepest != nil {
+						deepestHostSet = ctx.HasValue(&p.Top.Middle.Deepest.Host)
+						deepestPortSet = ctx.HasValue(&p.Top.Middle.Deepest.Port)
+					}
+				}
+			}
+		},
+	}).RunArgsE([]string{"--config-file", cfgPath})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotTop == nil {
+		t.Fatal("expected Top pointer group to survive cleanup (level 1)")
+	}
+	if gotTop.Middle == nil {
+		t.Fatal("expected Top.Middle pointer group to survive cleanup (level 2)")
+	}
+	if gotTop.Middle.Deepest == nil {
+		t.Fatal("expected Top.Middle.Deepest pointer group to survive cleanup (level 3)")
+	}
+	if !topNameSet {
+		t.Error("level 1 leaf: expected Top.Name to report HasValue=true (same-as-default write)")
+	}
+	if !middleRegionSet {
+		t.Error("level 2 leaf (inside pointer group): expected Top.Middle.Region to report HasValue=true")
+	}
+	if !deepestHostSet {
+		t.Error("level 3 leaf (pointer inside pointer): expected Top.Middle.Deepest.Host to report HasValue=true (zero-value write)")
+	}
+	if !deepestPortSet {
+		t.Error("level 3 leaf (pointer inside pointer): expected Top.Middle.Deepest.Port to report HasValue=true (same-as-default write)")
+	}
+}
+
 func TestCustomConfigFormat_KeyTreeHandlesMapAnyAny(t *testing.T) {
 	// yaml.v2 and some other parsers produce map[any]any for nested mappings.
 	// The walker's asKeyMap helper must coerce these transparently.
