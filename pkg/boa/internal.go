@@ -170,8 +170,44 @@ type Param interface {
 
 // configFileEntry tracks a configfile:"true" field and the struct it should load into.
 type configFileEntry struct {
-	mirror Param // the string param holding the file path
-	target any   // pointer to the struct to unmarshal into
+	mirror     Param     // the string param holding the file path
+	target     any       // pointer to the struct to unmarshal into
+	targetPath fieldPath // path from root to the target struct (empty for root)
+}
+
+// fieldPath is the dot-separated sequence of struct-field declaration indices
+// that locates a parameter from the root params struct. Example: "0.2.1" = root
+// field 0, its field 2, its field 1. Empty string means the root itself.
+//
+// Paths are the authoritative key for mirror storage — they are stable under
+// pointer-substruct reassignment (reflect.FieldByIndex walks through live
+// pointers at lookup time), debuggable, and support O(1) subtree operations
+// via string-prefix matching.
+type fieldPath string
+
+// joinPath serializes a []int index path to the canonical fieldPath string form.
+func joinPath(p []int) fieldPath {
+	if len(p) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for i, v := range p {
+		if i > 0 {
+			sb.WriteByte('.')
+		}
+		sb.WriteString(strconv.Itoa(v))
+	}
+	return fieldPath(sb.String())
+}
+
+// hasSubtreePrefix reports whether this path is prefix itself or a descendant of it.
+func (p fieldPath) hasSubtreePrefix(prefix fieldPath) bool {
+	if prefix == "" {
+		return true
+	}
+	s := string(p)
+	ps := string(prefix)
+	return s == ps || strings.HasPrefix(s, ps+".")
 }
 
 // preallocatedPtrInfo tracks a struct pointer field that was nil and got preallocated
@@ -180,17 +216,34 @@ type configFileEntry struct {
 // if none of its fields were explicitly set.
 type preallocatedPtrInfo struct {
 	ptrField reflect.Value // the pointer field in the parent struct (e.g., *DBConfig)
+	path     fieldPath     // path from root to this pointer field
 }
 
 type processingContext struct {
 	context.Context
-	RawAddrToMirror map[unsafe.Pointer]Param
-	// We need to keep track of raw params, so we can
-	// override the raw values with cli values in case
-	// the user may have mapped config files to the params
-	// as well - since the config file deserialization will
-	// not be aware of the raw values, and just overwrite them.
-	RawAddresses []unsafe.Pointer
+	// rootStructPtr is a pointer to the root parameters struct (e.g., *Params).
+	// All field paths are expressed relative to this root.
+	rootStructPtr any
+	// mirrorByPath is the authoritative mirror store, keyed by field-index path.
+	// Paths are stable under pointer-substruct reassignment and support efficient
+	// subtree queries via string-prefix matching.
+	mirrorByPath map[fieldPath]Param
+	// pathOrder preserves traverse insertion order for operations that need
+	// deterministic iteration (e.g., syncMirrors reads raw → mirror → raw in
+	// the order fields were discovered).
+	pathOrder []fieldPath
+	// addrToPath is a non-authoritative reverse index built during traverse.
+	// Its sole purpose is to support HookContext.GetParam(&params.Field),
+	// where users pass a Go field pointer and expect a mirror back. When the
+	// root parameters struct is reassigned mid-flight, this cache can be
+	// invalidated and rebuilt — mirrorByPath remains correct regardless.
+	addrToPath map[unsafe.Pointer]fieldPath
+	// walkFallbackCount / cacheRebuildCount are instrumentation counters for
+	// tests that need to assert whether a GetParam call hit the fast path or
+	// fell through to the slower fallback walk / cache rebuild. Incremented
+	// unconditionally — cheap, zero-cost for production code.
+	walkFallbackCount int
+	cacheRebuildCount int
 	// ConfigFiles tracks all configfile:"true" fields and their target structs.
 	// Ordered: substruct entries first, root entry last (so root overrides inner).
 	ConfigFiles []configFileEntry
@@ -207,7 +260,10 @@ type processingContext struct {
 // tracking them in ctx.PreallocatedPtrs so they can be nil'd back after parsing if unused.
 // This must be called before the first traverse so that traverse discovers the child fields.
 // The list is built depth-first (innermost first) for correct cleanup ordering.
-func preallocateStructPtrs(ctx *processingContext, structPtr any) {
+//
+// path is the declared-index path from the root to the struct being walked, using
+// reflect.StructField.Index numbering. Ignored fields retain their slot.
+func preallocateStructPtrs(ctx *processingContext, structPtr any, path []int) {
 	val := reflect.ValueOf(structPtr).Elem()
 	typ := val.Type()
 	for i := 0; i < typ.NumField(); i++ {
@@ -215,9 +271,10 @@ func preallocateStructPtrs(ctx *processingContext, structPtr any) {
 		if isBoaIgnored(field) {
 			continue
 		}
+		childPath := append(append([]int(nil), path...), i)
 		// Recurse into non-pointer structs (they're always present)
 		if field.Type.Kind() == reflect.Struct && !isSupportedType(field.Type) {
-			preallocateStructPtrs(ctx, val.Field(i).Addr().Interface())
+			preallocateStructPtrs(ctx, val.Field(i).Addr().Interface(), childPath)
 			continue
 		}
 		// Preallocate nil struct pointer fields
@@ -226,14 +283,15 @@ func preallocateStructPtrs(ctx *processingContext, structPtr any) {
 			if fieldVal.IsNil() {
 				fieldVal.Set(reflect.New(field.Type.Elem()))
 				// Recurse into the newly allocated struct (inner pointers first)
-				preallocateStructPtrs(ctx, fieldVal.Interface())
+				preallocateStructPtrs(ctx, fieldVal.Interface(), childPath)
 				// Append after recursion so innermost entries come first
 				ctx.PreallocatedPtrs = append(ctx.PreallocatedPtrs, preallocatedPtrInfo{
 					ptrField: fieldVal,
+					path:     joinPath(childPath),
 				})
 			} else {
 				// Already non-nil (user pre-initialized) — still recurse for nested nil ptrs
-				preallocateStructPtrs(ctx, fieldVal.Interface())
+				preallocateStructPtrs(ctx, fieldVal.Interface(), childPath)
 			}
 			continue
 		}
@@ -258,9 +316,10 @@ func cleanupPreallocatedPtrs(ctx *processingContext) {
 			anySet = true
 		}
 
-		// Walk the struct's fields and check if any mirror was explicitly set
+		// Walk the struct's fields and check if any mirror was explicitly set.
+		// Use the preallocation's recorded path so we resolve via mirrorByPath.
 		if !anySet {
-			collectAndCheck(ctx, structPtr, &anySet)
+			collectAndCheck(ctx, structPtr, splitPath(info.path), &anySet)
 		}
 
 		if !anySet {
@@ -278,8 +337,8 @@ func cleanupPreallocatedPtrs(ctx *processingContext) {
 		}
 
 		if !anySet {
-			// Remove mirrors for all fields within this struct
-			removeMirrorsForStruct(ctx, structPtr)
+			// Remove mirrors for all fields within this subtree via path-prefix purge
+			removeMirrorsForSubtree(ctx, info.path)
 			// Nil the pointer
 			info.ptrField.Set(reflect.Zero(info.ptrField.Type()))
 		}
@@ -297,7 +356,7 @@ func cleanupPreallocatedPtrs(ctx *processingContext) {
 //
 // Returns true if key-presence detection succeeded (JSON-compatible data).
 // Returns false for non-JSON data so the caller can fall back to snapshot comparison.
-func markConfigKeysPresent(ctx *processingContext, target any, rawData []byte) bool {
+func markConfigKeysPresent(ctx *processingContext, target any, targetPath fieldPath, rawData []byte) bool {
 	if len(ctx.PreallocatedPtrs) == 0 || len(rawData) == 0 {
 		return false
 	}
@@ -307,8 +366,33 @@ func markConfigKeysPresent(ctx *processingContext, target any, rawData []byte) b
 		return false // not JSON-compatible; caller should use snapshot fallback
 	}
 	// Walk the target struct type and match keys against preallocated struct ptrs
-	markConfigKeysPresentInStruct(ctx, target, topLevel)
+	markConfigKeysPresentInStruct(ctx, target, topLevel, splitPath(targetPath))
 	return true
+}
+
+// splitPath parses a fieldPath string back into the []int index path form.
+// Accepts an empty path.
+//
+// splitPath is internal and its only legal input is a string previously emitted
+// by joinPath — which always produces digit segments separated by dots. A parse
+// error therefore represents a library-internal invariant violation, not user
+// input, and has no sensible recovery: silently substituting 0 would corrupt
+// downstream FieldByIndex lookups and surface as a confusing "mirror not found"
+// failure far from the real bug. Panic is the right response.
+func splitPath(p fieldPath) []int {
+	if p == "" {
+		return nil
+	}
+	parts := strings.Split(string(p), ".")
+	out := make([]int, len(parts))
+	for i, s := range parts {
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			panic(fmt.Errorf("boa: malformed fieldPath %q: segment %q is not a valid integer (this is a library bug, not user input)", p, s))
+		}
+		out[i] = n
+	}
+	return out
 }
 
 // jsonFieldKey returns the key that encoding/json would use for a struct field.
@@ -345,7 +429,7 @@ func jsonKeyLookup(keys map[string]json.RawMessage, target string) (json.RawMess
 	return nil, false
 }
 
-func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys map[string]json.RawMessage) {
+func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys map[string]json.RawMessage, path []int) {
 	val := reflect.ValueOf(structPtr).Elem()
 	typ := val.Type()
 	for i := 0; i < typ.NumField(); i++ {
@@ -353,6 +437,7 @@ func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys m
 		if isBoaIgnored(field) {
 			continue
 		}
+		childPath := append(append([]int(nil), path...), i)
 		jsonKey := jsonFieldKey(field)
 		rawVal, keyPresent := jsonKeyLookup(keys, jsonKey)
 		if !keyPresent {
@@ -367,7 +452,7 @@ func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys m
 			markStructPtrPresentByConfig(ctx, fieldVal.Interface())
 			var subKeys map[string]json.RawMessage
 			if json.Unmarshal(rawVal, &subKeys) == nil && len(subKeys) > 0 {
-				markConfigKeysPresentInStruct(ctx, fieldVal.Interface(), subKeys)
+				markConfigKeysPresentInStruct(ctx, fieldVal.Interface(), subKeys, childPath)
 			}
 			continue
 		}
@@ -375,14 +460,13 @@ func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys m
 		if field.Type.Kind() == reflect.Struct && !isSupportedType(field.Type) {
 			var subKeys map[string]json.RawMessage
 			if json.Unmarshal(rawVal, &subKeys) == nil {
-				markConfigKeysPresentInStruct(ctx, fieldVal.Addr().Interface(), subKeys)
+				markConfigKeysPresentInStruct(ctx, fieldVal.Addr().Interface(), subKeys, childPath)
 			}
 			continue
 		}
 		// Leaf field present in config — mark its mirror
 		if isSupportedType(field.Type) {
-			addr := fieldVal.Addr().UnsafePointer()
-			if mirror, ok := ctx.RawAddrToMirror[addr]; ok {
+			if mirror, ok := ctx.mirrorByPath[joinPath(childPath)]; ok {
 				if pm, isPM := mirror.(*paramMeta); isPM {
 					pm.setByConfig = true
 				}
@@ -417,7 +501,7 @@ func markConfigChangedStructs(ctx *processingContext, snapshots []reflect.Value)
 		}
 		current := info.ptrField.Elem()
 		if !reflect.DeepEqual(current.Interface(), snapshots[i].Interface()) {
-			markAllMirrorsInStruct(ctx, info.ptrField.Interface())
+			markAllMirrorsInSubtree(ctx, info.ptrField.Interface(), splitPath(info.path))
 		}
 	}
 }
@@ -434,12 +518,17 @@ func markStructPtrPresentByConfig(ctx *processingContext, structPtr any) {
 	ctx.ConfigPresentPtrs[addr] = true
 }
 
-// markAllMirrorsInStruct marks mirrors in this struct as set by config.
-// It recurses into non-pointer structs but STOPS at pointer-to-struct boundaries.
-// Pointer-to-struct fields are handled by key-presence recursion in
-// markConfigKeysPresentInStruct, which only marks nested ptr structs if the
-// config data actually mentions them.
-func markAllMirrorsInStruct(ctx *processingContext, structPtr any) {
+// markAllMirrorsInSubtree marks every mirror within the given subtree as set by config.
+// The subtree is identified by its path from the root (empty path == entire root).
+// Only direct-descendant mirrors are marked; nested pointer-to-struct boundaries are
+// handled separately by key-presence recursion in markConfigKeysPresentInStruct.
+//
+// We iterate mirrorByPath looking for entries whose path starts with prefix and does
+// NOT cross a pointer-struct boundary further down (i.e., they're the immediate
+// flat-descendant leaves reachable by struct-walking without ptr indirection).
+// For simplicity — and to match the prior reflect-walking semantics — we walk the
+// actual struct at `structPtr` and compute child paths to look up.
+func markAllMirrorsInSubtree(ctx *processingContext, structPtr any, path []int) {
 	val := reflect.ValueOf(structPtr).Elem()
 	typ := val.Type()
 	for i := 0; i < typ.NumField(); i++ {
@@ -447,10 +536,10 @@ func markAllMirrorsInStruct(ctx *processingContext, structPtr any) {
 		if isBoaIgnored(field) {
 			continue
 		}
+		childPath := append(append([]int(nil), path...), i)
 		fieldVal := val.Field(i)
 		if isSupportedType(field.Type) {
-			addr := fieldVal.Addr().UnsafePointer()
-			if mirror, ok := ctx.RawAddrToMirror[addr]; ok {
+			if mirror, ok := ctx.mirrorByPath[joinPath(childPath)]; ok {
 				if pm, isPM := mirror.(*paramMeta); isPM {
 					pm.setByConfig = true
 				}
@@ -458,7 +547,7 @@ func markAllMirrorsInStruct(ctx *processingContext, structPtr any) {
 			continue
 		}
 		if field.Type.Kind() == reflect.Struct {
-			markAllMirrorsInStruct(ctx, fieldVal.Addr().Interface())
+			markAllMirrorsInSubtree(ctx, fieldVal.Addr().Interface(), childPath)
 			continue
 		}
 		// Do NOT recurse into pointer-to-struct fields here.
@@ -468,7 +557,8 @@ func markAllMirrorsInStruct(ctx *processingContext, structPtr any) {
 
 // collectAndCheck walks a struct's fields and checks if any mirror was explicitly set
 // by the user (CLI, env var, or config file). Default values alone don't count.
-func collectAndCheck(ctx *processingContext, structPtr any, anySet *bool) {
+// path is the path-from-root of structPtr (empty for root).
+func collectAndCheck(ctx *processingContext, structPtr any, path []int, anySet *bool) {
 	val := reflect.ValueOf(structPtr).Elem()
 	typ := val.Type()
 	for i := 0; i < typ.NumField(); i++ {
@@ -479,10 +569,10 @@ func collectAndCheck(ctx *processingContext, structPtr any, anySet *bool) {
 		if isBoaIgnored(field) {
 			continue
 		}
+		childPath := append(append([]int(nil), path...), i)
 		fieldVal := val.Field(i)
 		if isSupportedType(field.Type) {
-			addr := fieldVal.Addr().UnsafePointer()
-			if mirror, ok := ctx.RawAddrToMirror[addr]; ok {
+			if mirror, ok := ctx.mirrorByPath[joinPath(childPath)]; ok {
 				pm, isPM := mirror.(*paramMeta)
 				if mirror.wasSetOnCli() || mirror.wasSetByEnv() {
 					*anySet = true
@@ -497,49 +587,40 @@ func collectAndCheck(ctx *processingContext, structPtr any, anySet *bool) {
 		}
 		// Recurse into non-pointer structs
 		if field.Type.Kind() == reflect.Struct {
-			collectAndCheck(ctx, fieldVal.Addr().Interface(), anySet)
+			collectAndCheck(ctx, fieldVal.Addr().Interface(), childPath, anySet)
 			continue
 		}
 		// Recurse into non-nil pointer structs
 		if field.Type.Kind() == reflect.Ptr && !fieldVal.IsNil() && field.Type.Elem().Kind() == reflect.Struct {
-			collectAndCheck(ctx, fieldVal.Interface(), anySet)
+			collectAndCheck(ctx, fieldVal.Interface(), childPath, anySet)
 		}
 	}
 }
 
-// removeMirrorsForStruct removes all mirrors belonging to fields within the given struct
-// from the processing context, preventing dangling unsafe pointers after the struct is nil'd.
-func removeMirrorsForStruct(ctx *processingContext, structPtr any) {
-	val := reflect.ValueOf(structPtr).Elem()
-	typ := val.Type()
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		if isBoaIgnored(field) {
-			continue
-		}
-		fieldVal := val.Field(i)
-		if isSupportedType(field.Type) {
-			addr := fieldVal.Addr().UnsafePointer()
-			delete(ctx.RawAddrToMirror, addr)
-			// Remove from RawAddresses slice
-			for j, a := range ctx.RawAddresses {
-				if a == addr {
-					ctx.RawAddresses = append(ctx.RawAddresses[:j], ctx.RawAddresses[j+1:]...)
-					break
-				}
-			}
-			continue
-		}
-		// Recurse into non-pointer structs
-		if field.Type.Kind() == reflect.Struct {
-			removeMirrorsForStruct(ctx, fieldVal.Addr().Interface())
-			continue
-		}
-		// Recurse into non-nil pointer structs
-		if field.Type.Kind() == reflect.Ptr && !fieldVal.IsNil() && field.Type.Elem().Kind() == reflect.Struct {
-			removeMirrorsForStruct(ctx, fieldVal.Interface())
+// removeMirrorsForSubtree removes all mirrors whose path is equal to or descends from
+// the given prefix path. Uses string-prefix matching on the authoritative path store;
+// no struct walking required.
+func removeMirrorsForSubtree(ctx *processingContext, prefix fieldPath) {
+	// Purge mirrorByPath
+	for p := range ctx.mirrorByPath {
+		if p.hasSubtreePrefix(prefix) {
+			delete(ctx.mirrorByPath, p)
 		}
 	}
+	// Rebuild pathOrder without the removed entries
+	kept := ctx.pathOrder[:0]
+	for _, p := range ctx.pathOrder {
+		if _, still := ctx.mirrorByPath[p]; still {
+			kept = append(kept, p)
+		}
+	}
+	// Zero out tail references so GC can reclaim the removed fieldPath strings
+	for i := len(kept); i < len(ctx.pathOrder); i++ {
+		ctx.pathOrder[i] = ""
+	}
+	ctx.pathOrder = kept
+	// Invalidate reverse address index — addresses inside the removed subtree are now stale
+	ctx.addrToPath = nil
 }
 
 func parseEnv(ctx *processingContext, structPtr any) error {
@@ -1159,9 +1240,28 @@ func isBoaIgnored(field reflect.StructField) bool {
 		slices.Contains(boaTags, "-")
 }
 
+// traverse is the public-facing entrypoint; it walks from the root params struct
+// starting with an empty path. It accepts variadic prefix strings for backward
+// compatibility with existing call sites that sometimes preload a name prefix.
 func traverse(
 	ctx *processingContext,
 	structPtr any,
+	fParam func(param Param, paramFieldName string, tags reflect.StructTag) error,
+	fStruct func(structPtr any) error,
+	prefixParts ...string,
+) error {
+	return traverseAt(ctx, structPtr, nil, fParam, fStruct, prefixParts...)
+}
+
+// traverseAt walks the struct tree while carrying the declared-index path from
+// the root. The path is what identifies each leaf mirror in mirrorByPath.
+// Ignored fields retain their declared index slot; only the loop variable i is
+// used for path construction (never a visit counter), so interleaved ignored
+// fields cannot drift the key.
+func traverseAt(
+	ctx *processingContext,
+	structPtr any,
+	path []int,
 	fParam func(param Param, paramFieldName string, tags reflect.StructTag) error,
 	fStruct func(structPtr any) error,
 	prefixParts ...string,
@@ -1193,6 +1293,17 @@ func traverse(
 			continue
 		}
 
+		// childPath is the declared-index path to this field from the root.
+		// Use declared index (i), not a visit counter, so ignored fields do not
+		// drift subsequent siblings.
+		//
+		// Single allocation: len(path)+1 explicitly sized. The old
+		// append(append([]int(nil), path...), i) form did two allocations per
+		// field visit, which matters during init of larger parameter trees.
+		childPath := make([]int, len(path)+1)
+		copy(childPath, path)
+		childPath[len(path)] = i
+
 		fieldAddr := rootValue.Field(i).Addr()
 		// check if field is a param
 		param, isParam := fieldAddr.Interface().(Param)
@@ -1213,7 +1324,7 @@ func traverse(
 				if !field.Anonymous {
 					childPrefix = prefix + field.Name
 				}
-				if err := traverse(ctx, fieldAddr.Interface(), fParam, fStruct, childPrefix); err != nil {
+				if err := traverseAt(ctx, fieldAddr.Interface(), childPath, fParam, fStruct, childPrefix); err != nil {
 					return err
 				}
 				continue
@@ -1226,30 +1337,38 @@ func traverse(
 					if !field.Anonymous {
 						childPrefix = prefix + field.Name
 					}
-					if err := traverse(ctx, fieldAddr.Elem().Interface(), fParam, fStruct, childPrefix); err != nil {
+					if err := traverseAt(ctx, fieldAddr.Elem().Interface(), childPath, fParam, fStruct, childPrefix); err != nil {
 						return err
 					}
 				}
 				continue
 			}
 
-			// For raw fields, we store parameter mirrors in the processing context
+			// For raw fields, store parameter mirrors keyed by field-index path.
 			if isSupportedType(field.Type) {
 
 				// check if we already have a mirror for this field
-				addr := fieldAddr.UnsafePointer()
+				pathKey := joinPath(childPath)
 				var ok bool
-				if param, ok = ctx.RawAddrToMirror[addr]; !ok {
+				if param, ok = ctx.mirrorByPath[pathKey]; !ok {
 					param = newParam(&field, field.Type)
-					// Set prefix for named struct nesting
-					if prefix != "" {
-						if pm, ok := param.(*paramMeta); ok {
+					// Set prefix for named struct nesting, and stash the path
+					// key on the mirror so callers that have a *paramMeta can
+					// read it without scanning pathOrder.
+					if pm, ok := param.(*paramMeta); ok {
+						pm.pathKey = pathKey
+						if prefix != "" {
 							pm.flagPrefix = camelToKebabCase(prefix) + "-"
 							pm.envPrefix = kebabCaseToUpperSnakeCase(pm.flagPrefix[:len(pm.flagPrefix)-1]) + "_"
 						}
 					}
-					ctx.RawAddresses = append(ctx.RawAddresses, addr)
-					ctx.RawAddrToMirror[addr] = param
+					ctx.pathOrder = append(ctx.pathOrder, pathKey)
+					ctx.mirrorByPath[pathKey] = param
+					// Maintain the reverse address index for HookContext.GetParam(&field).
+					// This is a non-authoritative cache — mirrorByPath is the source of truth.
+					if ctx.addrToPath != nil {
+						ctx.addrToPath[fieldAddr.UnsafePointer()] = pathKey
+					}
 				}
 
 				if fParam != nil {
@@ -1290,16 +1409,18 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 	}
 
 	ctx := &processingContext{
-		Context:         context.Background(), // prepare to override later?
-		RawAddrToMirror: map[unsafe.Pointer]Param{},
-		RawAddresses:    []unsafe.Pointer{},
+		Context:       context.Background(), // prepare to override later?
+		rootStructPtr: b.Params,
+		mirrorByPath:  map[fieldPath]Param{},
+		pathOrder:     []fieldPath{},
+		addrToPath:    map[unsafe.Pointer]fieldPath{},
 	}
 
 	// Preallocate nil struct pointer fields so traverse can discover their children.
 	// This must happen before the first traverse and before init hooks so users can
 	// access fields like &params.DB.Port in InitFunc/InitFuncCtx.
 	if b.Params != nil {
-		preallocateStructPtrs(ctx, b.Params)
+		preallocateStructPtrs(ctx, b.Params, nil)
 	}
 
 	// build mirrors
@@ -1322,7 +1443,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			}
 			// context-aware interface
 			if toInitCtx, ok := b.Params.(CfgStructInitCtx); ok {
-				hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+				hookCtx := newHookContext(ctx)
 				err := toInitCtx.InitCtx(hookCtx)
 				if err != nil {
 					return fmt.Errorf("error in CfgStructInitCtx.InitCtx(): %w", err)
@@ -1345,7 +1466,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 
 	// if we have a context-aware init function, call it
 	if b.InitFuncCtx != nil {
-		hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+		hookCtx := newHookContext(ctx)
 		err := b.InitFuncCtx(hookCtx, b.Params, cmd)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error in InitFuncCtx: %w", err)
@@ -1498,9 +1619,21 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 				if param.GetType().Kind() != reflect.String {
 					return fmt.Errorf("configfile tag on param %s: must be a string field", param.GetName())
 				}
+				// The target struct path is the parent of the configfile param's own path.
+				// Read it directly from paramMeta.pathKey (stashed during traverse) —
+				// no scan over pathOrder needed.
+				var targetPath fieldPath
+				if pm, ok := param.(*paramMeta); ok {
+					if idx := strings.LastIndex(string(pm.pathKey), "."); idx >= 0 {
+						targetPath = pm.pathKey[:idx]
+					}
+					// If there's no dot, the configfile field lives at the root
+					// and its target path is the empty fieldPath — already set.
+				}
 				ctx.ConfigFiles = append(ctx.ConfigFiles, configFileEntry{
-					mirror: param,
-					target: currentStructPtr,
+					mirror:     param,
+					target:     currentStructPtr,
+					targetPath: targetPath,
 				})
 			}
 
@@ -1589,7 +1722,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			}
 		}
 		if postCreateCtx, ok := b.Params.(CfgStructPostCreateCtx); ok {
-			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+			hookCtx := newHookContext(ctx)
 			if err := postCreateCtx.PostCreateCtx(hookCtx); err != nil {
 				return nil, nil, fmt.Errorf("error in CfgStructPostCreateCtx.PostCreateCtx(): %w", err)
 			}
@@ -1601,7 +1734,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			}
 		}
 		if b.PostCreateFuncCtx != nil {
-			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+			hookCtx := newHookContext(ctx)
 			err := b.PostCreateFuncCtx(hookCtx, b.Params, cmd)
 			if err != nil {
 				return nil, nil, fmt.Errorf("error in PostCreateFuncCtx: %w", err)
@@ -1671,8 +1804,9 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			// the raw bytes for key presence — this lets us detect config-file writes
 			// even when the value equals Go's zero value or the field's default.
 			type configLoadResult struct {
-				target  any
-				rawData []byte
+				target     any
+				targetPath fieldPath
+				rawData    []byte
 			}
 			var configResults []configLoadResult
 
@@ -1695,7 +1829,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 							if err != nil {
 								return NewUserInputError(fmt.Errorf("configfile %s: %w", entry.mirror.GetName(), err))
 							}
-							configResults = append(configResults, configLoadResult{target: entry.target, rawData: rawData})
+							configResults = append(configResults, configLoadResult{target: entry.target, targetPath: entry.targetPath, rawData: rawData})
 						}
 					}
 				}
@@ -1708,7 +1842,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 							if err != nil {
 								return NewUserInputError(fmt.Errorf("configfile %s: %w", entry.mirror.GetName(), err))
 							}
-							configResults = append(configResults, configLoadResult{target: entry.target, rawData: rawData})
+							configResults = append(configResults, configLoadResult{target: entry.target, targetPath: entry.targetPath, rawData: rawData})
 						}
 					}
 				}
@@ -1721,7 +1855,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			// For non-JSON formats, fall back to snapshot comparison.
 			allDetected := true
 			for _, cr := range configResults {
-				if !markConfigKeysPresent(ctx, cr.target, cr.rawData) {
+				if !markConfigKeysPresent(ctx, cr.target, cr.targetPath, cr.rawData) {
 					allDetected = false
 				}
 			}
@@ -1749,7 +1883,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 				}
 				// context-aware interface
 				if s, ok := innerParams.(CfgStructPreValidateCtx); ok {
-					hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+					hookCtx := newHookContext(ctx)
 					err := s.PreValidateCtx(hookCtx)
 					if err != nil {
 						return fmt.Errorf("error in PreValidateCtx: %w", err)
@@ -1771,7 +1905,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 
 			// if we have a context-aware pre-validate function, call it
 			if b.PreValidateFuncCtx != nil {
-				hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+				hookCtx := newHookContext(ctx)
 				err := b.PreValidateFuncCtx(hookCtx, b.Params, cmd, args)
 				if err != nil {
 					return fmt.Errorf("error in PreValidateFuncCtx: %w", err)
@@ -1797,7 +1931,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 				}
 				// context-aware interface
 				if preExecuteCtx, ok := innerParams.(CfgStructPreExecuteCtx); ok {
-					hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+					hookCtx := newHookContext(ctx)
 					err := preExecuteCtx.PreExecuteCtx(hookCtx)
 					if err != nil {
 						return fmt.Errorf("error in PreExecuteCtx: %w", err)
@@ -1819,7 +1953,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 
 			// if we have a context-aware pre-execute function, call it
 			if b.PreExecuteFuncCtx != nil {
-				hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+				hookCtx := newHookContext(ctx)
 				err := b.PreExecuteFuncCtx(hookCtx, b.Params, cmd, args)
 				if err != nil {
 					return fmt.Errorf("error in PreExecuteFuncCtx: %w", err)
@@ -1874,7 +2008,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		}
 	} else if b.RunFuncCtx != nil {
 		cmd.RunE = func(cmd *cobra.Command, args []string) error {
-			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+			hookCtx := newHookContext(ctx)
 			b.RunFuncCtx(hookCtx, cmd, args)
 			return nil
 		}
@@ -1888,7 +2022,7 @@ func (b Cmd) toCobraImpl() *cobra.Command {
 		}
 	} else if b.RunFuncCtxE != nil {
 		cmd.RunE = func(cmd *cobra.Command, args []string) error {
-			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+			hookCtx := newHookContext(ctx)
 			err := b.RunFuncCtxE(hookCtx, cmd, args)
 			if err != nil && !IsUserInputError(err) {
 				return &runFuncError{Err: err}
@@ -1932,7 +2066,7 @@ func (b Cmd) toCobraImplE() (*cobra.Command, error) {
 		}
 	} else if b.RunFuncCtxE != nil {
 		cmd.RunE = func(cmd *cobra.Command, args []string) error {
-			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+			hookCtx := newHookContext(ctx)
 			return b.RunFuncCtxE(hookCtx, cmd, args)
 		}
 	} else if b.RunFunc != nil {
@@ -1944,7 +2078,7 @@ func (b Cmd) toCobraImplE() (*cobra.Command, error) {
 	} else if b.RunFuncCtx != nil {
 		// Wrap non-E variant to return nil (no error)
 		cmd.RunE = func(cmd *cobra.Command, args []string) error {
-			hookCtx := &HookContext{rawAddrToMirror: ctx.RawAddrToMirror}
+			hookCtx := newHookContext(ctx)
 			b.RunFuncCtx(hookCtx, cmd, args)
 			return nil
 		}
@@ -1967,42 +2101,127 @@ func (b Cmd) toCobraImplE() (*cobra.Command, error) {
 	return cmd, nil
 }
 
+// resolveFieldValue walks from the root params struct to the field at the given
+// declared-index path and returns an addressable reflect.Value for that field.
+// Returns (zero, false) if any intermediate pointer-to-struct is nil (which can
+// happen after cleanupPreallocatedPtrs nils an unused substruct).
+func (ctx *processingContext) resolveFieldValue(path fieldPath) (reflect.Value, bool) {
+	if ctx.rootStructPtr == nil {
+		return reflect.Value{}, false
+	}
+	v := reflect.ValueOf(ctx.rootStructPtr).Elem()
+	idx := splitPath(path)
+	for _, i := range idx {
+		for v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				return reflect.Value{}, false
+			}
+			v = v.Elem()
+		}
+		if v.Kind() != reflect.Struct {
+			return reflect.Value{}, false
+		}
+		if i >= v.NumField() {
+			return reflect.Value{}, false
+		}
+		v = v.Field(i)
+	}
+	// For the final value, if it is a pointer-to-struct we do NOT auto-deref:
+	// mirror types may themselves be pointers (e.g., *url.URL), and pointer-field
+	// semantics are handled by syncPointerField.
+	return v, true
+}
+
+// rebuildAddrToPath walks the current live struct tree (starting from rootStructPtr)
+// and rebuilds the reverse address index. Called on demand when the cache has been
+// invalidated (e.g., after a subtree removal).
+func (ctx *processingContext) rebuildAddrToPath() {
+	ctx.cacheRebuildCount++
+	ctx.addrToPath = map[unsafe.Pointer]fieldPath{}
+	for _, p := range ctx.pathOrder {
+		v, ok := ctx.resolveFieldValue(p)
+		if !ok || !v.CanAddr() {
+			continue
+		}
+		ctx.addrToPath[v.Addr().UnsafePointer()] = p
+	}
+}
+
+// findPathByAddr walks the live struct tree and searches for a leaf whose address
+// matches. Used as a fallback when the reverse index is stale (e.g., a substruct
+// was reassigned by user code).
+func (ctx *processingContext) findPathByAddr(addr unsafe.Pointer) (fieldPath, bool) {
+	ctx.walkFallbackCount++
+	for _, p := range ctx.pathOrder {
+		v, ok := ctx.resolveFieldValue(p)
+		if !ok || !v.CanAddr() {
+			continue
+		}
+		if v.Addr().UnsafePointer() == addr {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+// reinterpretAs returns the raw field value viewed as the target type, without
+// copying. This supports type aliases (e.g., a MyString field seen as string) by
+// taking the field's address and reconstructing a Value at the same memory with
+// the target type. If the types already match, the input is returned unchanged.
+//
+// This is the one legitimate use of unsafe in the sync path — cobra's flag system
+// only knows underlying types, so mirror storage and mirror → raw writes must go
+// through the underlying view of the memory.
+func reinterpretAs(rawFieldVal reflect.Value, target reflect.Type) reflect.Value {
+	if rawFieldVal.Type() == target {
+		return rawFieldVal
+	}
+	return reflect.NewAt(target, rawFieldVal.Addr().UnsafePointer()).Elem()
+}
+
 func syncMirrors(ctx *processingContext) {
 	// 1. First, copy non-zero values from the raw fields -> mirrors as injected values.
 	// 2. Then copy back cli & env set values to the raw fields
 
-	for _, rawAddr := range ctx.RawAddresses {
-		mirror := ctx.RawAddrToMirror[rawAddr]
+	for _, p := range ctx.pathOrder {
+		mirror, ok := ctx.mirrorByPath[p]
+		if !ok {
+			continue
+		}
+		rawFieldVal, resolved := ctx.resolveFieldValue(p)
+		if !resolved {
+			// The substruct housing this field has been nil'd out by cleanup — skip.
+			continue
+		}
 
 		// Check if this is a pointer field (e.g., *string, *int)
 		pm, isParamMeta := mirror.(*paramMeta)
 		if isParamMeta && pm.isPointer {
-			syncPointerField(rawAddr, mirror, pm)
+			// Reinterpret as pointer-to-underlying-type so type aliases round-trip
+			ptrView := reinterpretAs(rawFieldVal, reflect.PointerTo(mirror.GetType()))
+			syncPointerField(ptrView, mirror)
 			continue
 		}
 
-		// Create a reflect.Value pointing to the raw field via its stored address
-		ptrToRawValue := reflect.NewAt(mirror.GetType(), rawAddr)
+		// Reinterpret as the underlying type (matters for type aliases)
+		underlying := reinterpretAs(rawFieldVal, mirror.GetType())
 
-		if !mirror.wasSetOnCli() && !mirror.wasSetByEnv() && !ptrToRawValue.Elem().IsZero() {
-			mirror.injectValuePtr(ptrToRawValue.Interface())
+		if !mirror.wasSetOnCli() && !mirror.wasSetByEnv() && !underlying.IsZero() {
+			mirror.injectValuePtr(underlying.Addr().Interface())
 		}
 
-		if mirror.wasSetOnCli() || mirror.wasSetByEnv() || (mirror.HasValue() && ptrToRawValue.Elem().IsZero()) {
+		if mirror.wasSetOnCli() || mirror.wasSetByEnv() || (mirror.HasValue() && underlying.IsZero()) {
 			mirrorValue := reflect.ValueOf(mirror.valuePtrF()).Elem()
-
-			// Get the element that the pointer points to
-			rawValue := ptrToRawValue.Elem()
 
 			// Skip if types don't match (e.g., string vs *url.URL before conversion)
 			// This allows syncing to work before and after validation/conversion
-			if !mirrorValue.Type().AssignableTo(rawValue.Type()) {
+			if !mirrorValue.Type().AssignableTo(underlying.Type()) {
 				continue
 			}
 
 			// Make sure the destination is settable
-			if rawValue.CanSet() {
-				rawValue.Set(mirrorValue)
+			if underlying.CanSet() {
+				underlying.Set(mirrorValue)
 			} else {
 				panic(fmt.Errorf("could not set value for parameter %s", mirror.GetName()))
 			}
@@ -2011,14 +2230,9 @@ func syncMirrors(ctx *processingContext) {
 }
 
 // syncPointerField handles bidirectional sync for pointer fields like *string, *int.
-// rawAddr points to the pointer field itself (e.g., the *string field in the user's struct).
-// The mirror stores the value type (string), while the raw field is a pointer (*string).
-func syncPointerField(rawAddr unsafe.Pointer, mirror Param, _ *paramMeta) {
-	// rawAddr points to the *string field. reflect.NewAt creates a **string pointing at it.
-	ptrType := reflect.PointerTo(mirror.GetType()) // e.g., *string
-	rawFieldPtr := reflect.NewAt(ptrType, rawAddr)  // **string pointing at the field
-	rawFieldVal := rawFieldPtr.Elem()                // the *string field value itself
-
+// rawFieldVal is the *string field value itself (an addressable reflect.Value of
+// pointer kind). The mirror stores the element type (string).
+func syncPointerField(rawFieldVal reflect.Value, mirror Param) {
 	// Raw → Mirror: if the user's pointer is non-nil, inject the pointed-to value
 	if !mirror.wasSetOnCli() && !mirror.wasSetByEnv() && !rawFieldVal.IsNil() {
 		// rawFieldVal.Interface() is *string — same type cobra uses

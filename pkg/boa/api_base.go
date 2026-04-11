@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"unsafe"
 
 	"github.com/spf13/cobra"
 )
@@ -334,8 +333,20 @@ type CmdIfc interface {
 // HookContext provides access to parameter mirrors and advanced configuration APIs
 // within startup hooks. This allows hooks to access and modify parameters
 // programmatically (SetDefault, SetAlternatives, SetRequiredFn, etc.).
+//
+// Internally, mirrors are stored keyed by their declared-index path from the root
+// parameters struct. This keeps the identity of a mirror stable even when pointer
+// substructs are reassigned, and makes subtree operations efficient string-prefix
+// queries rather than address walks. The address → path cache exists solely to
+// support the ergonomic GetParam(&params.Field) API.
 type HookContext struct {
-	rawAddrToMirror map[unsafe.Pointer]Param
+	ctx *processingContext
+}
+
+// newHookContext wraps a processingContext for hook exposure.
+// Returns a usable (even if empty) HookContext — it never returns nil.
+func newHookContext(pctx *processingContext) *HookContext {
+	return &HookContext{ctx: pctx}
 }
 
 // GetParam returns the Param for any field pointer.
@@ -355,25 +366,84 @@ type HookContext struct {
 //	        return nil
 //	    },
 //	}
+//
+// GetParam returns nil and logs a descriptive slog.Error if the field pointer
+// does not belong to the parameters struct associated with this HookContext —
+// for example, if the caller passes a pointer to a field in an unrelated
+// struct, in a different command's params, or in a substruct that was never
+// registered (e.g., tagged boa:"ignore"). Callers using the idiomatic
+// ctx.GetParam(&p.X).SetY(...) pattern will still see a nil-dereference crash
+// if they chain against a nil return, but the preceding slog.Error log line
+// will carry the descriptive cause so the real bug is visible in the output.
+// Callers that want "probe without crashing" semantics can explicitly check
+// for nil.
 func (c *HookContext) GetParam(fieldPtr any) Param {
 	if param, ok := fieldPtr.(Param); ok {
 		return param
 	}
-	if c.rawAddrToMirror == nil {
+	if c == nil || c.ctx == nil || c.ctx.mirrorByPath == nil {
+		slog.Error("boa.HookContext.GetParam: called on a nil or uninitialized HookContext (no parameters are registered)")
 		return nil
 	}
-	addr := reflect.ValueOf(fieldPtr).UnsafePointer()
-	return c.rawAddrToMirror[addr]
+	if fieldPtr == nil {
+		slog.Error("boa.HookContext.GetParam: fieldPtr is nil")
+		return nil
+	}
+	rv := reflect.ValueOf(fieldPtr)
+	if rv.Kind() != reflect.Ptr {
+		slog.Error("boa.HookContext.GetParam: fieldPtr must be a pointer to a struct field",
+			"got_type", fmt.Sprintf("%T", fieldPtr))
+		return nil
+	}
+	if rv.IsNil() {
+		slog.Error("boa.HookContext.GetParam: fieldPtr is a typed nil",
+			"got_type", fmt.Sprintf("%T", fieldPtr))
+		return nil
+	}
+
+	addr := rv.UnsafePointer()
+	// Rebuild the address cache if it was invalidated (e.g., after a subtree removal).
+	if c.ctx.addrToPath == nil {
+		c.ctx.rebuildAddrToPath()
+	}
+	if path, ok := c.ctx.addrToPath[addr]; ok {
+		return c.ctx.mirrorByPath[path]
+	}
+	// Fallback: walk the root to discover a matching leaf address. This handles
+	// the case where the user reassigned a substruct after the cache was built.
+	// On a hit, repair the cache opportunistically so the next lookup for this
+	// address is O(1) again.
+	if c.ctx.rootStructPtr != nil {
+		if path, ok := c.ctx.findPathByAddr(addr); ok {
+			if c.ctx.addrToPath != nil {
+				c.ctx.addrToPath[addr] = path
+			}
+			return c.ctx.mirrorByPath[path]
+		}
+	}
+	slog.Error(
+		"boa.HookContext.GetParam: the field pointer does not belong to the parameters struct associated with this HookContext. "+
+			"Likely causes: "+
+			"(1) you passed a pointer to a field in an unrelated struct; "+
+			"(2) you passed a field from a different command's params in the same command tree (each command has its own mirror set); "+
+			"(3) you passed a field from a substruct that was not registered (e.g., one tagged boa:\"ignore\" or of an unsupported type); "+
+			"(4) you passed a field from a different instance of the same params type than the one registered with this command.",
+		"got_type", fmt.Sprintf("%T", fieldPtr),
+		"address", fmt.Sprintf("%p", addr),
+	)
+	return nil
 }
 
-// AllMirrors returns all parameter mirrors in the context.
+// AllMirrors returns all parameter mirrors in the context in declaration/insertion order.
 func (c *HookContext) AllMirrors() []Param {
-	if c.rawAddrToMirror == nil {
+	if c == nil || c.ctx == nil || c.ctx.mirrorByPath == nil {
 		return nil
 	}
-	result := make([]Param, 0, len(c.rawAddrToMirror))
-	for _, param := range c.rawAddrToMirror {
-		result = append(result, param)
+	result := make([]Param, 0, len(c.ctx.pathOrder))
+	for _, p := range c.ctx.pathOrder {
+		if m, ok := c.ctx.mirrorByPath[p]; ok {
+			result = append(result, m)
+		}
 	}
 	return result
 }

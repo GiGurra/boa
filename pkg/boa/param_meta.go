@@ -37,6 +37,12 @@ type paramMeta struct {
 	flagPrefix string // kebab-case prefix for flag names
 	envPrefix  string // UPPER_SNAKE_CASE prefix for env var names
 
+	// pathKey is the fieldPath this param is stored under in the
+	// processingContext's mirrorByPath map. Stashed at creation so callers
+	// (e.g., the configfile tag handler) that have a *paramMeta can read its
+	// path directly instead of scanning pathOrder.
+	pathKey fieldPath
+
 	// Default value — stored as typed reflect.Value
 	defaultVal *reflect.Value
 
