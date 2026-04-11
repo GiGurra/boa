@@ -201,13 +201,19 @@ type Param interface {
 	SetPositional(bool)
 
 	// GetMin / SetMin / ClearMin / GetMax / SetMax / ClearMax / GetPattern /
-	// SetPattern mirror the validation tags. GetMin / GetMax return nil when
-	// no bound is set; ClearMin / ClearMax remove a previously set bound.
-	GetMin() *float64
-	SetMin(float64)
+	// SetPattern mirror the validation tags. GetMin / GetMax return the bound
+	// as a typed pointer matching the field kind, or nil when no bound is set:
+	//   - signed int field   → *int64
+	//   - unsigned int field → *uint64
+	//   - float field        → *float64
+	//   - string/slice/map   → *int (length bound)
+	// SetMin / SetMax accept any numeric value; it's coerced to match the
+	// field kind. ClearMin / ClearMax remove a previously set bound.
+	GetMin() any
+	SetMin(any)
 	ClearMin()
-	GetMax() *float64
-	SetMax(float64)
+	GetMax() any
+	SetMax(any)
 	ClearMax()
 	GetPattern() string
 	SetPattern(string)
@@ -869,9 +875,51 @@ func validate(ctx *processingContext, structPtr any) error {
 	return newUserInputError(err)
 }
 
-// validateMinMaxPattern checks min/max/pattern tag constraints.
-// For numeric types, min/max compare the value.
-// For strings and slices, min/max compare length.
+// parseBoundTag parses a `min:"..."` or `max:"..."` tag value against the
+// field's boundKind. Returns a typed pointer matching the storage contract
+// of paramMeta.minVal / maxVal, or an error if the literal doesn't fit the
+// kind. Returns (nil, nil) when the field kind doesn't support min/max — the
+// tag is silently ignored (as it has always been) to preserve existing
+// behavior on unsupported types.
+func parseBoundTag(bk boundKind, s string) (any, error) {
+	switch bk {
+	case signedIntBound:
+		v, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("expected signed integer, got %q: %w", s, err)
+		}
+		return &v, nil
+	case unsignedIntBound:
+		v, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("expected unsigned integer, got %q: %w", s, err)
+		}
+		return &v, nil
+	case floatBound:
+		v, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			return nil, fmt.Errorf("expected float, got %q: %w", s, err)
+		}
+		return &v, nil
+	case lengthBound:
+		v, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("expected non-negative integer length, got %q: %w", s, err)
+		}
+		if v < 0 {
+			return nil, fmt.Errorf("negative length %d", v)
+		}
+		n := int(v)
+		return &n, nil
+	}
+	return nil, nil
+}
+
+// validateMinMaxPattern checks min/max/pattern tag constraints. It dispatches
+// on the field's boundKind and compares against the typed-pointer bound stored
+// in pm.minVal / pm.maxVal. The storage type is guaranteed to match the field
+// kind (coerceBound enforces this at set time), so the type assertions here
+// never panic on a valid mirror.
 func validateMinMaxPattern(pm *paramMeta, valPtr any) error {
 	if pm.minVal == nil && pm.maxVal == nil && pm.pattern == "" {
 		return nil
@@ -882,38 +930,44 @@ func validateMinMaxPattern(pm *paramMeta, valPtr any) error {
 		v = v.Elem()
 	}
 
-	switch v.Kind() {
-	case reflect.Int, reflect.Int32, reflect.Int64:
-		val := float64(v.Int())
-		if pm.minVal != nil && val < *pm.minVal {
-			return fmt.Errorf("value %v is below min %v", v.Int(), *pm.minVal)
+	switch pm.boundKind() {
+	case signedIntBound:
+		val := v.Int()
+		if minP, ok := pm.minVal.(*int64); ok && minP != nil && val < *minP {
+			return fmt.Errorf("value %d is below min %d", val, *minP)
 		}
-		if pm.maxVal != nil && val > *pm.maxVal {
-			return fmt.Errorf("value %v exceeds max %v", v.Int(), *pm.maxVal)
+		if maxP, ok := pm.maxVal.(*int64); ok && maxP != nil && val > *maxP {
+			return fmt.Errorf("value %d exceeds max %d", val, *maxP)
 		}
-	case reflect.Float32, reflect.Float64:
+	case unsignedIntBound:
+		val := v.Uint()
+		if minP, ok := pm.minVal.(*uint64); ok && minP != nil && val < *minP {
+			return fmt.Errorf("value %d is below min %d", val, *minP)
+		}
+		if maxP, ok := pm.maxVal.(*uint64); ok && maxP != nil && val > *maxP {
+			return fmt.Errorf("value %d exceeds max %d", val, *maxP)
+		}
+	case floatBound:
 		val := v.Float()
-		if pm.minVal != nil && val < *pm.minVal {
-			return fmt.Errorf("value %v is below min %v", val, *pm.minVal)
+		if minP, ok := pm.minVal.(*float64); ok && minP != nil && val < *minP {
+			return fmt.Errorf("value %v is below min %v", val, *minP)
 		}
-		if pm.maxVal != nil && val > *pm.maxVal {
-			return fmt.Errorf("value %v exceeds max %v", val, *pm.maxVal)
+		if maxP, ok := pm.maxVal.(*float64); ok && maxP != nil && val > *maxP {
+			return fmt.Errorf("value %v exceeds max %v", val, *maxP)
 		}
-	case reflect.String:
-		str := v.String()
-		if pm.minVal != nil && float64(len(str)) < *pm.minVal {
-			return fmt.Errorf("length %d is below min %v", len(str), *pm.minVal)
+	case lengthBound:
+		var l int
+		switch v.Kind() {
+		case reflect.String:
+			l = len(v.String())
+		case reflect.Slice, reflect.Map:
+			l = v.Len()
 		}
-		if pm.maxVal != nil && float64(len(str)) > *pm.maxVal {
-			return fmt.Errorf("length %d exceeds max %v", len(str), *pm.maxVal)
+		if minP, ok := pm.minVal.(*int); ok && minP != nil && l < *minP {
+			return fmt.Errorf("length %d is below min %d", l, *minP)
 		}
-	case reflect.Slice:
-		l := v.Len()
-		if pm.minVal != nil && float64(l) < *pm.minVal {
-			return fmt.Errorf("length %d is below min %v", l, *pm.minVal)
-		}
-		if pm.maxVal != nil && float64(l) > *pm.maxVal {
-			return fmt.Errorf("length %d exceeds max %v", l, *pm.maxVal)
+		if maxP, ok := pm.maxVal.(*int); ok && maxP != nil && l > *maxP {
+			return fmt.Errorf("length %d exceeds max %d", l, *maxP)
 		}
 	}
 
@@ -1750,18 +1804,22 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			// Parse min/max/pattern validation tags
 			if pm, ok := param.(*paramMeta); ok {
 				if minStr, ok := tags.Lookup("min"); ok {
-					v, err := strconv.ParseFloat(minStr, 64)
+					ptr, err := parseBoundTag(pm.boundKind(), minStr)
 					if err != nil {
 						return fmt.Errorf("invalid min value for param %s: %s", param.GetName(), err.Error())
 					}
-					pm.minVal = &v
+					if ptr != nil {
+						pm.minVal = ptr
+					}
 				}
 				if maxStr, ok := tags.Lookup("max"); ok {
-					v, err := strconv.ParseFloat(maxStr, 64)
+					ptr, err := parseBoundTag(pm.boundKind(), maxStr)
 					if err != nil {
 						return fmt.Errorf("invalid max value for param %s: %s", param.GetName(), err.Error())
 					}
-					pm.maxVal = &v
+					if ptr != nil {
+						pm.maxVal = ptr
+					}
 				}
 				if pat, ok := tags.Lookup("pattern"); ok {
 					pm.pattern = pat

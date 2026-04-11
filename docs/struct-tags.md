@@ -98,14 +98,14 @@ boa.CmdT[ExternalConfig]{
         secret.SetEnv("APP_TOKEN")
 
         port := boa.GetParamT(ctx, &p.Port)
-        port.SetMin(1)            // equivalent to `min:"1"`
-        port.SetMax(65535)        // equivalent to `max:"65535"`
+        port.SetMinT(1)           // equivalent to `min:"1"`
+        port.SetMaxT(65535)       // equivalent to `max:"65535"`
         return nil
     },
 }
 ```
 
-Available setters include `SetDescription`, `SetName`, `SetShort`, `SetEnv`, `SetPositional`, `SetRequired(bool)` / `SetRequiredFn`, `SetNoFlag`, `SetNoEnv`, `SetIgnored`, `SetMin` / `ClearMin`, `SetMax` / `ClearMax`, `SetPattern`, `SetAlternatives`, `SetAlternativesFunc`, `SetStrictAlts`, `SetDefault` / `SetDefaultT`, `SetCustomValidator` / `SetCustomValidatorT`, and `SetIsEnabledFn`.
+Available setters include `SetDescription`, `SetName`, `SetShort`, `SetEnv`, `SetPositional`, `SetRequired(bool)` / `SetRequiredFn`, `SetNoFlag`, `SetNoEnv`, `SetIgnored`, `SetMinT(T)` / `SetMaxT(T)` for numeric fields, `SetMinLen(int)` / `SetMaxLen(int)` for string/slice/map fields, `ClearMin` / `ClearMax`, `SetPattern`, `SetAlternatives`, `SetAlternativesFunc`, `SetStrictAlts`, `SetDefault` / `SetDefaultT`, `SetCustomValidator` / `SetCustomValidatorT`, and `SetIsEnabledFn`. The numeric setters store at the field's natural precision (e.g. `int64` bounds past 2^53 round-trip losslessly), unlike the older float64-only API.
 
 All programmatic setters must be called from `InitFunc` / `InitFuncCtx` (or `CfgStructInit` / `CfgStructInitCtx`) so they take effect before cobra flag binding and env parsing.
 

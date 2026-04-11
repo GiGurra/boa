@@ -530,8 +530,8 @@ func TestSetMinMax_Programmatic(t *testing.T) {
 		ParamEnrich: ParamEnricherName,
 		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
 			p := GetParamT(ctx, &params.Port)
-			p.SetMin(1)
-			p.SetMax(100)
+			p.SetMinT(1)
+			p.SetMaxT(100)
 			return nil
 		},
 		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
@@ -628,45 +628,97 @@ func TestSetRequired_ProgrammaticFalse(t *testing.T) {
 	}
 }
 
-// --- SetMin / SetMax / SetPattern type guards ---
+// --- SetMinT / SetMaxT / SetPattern type guards ---
 
-func TestSetMin_PanicsOnUnsupportedType(t *testing.T) {
+func TestSetMinT_PanicsOnUnsupportedType(t *testing.T) {
+	// bool isn't numeric and isn't length-based — SetMinT must panic with the
+	// "numeric T required" message.
 	type Params struct {
 		Flag bool `optional:"true"`
 	}
 	defer func() {
 		r := recover()
 		if r == nil {
-			t.Fatal("expected SetMin on bool to panic")
+			t.Fatal("expected SetMinT on bool to panic")
 		}
-		if !strings.Contains(fmt.Sprint(r), "SetMin") {
-			t.Errorf("expected panic mentioning SetMin, got: %v", r)
+		if !strings.Contains(fmt.Sprint(r), "SetMinT") {
+			t.Errorf("expected panic mentioning SetMinT, got: %v", r)
 		}
 	}()
 	_ = (CmdT[Params]{
 		Use: "test",
 		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
-			GetParamT(ctx, &params.Flag).SetMin(1)
+			GetParamT(ctx, &params.Flag).SetMinT(true)
 			return nil
 		},
 		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
 	}).RunArgsE([]string{})
 }
 
-func TestSetMax_PanicsOnUnsupportedType(t *testing.T) {
+func TestSetMaxT_PanicsOnUnsupportedType(t *testing.T) {
 	type Params struct {
 		Flag bool `optional:"true"`
 	}
 	defer func() {
 		r := recover()
 		if r == nil {
-			t.Fatal("expected SetMax on bool to panic")
+			t.Fatal("expected SetMaxT on bool to panic")
 		}
 	}()
 	_ = (CmdT[Params]{
 		Use: "test",
 		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
-			GetParamT(ctx, &params.Flag).SetMax(1)
+			GetParamT(ctx, &params.Flag).SetMaxT(true)
+			return nil
+		},
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{})
+}
+
+func TestSetMinT_PanicsOnStringField(t *testing.T) {
+	// string is length-based — SetMinT must redirect to SetMinLen.
+	type Params struct {
+		Name string `optional:"true"`
+	}
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected SetMinT on string to panic")
+		}
+		msg := fmt.Sprint(r)
+		if !strings.Contains(msg, "SetMinLen") {
+			t.Errorf("expected panic to recommend SetMinLen, got: %v", r)
+		}
+	}()
+	_ = (CmdT[Params]{
+		Use: "test",
+		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
+			GetParamT(ctx, &params.Name).SetMinT("abc")
+			return nil
+		},
+		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
+	}).RunArgsE([]string{})
+}
+
+func TestSetMinLen_PanicsOnNumericField(t *testing.T) {
+	// int is numeric — SetMinLen must redirect to SetMinT.
+	type Params struct {
+		Port int `optional:"true"`
+	}
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected SetMinLen on int to panic")
+		}
+		msg := fmt.Sprint(r)
+		if !strings.Contains(msg, "SetMinT") {
+			t.Errorf("expected panic to recommend SetMinT, got: %v", r)
+		}
+	}()
+	_ = (CmdT[Params]{
+		Use: "test",
+		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
+			GetParamT(ctx, &params.Port).SetMinLen(1)
 			return nil
 		},
 		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
@@ -726,8 +778,8 @@ func TestSetMin_Programmatic_BelowIntMin(t *testing.T) {
 		ParamEnrich: ParamEnricherName,
 		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
 			p := GetParamT(ctx, &params.Port)
-			p.SetMin(10)
-			p.SetMax(100)
+			p.SetMinT(10)
+			p.SetMaxT(100)
 			return nil
 		},
 		RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
@@ -759,8 +811,8 @@ func TestSetMinMax_Programmatic_Float(t *testing.T) {
 				ParamEnrich: ParamEnricherName,
 				InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
 					p := GetParamT(ctx, &params.Rate)
-					p.SetMin(0)
-					p.SetMax(1)
+					p.SetMinT(0)
+					p.SetMaxT(1)
 					return nil
 				},
 				RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
@@ -781,7 +833,7 @@ func TestSetMinMax_Programmatic_Float(t *testing.T) {
 	}
 }
 
-func TestSetMinMax_Programmatic_StringLength(t *testing.T) {
+func TestSetMinMaxLen_Programmatic_StringLength(t *testing.T) {
 	type Params struct {
 		Name string `descr:"name" optional:"true"`
 	}
@@ -791,8 +843,8 @@ func TestSetMinMax_Programmatic_StringLength(t *testing.T) {
 			ParamEnrich: ParamEnricherName,
 			InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
 				p := GetParamT(ctx, &params.Name)
-				p.SetMin(3)
-				p.SetMax(10)
+				p.SetMinLen(3)
+				p.SetMaxLen(10)
 				return nil
 			},
 			RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
@@ -809,7 +861,7 @@ func TestSetMinMax_Programmatic_StringLength(t *testing.T) {
 	}
 }
 
-func TestSetMinMax_Programmatic_SliceLength(t *testing.T) {
+func TestSetMinMaxLen_Programmatic_SliceLength(t *testing.T) {
 	type Params struct {
 		Tags []string `descr:"tags" optional:"true"`
 	}
@@ -819,8 +871,8 @@ func TestSetMinMax_Programmatic_SliceLength(t *testing.T) {
 			ParamEnrich: ParamEnricherName,
 			InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
 				p := GetParamT(ctx, &params.Tags)
-				p.SetMin(2)
-				p.SetMax(3)
+				p.SetMinLen(2)
+				p.SetMaxLen(3)
 				return nil
 			},
 			RunFunc: func(p *Params, cmd *cobra.Command, args []string) {},
@@ -847,8 +899,8 @@ func TestClearMinMax_Programmatic_RemovesBound(t *testing.T) {
 		ParamEnrich: ParamEnricherName,
 		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
 			p := GetParamT(ctx, &params.Port)
-			p.SetMin(10)
-			p.SetMax(20)
+			p.SetMinT(10)
+			p.SetMaxT(20)
 			p.ClearMin()
 			p.ClearMax()
 			return nil
@@ -860,22 +912,23 @@ func TestClearMinMax_Programmatic_RemovesBound(t *testing.T) {
 	}
 }
 
-func TestSetMin_Programmatic_GetMinRoundTrip(t *testing.T) {
-	// SetMin / GetMin should round-trip, and ClearMin should reset to nil.
-	// GetMin / GetMax live on the non-generic Param interface (the typed view
-	// only exposes setters), so we read them via ctx.GetParam.
+func TestSetMinMax_Programmatic_GetRoundTrip(t *testing.T) {
+	// SetMinT / GetMin should round-trip at full int precision, and
+	// ClearMin should reset to nil. GetMin / GetMax live on the non-generic
+	// Param interface (the typed view only exposes setters), so we read them
+	// via ctx.GetParam. Int fields store as *int64.
 	type Params struct {
 		Port int `descr:"port" optional:"true"`
 	}
-	var sawMinSet, sawMinCleared *float64
-	var sawMaxSet, sawMaxCleared *float64
+	var sawMinSet, sawMinCleared any
+	var sawMaxSet, sawMaxCleared any
 	err := (CmdT[Params]{
 		Use:         "test",
 		ParamEnrich: ParamEnricherName,
 		InitFuncCtx: func(ctx *HookContext, params *Params, cmd *cobra.Command) error {
 			tp := GetParamT(ctx, &params.Port)
-			tp.SetMin(42)
-			tp.SetMax(99)
+			tp.SetMinT(42)
+			tp.SetMaxT(99)
 
 			raw := ctx.GetParam(&params.Port)
 			sawMinSet = raw.GetMin()
@@ -892,17 +945,19 @@ func TestSetMin_Programmatic_GetMinRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if sawMinSet == nil || *sawMinSet != 42 {
-		t.Errorf("expected GetMin to return 42 after SetMin, got: %v", sawMinSet)
+	minP, ok := sawMinSet.(*int64)
+	if !ok || minP == nil || *minP != 42 {
+		t.Errorf("expected GetMin to return *int64(42), got: %T %v", sawMinSet, sawMinSet)
 	}
-	if sawMaxSet == nil || *sawMaxSet != 99 {
-		t.Errorf("expected GetMax to return 99 after SetMax, got: %v", sawMaxSet)
+	maxP, ok := sawMaxSet.(*int64)
+	if !ok || maxP == nil || *maxP != 99 {
+		t.Errorf("expected GetMax to return *int64(99), got: %T %v", sawMaxSet, sawMaxSet)
 	}
 	if sawMinCleared != nil {
-		t.Errorf("expected GetMin to return nil after ClearMin, got: %v", *sawMinCleared)
+		t.Errorf("expected GetMin to return nil after ClearMin, got: %v", sawMinCleared)
 	}
 	if sawMaxCleared != nil {
-		t.Errorf("expected GetMax to return nil after ClearMax, got: %v", *sawMaxCleared)
+		t.Errorf("expected GetMax to return nil after ClearMax, got: %v", sawMaxCleared)
 	}
 }
 

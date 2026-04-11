@@ -2,6 +2,7 @@
 package boa
 
 import (
+	"fmt"
 	"log/slog"
 	"reflect"
 
@@ -95,14 +96,23 @@ type ParamT[T any] interface {
 	// rather than a named flag. Cannot be combined with SetNoFlag(true).
 	SetPositional(positional bool)
 
-	// SetMin / SetMax set numeric/length bounds. For numeric types, the bound
-	// compares the value. For strings and slices, it compares length. Mirrors
-	// the `min:"..."` / `max:"..."` tags. Panics if called on a non-numeric /
-	// non-string / non-slice field (unlike the tag, which is silently ignored
-	// on unsupported types). Use ClearMin / ClearMax to remove a bound.
-	SetMin(min float64)
+	// SetMinT / SetMaxT set a typed numeric bound. Works on numeric fields
+	// (signed int, unsigned int, float). Panics on non-numeric T — use
+	// SetMinLen / SetMaxLen for string / slice / map fields instead. The
+	// stored bound uses the widest integer type for the field's signedness,
+	// so int64 bounds beyond 2^53 round-trip losslessly (unlike the old
+	// float64-only API).
+	SetMinT(min T)
+	SetMaxT(max T)
+
+	// SetMinLen / SetMaxLen set a length bound on a string / slice / map
+	// field. Panics on numeric T — use SetMinT / SetMaxT there instead.
+	SetMinLen(min int)
+	SetMaxLen(max int)
+
+	// ClearMin / ClearMax remove any previously set bound. Safe to call on
+	// any type.
 	ClearMin()
-	SetMax(max float64)
 	ClearMax()
 
 	// SetPattern sets a regex pattern that string values must match. Pass
@@ -278,9 +288,31 @@ func (w *ParamTView[T]) SetPositional(positional bool) {
 	w.param.SetPositional(positional)
 }
 
-// SetMin sets a lower bound. Use ClearMin to remove it.
-func (w *ParamTView[T]) SetMin(min float64) {
+// SetMinT sets a typed numeric lower bound. Panics if T is not numeric —
+// use SetMinLen for string / slice / map fields.
+func (w *ParamTView[T]) SetMinT(min T) {
+	assertNumericT[T]("SetMinT")
 	w.param.SetMin(min)
+}
+
+// SetMaxT sets a typed numeric upper bound. See SetMinT.
+func (w *ParamTView[T]) SetMaxT(max T) {
+	assertNumericT[T]("SetMaxT")
+	w.param.SetMax(max)
+}
+
+// SetMinLen sets a length lower bound on a string / slice / map field. Panics
+// if T is a numeric type — use SetMinT there instead.
+func (w *ParamTView[T]) SetMinLen(min int) {
+	assertLengthT[T]("SetMinLen")
+	w.param.SetMin(min)
+}
+
+// SetMaxLen sets a length upper bound on a string / slice / map field. See
+// SetMinLen.
+func (w *ParamTView[T]) SetMaxLen(max int) {
+	assertLengthT[T]("SetMaxLen")
+	w.param.SetMax(max)
 }
 
 // ClearMin removes a previously set lower bound.
@@ -288,14 +320,34 @@ func (w *ParamTView[T]) ClearMin() {
 	w.param.ClearMin()
 }
 
-// SetMax sets an upper bound. Use ClearMax to remove it.
-func (w *ParamTView[T]) SetMax(max float64) {
-	w.param.SetMax(max)
-}
-
 // ClearMax removes a previously set upper bound.
 func (w *ParamTView[T]) ClearMax() {
 	w.param.ClearMax()
+}
+
+// assertNumericT panics if T is not a numeric kind. Used to guard SetMinT /
+// SetMaxT at runtime since Go methods can't carry their own type constraints.
+func assertNumericT[T any](method string) {
+	var zero T
+	k := reflect.TypeOf(zero).Kind()
+	switch k {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return
+	}
+	panic(fmt.Errorf("boa: %s requires a numeric T, got %s — use SetMinLen / SetMaxLen for string/slice/map fields", method, k))
+}
+
+// assertLengthT panics if T is not a length-bearing kind (string, slice, map).
+func assertLengthT[T any](method string) {
+	var zero T
+	k := reflect.TypeOf(zero).Kind()
+	switch k {
+	case reflect.String, reflect.Slice, reflect.Map:
+		return
+	}
+	panic(fmt.Errorf("boa: %s requires a string / slice / map T, got %s — use SetMinT / SetMaxT for numeric fields", method, k))
 }
 
 // SetPattern sets a regex pattern (empty string clears).

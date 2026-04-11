@@ -51,8 +51,8 @@ func main() {
             port := boa.GetParamT(ctx, &p.Port)
             port.SetDescription("TCP port")
             port.SetDefaultT(8080)
-            port.SetMin(1)
-            port.SetMax(65535)
+            port.SetMinT(1)
+            port.SetMaxT(65535)
 
             // Hide the admin token from --help, still read from env/config
             token := boa.GetParamT(ctx, &p.AdminToken)
@@ -155,8 +155,8 @@ func main() {
             port := boa.GetParamT(ctx, &p.DB.Port)
             port.SetDescription("database port")
             port.SetDefaultT(5432)
-            port.SetMin(1)
-            port.SetMax(65535)
+            port.SetMinT(1)
+            port.SetMaxT(65535)
 
             // ─── CLI-only (env suppressed) ─────────────────────────────────
             // DebugMode is an interactive knob — we don't want a long-lived
@@ -184,8 +184,8 @@ func main() {
             tag.SetDescription("audit label written to every row")
             tag.SetNoFlag(true)
             tag.SetNoEnv(true)
-            tag.SetMin(3)
-            tag.SetMax(64)
+            tag.SetMinLen(3)
+            tag.SetMaxLen(64)
 
             // ─── Fully ignored by boa ──────────────────────────────────────
             // PoolSize comes from the driver's own config merging inside
@@ -257,7 +257,7 @@ func main() {
 |---|---|---|---|---|
 | `LogLevel` | `--log-level` | `$LOG_LEVEL` | yes | plain boa tag, own struct |
 | `DB.Host` | `--db-host` | `$DB_HOST` | yes | default + description via `InitFuncCtx` |
-| `DB.Port` | `--db-port` | `$DB_PORT` | yes | programmatic `SetMin` / `SetMax` |
+| `DB.Port` | `--db-port` | `$DB_PORT` | yes | programmatic `SetMinT` / `SetMaxT` |
 | `DB.User` | `--db-user` | `$DB_USER` | yes | custom validator (lowercase) |
 | `DB.Password` | — | `$DB_PASSWORD` | yes | `SetNoFlag(true)`, required |
 | `DB.SSLMode` | `--db-ssl-mode` | `$DB_SSL_MODE` | yes | enum via `SetAlternatives` + `SetStrictAlts` |
@@ -304,8 +304,8 @@ Every struct-tag feature has a matching method. The table below is the complete 
 | `optional` / `opt` | `SetRequired(false)` |
 | `alts` / `alternatives` | `SetAlternatives([]string)`, `SetAlternativesFunc(...)` |
 | `strict` / `strict-alts` | `SetStrictAlts(bool)` |
-| `min` | `SetMin(float64)` (use `ClearMin()` to remove) |
-| `max` | `SetMax(float64)` (use `ClearMax()` to remove) |
+| `min` | `ParamT[T].SetMinT(T)` for numeric; `SetMinLen(int)` for string/slice/map. `ClearMin()` removes. Non-generic `Param.SetMin(any)` accepts any numeric. |
+| `max` | `ParamT[T].SetMaxT(T)` / `SetMaxLen(int)` / `ClearMax()`. Symmetric with `min`. |
 | `pattern` | `SetPattern(string)` |
 | `boa:"noflag"` / `"nocli"` | `SetNoFlag(bool)` |
 | `boa:"noenv"` | `SetNoEnv(bool)` |
@@ -327,8 +327,8 @@ func wireDBConfig(ctx *boa.HookContext, db *dbconfig.Settings) {
     boa.GetParamT(ctx, &db.Port).SetDefaultT(5432)
 
     port := boa.GetParamT(ctx, &db.Port)
-    port.SetMin(1)
-    port.SetMax(65535)
+    port.SetMinT(1)
+    port.SetMaxT(65535)
 
     pwd := boa.GetParamT(ctx, &db.Password)
     pwd.SetNoFlag(true)

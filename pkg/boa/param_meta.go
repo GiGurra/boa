@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"reflect"
 
 	"github.com/spf13/cobra"
@@ -56,9 +57,18 @@ type paramMeta struct {
 
 	// Validation
 	customValidator func(any) error
-	minVal          *float64 // min value (numeric) or min length (string)
-	maxVal          *float64 // max value (numeric) or max length (string)
-	pattern         string   // regex pattern for string validation
+	// minVal / maxVal hold the bound as a typed pointer. The concrete type
+	// depends on the field kind:
+	//   - signed int field   → *int64
+	//   - unsigned int field → *uint64
+	//   - float field        → *float64
+	//   - string/slice/map   → *int (length bound)
+	// nil means "no bound". The typed storage keeps int64 bounds lossless
+	// past 2^53, which is the whole point of going through an any here
+	// instead of always-float64.
+	minVal  any
+	maxVal  any
+	pattern string // regex pattern for string validation
 
 	// noFlag indicates the field should not be registered as a CLI flag,
 	// but is still populated from env vars and config files. Set via the
@@ -338,20 +348,38 @@ func (f *paramMeta) SetIgnored(val bool) { f.ignored = val }
 
 // --- min / max / pattern ---
 
-// supportsMinMax reports whether this param's underlying type is one the
-// min/max validator will actually check (numeric value, or length for
-// string/slice). Keep this in sync with validateMinMaxPattern's switch.
-func (f *paramMeta) supportsMinMax() bool {
-	switch f.fieldType.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Float32, reflect.Float64,
-		reflect.String,
-		reflect.Slice:
-		return true
+// boundKind classifies a field type for min/max purposes. It collapses the
+// reflect.Kind zoo into the four shapes a bound actually has: signed int,
+// unsigned int, float, or length (string/slice/map). unsupportedBound means
+// min/max are meaningless on this field.
+type boundKind int
+
+const (
+	unsupportedBound boundKind = iota
+	signedIntBound
+	unsignedIntBound
+	floatBound
+	lengthBound
+)
+
+// boundKindOf returns the boundKind for a reflect.Type. Uses Kind() so type
+// aliases (e.g., `type Port int`) work transparently.
+func boundKindOf(t reflect.Type) boundKind {
+	switch t.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return signedIntBound
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return unsignedIntBound
+	case reflect.Float32, reflect.Float64:
+		return floatBound
+	case reflect.String, reflect.Slice, reflect.Map:
+		return lengthBound
 	}
-	return false
+	return unsupportedBound
 }
+
+// boundKind returns this param's boundKind.
+func (f *paramMeta) boundKind() boundKind { return boundKindOf(f.fieldType) }
 
 // supportsPattern reports whether this param's underlying type is one the
 // pattern validator will act on (strings only).
@@ -359,56 +387,167 @@ func (f *paramMeta) supportsPattern() bool {
 	return f.fieldType.Kind() == reflect.String
 }
 
-func (f *paramMeta) GetMin() *float64 {
-	if f.minVal == nil {
-		return nil
+// coerceBound takes a caller-provided value and normalizes it to the storage
+// type for the given boundKind. Accepts any numeric value (int/uint/float
+// widths) as long as it fits the target kind. Returns an error with a human
+// message if the input is the wrong shape (e.g. float bound on an int field,
+// or negative length).
+func coerceBound(raw any, bk boundKind) (any, error) {
+	if raw == nil {
+		return nil, fmt.Errorf("nil bound")
 	}
-	v := *f.minVal
-	return &v
+	rv := reflect.ValueOf(raw)
+	// Unwrap a single level of pointer, e.g. caller passed *int64.
+	if rv.Kind() == reflect.Ptr {
+		if rv.IsNil() {
+			return nil, fmt.Errorf("nil bound")
+		}
+		rv = rv.Elem()
+	}
+	switch bk {
+	case signedIntBound:
+		switch rv.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			v := rv.Int()
+			return &v, nil
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			u := rv.Uint()
+			if u > math.MaxInt64 {
+				return nil, fmt.Errorf("bound %d overflows int64", u)
+			}
+			v := int64(u)
+			return &v, nil
+		case reflect.Float32, reflect.Float64:
+			return nil, fmt.Errorf("float bound on signed-int field is lossy; pass an int value instead")
+		}
+	case unsignedIntBound:
+		switch rv.Kind() {
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			v := rv.Uint()
+			return &v, nil
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			i := rv.Int()
+			if i < 0 {
+				return nil, fmt.Errorf("negative bound %d on unsigned-int field", i)
+			}
+			v := uint64(i)
+			return &v, nil
+		case reflect.Float32, reflect.Float64:
+			return nil, fmt.Errorf("float bound on unsigned-int field is lossy; pass an int value instead")
+		}
+	case floatBound:
+		switch rv.Kind() {
+		case reflect.Float32, reflect.Float64:
+			v := rv.Float()
+			return &v, nil
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			v := float64(rv.Int())
+			return &v, nil
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			v := float64(rv.Uint())
+			return &v, nil
+		}
+	case lengthBound:
+		switch rv.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			i := rv.Int()
+			if i < 0 {
+				return nil, fmt.Errorf("negative length bound %d", i)
+			}
+			v := int(i)
+			return &v, nil
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			u := rv.Uint()
+			if u > math.MaxInt {
+				return nil, fmt.Errorf("length bound %d overflows int", u)
+			}
+			v := int(u)
+			return &v, nil
+		case reflect.Float32, reflect.Float64:
+			return nil, fmt.Errorf("float length bound is not allowed; pass an int")
+		}
+	}
+	return nil, fmt.Errorf("unsupported bound value of type %T", raw)
 }
 
-// SetMin sets a lower bound. Panics if called on a field whose type cannot be
-// min/max validated (anything outside numeric / string / slice). The equivalent
-// struct tag (`min:"..."`) is silently no-op'd on unsupported types today — the
-// programmatic API is stricter because the caller has the type in hand and a
-// silent no-op is a foot-gun. Use ClearMin to remove a previously set bound.
-func (f *paramMeta) SetMin(val float64) {
-	if !f.supportsMinMax() {
-		panic(fmt.Errorf("boa: SetMin on %q: type %s is not a numeric, string, or slice — min is only meaningful on those", f.name, f.fieldType.Kind()))
+// GetMin returns a copy of the current lower bound, or nil if none is set.
+// The concrete type is one of *int64 / *uint64 / *float64 / *int depending on
+// the field kind.
+func (f *paramMeta) GetMin() any { return copyBound(f.minVal) }
+
+// GetMax returns a copy of the current upper bound. See GetMin for the
+// concrete type dispatch.
+func (f *paramMeta) GetMax() any { return copyBound(f.maxVal) }
+
+// copyBound returns a defensive copy of a stored typed-pointer bound.
+func copyBound(b any) any {
+	switch v := b.(type) {
+	case nil:
+		return nil
+	case *int64:
+		if v == nil {
+			return nil
+		}
+		out := *v
+		return &out
+	case *uint64:
+		if v == nil {
+			return nil
+		}
+		out := *v
+		return &out
+	case *float64:
+		if v == nil {
+			return nil
+		}
+		out := *v
+		return &out
+	case *int:
+		if v == nil {
+			return nil
+		}
+		out := *v
+		return &out
 	}
-	v := val
-	f.minVal = &v
+	return nil
+}
+
+// SetMin sets a lower bound. Accepts any numeric value; it's coerced to the
+// storage type that matches the field's boundKind. Panics if the field type
+// cannot carry a bound or if the provided value has the wrong shape. Use
+// ClearMin to remove a previously set bound.
+func (f *paramMeta) SetMin(val any) {
+	bk := f.boundKind()
+	if bk == unsupportedBound {
+		panic(fmt.Errorf("boa: SetMin on %q: type %s is not a numeric, string, slice, or map — min is only meaningful on those", f.name, f.fieldType.Kind()))
+	}
+	coerced, err := coerceBound(val, bk)
+	if err != nil {
+		panic(fmt.Errorf("boa: SetMin on %q: %w", f.name, err))
+	}
+	f.minVal = coerced
 }
 
 // ClearMin removes any lower bound previously set on this parameter. Safe to
 // call on any type.
-func (f *paramMeta) ClearMin() {
-	f.minVal = nil
-}
+func (f *paramMeta) ClearMin() { f.minVal = nil }
 
-func (f *paramMeta) GetMax() *float64 {
-	if f.maxVal == nil {
-		return nil
+// SetMax sets an upper bound. See SetMin for the type rules.
+func (f *paramMeta) SetMax(val any) {
+	bk := f.boundKind()
+	if bk == unsupportedBound {
+		panic(fmt.Errorf("boa: SetMax on %q: type %s is not a numeric, string, slice, or map — max is only meaningful on those", f.name, f.fieldType.Kind()))
 	}
-	v := *f.maxVal
-	return &v
-}
-
-// SetMax sets an upper bound. See SetMin for the type restriction. Use
-// ClearMax to remove a previously set bound.
-func (f *paramMeta) SetMax(val float64) {
-	if !f.supportsMinMax() {
-		panic(fmt.Errorf("boa: SetMax on %q: type %s is not a numeric, string, or slice — max is only meaningful on those", f.name, f.fieldType.Kind()))
+	coerced, err := coerceBound(val, bk)
+	if err != nil {
+		panic(fmt.Errorf("boa: SetMax on %q: %w", f.name, err))
 	}
-	v := val
-	f.maxVal = &v
+	f.maxVal = coerced
 }
 
 // ClearMax removes any upper bound previously set on this parameter. Safe to
 // call on any type.
-func (f *paramMeta) ClearMax() {
-	f.maxVal = nil
-}
+func (f *paramMeta) ClearMax() { f.maxVal = nil }
 
 func (f *paramMeta) GetPattern() string { return f.pattern }
 
