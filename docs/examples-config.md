@@ -655,6 +655,72 @@ func LoadConfigFile[T any](filePath string, target *T, unmarshalFunc func([]byte
 - `target`: pointer to the struct to populate
 - `unmarshalFunc`: custom unmarshal function (`nil` uses file extension detection, then falls back to `json.Unmarshal`)
 
+## Multi-File Overlay (Base + Local Cascade)
+
+For the classic 12-factor `config.json` + `config.local.json` pattern, declare the configfile field as a `[]string` — later files overlay earlier ones at the key level:
+
+```go
+type Params struct {
+    ConfigFiles []string `configfile:"true" optional:"true"`
+    Host        string   `optional:"true"`
+    Port        int      `optional:"true"`
+}
+
+// CLI:
+//   app --config-files base.json,local.json
+//   app --config-files base.json --config-files prod.json
+```
+
+`base.json`:
+```json
+{"Host": "app.example.com", "Port": 80}
+```
+
+`local.json` (developer override):
+```json
+{"Port": 8080}
+```
+
+After the chain loads, the resolved parameters are `Host=app.example.com` (from base, unchanged by local) and `Port=8080` (local overlaid base). Keys that are absent in the later file leave the earlier values intact — that's the natural behavior of sequential `json.Unmarshal` calls into the same struct.
+
+### Overlay semantics
+
+- **Order**: left-to-right is lowest-to-highest precedence. The rightmost file wins for any key it mentions.
+- **Missing keys**: leave earlier values alone. Not-mentioned ≠ reset.
+- **Slices and maps**: *fully replaced* by the later file, not merged. If base has `Tags: [a, b]` and local has `Tags: [c]`, the final value is `[c]`. This is standard `json.Unmarshal` behavior and matches what almost every config-cascade user expects. (Deep merging is deliberately out of scope.)
+- **CLI and env still win**: the full precedence chain is unchanged — CLI > env > root config chain > substruct config chain > defaults. The multi-file chain slots in at "root config" (or "substruct config" for nested declarations).
+- **Substructs** can declare their own `[]string` configfile chain too, and each chain loads independently. Substruct chains load first, the root chain loads last.
+- **Empty strings** in the list are skipped silently — handy when an optional overlay is computed at runtime.
+- **Missing files** produce a clean error naming the file that failed.
+
+### `LoadConfigFiles` helper
+
+If you'd rather build the path list yourself (e.g. from environment, computed from the user's home directory, or mixing embedded defaults with on-disk overrides), use the helper in a `PreValidateFunc`:
+
+```go
+func main() {
+    boa.CmdT[Params]{
+        Use: "app",
+        PreValidateFunc: func(p *Params, cmd *cobra.Command, args []string) error {
+            paths := []string{
+                "/etc/myapp/config.json",                  // system defaults
+                filepath.Join(os.Getenv("HOME"), ".myapp.json"), // user overrides
+                "./myapp.local.json",                      // per-project overrides
+            }
+            return boa.LoadConfigFiles(paths, p, nil)
+        },
+    }.Run()
+}
+```
+
+Signature:
+
+```go
+func LoadConfigFiles[T any](paths []string, target *T, unmarshalFunc func([]byte, any) error) error
+```
+
+Empty strings in `paths` are skipped; a nil or empty slice is a no-op. Loading stops at the first missing file and returns the underlying error.
+
 ## Loading Config From Bytes
 
 When the config does not live on disk — for example, `//go:embed` assets, stdin, an HTTP response body, or a test fixture — use `boa.LoadConfigBytes`. It shares the same format-resolution rules as `LoadConfigFile`, so registered formats like YAML or TOML work exactly the same.

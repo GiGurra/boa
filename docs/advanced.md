@@ -290,9 +290,36 @@ Substruct configs load first, then root config loads and overrides any overlappi
 
 This lets you split configuration across multiple files while maintaining a clear override hierarchy.
 
-### Using `LoadConfigFile` Explicitly
+### Multi-File Overlay Chains
 
-For more control (e.g., loading into a sub-struct, multiple config files), use `LoadConfigFile` in a PreValidate hook:
+A `configfile:"true"` field can also be a `[]string`, which turns the field into a left-to-right overlay chain: later files overlay earlier ones at the key level. This is the classic `config.json` + `config.local.json` (or `base.yaml` + `production.yaml`) pattern:
+
+```go
+type Params struct {
+    ConfigFiles []string `configfile:"true" optional:"true"`
+    Host        string   `optional:"true"`
+    Port        int      `optional:"true"`
+}
+
+// CLI:  app --config-files base.json,local.json
+// Or:   app --config-files base.json --config-files local.json
+```
+
+The overlay semantics are just repeated `json.Unmarshal` into the same struct:
+
+- Keys mentioned in the later file replace what earlier files loaded
+- Keys absent from the later file leave earlier values alone
+- Slices and maps are *fully replaced* by the later file (not merged) — if base has `Tags: [a, b]` and local has `Tags: [c]`, the final value is `[c]`
+- Empty strings in the list are skipped silently
+- Missing files produce a clean error naming which file failed
+
+Substruct `[]string` configfile fields get their own independent chains, and the usual root-vs-substruct priority still applies: every substruct chain loads first, then the root chain loads last.
+
+See [examples-config.md](examples-config.md#multi-file-overlay-base--local-cascade) for full examples.
+
+### Using `LoadConfigFile` / `LoadConfigFiles` Explicitly
+
+For more control (e.g., loading into a sub-struct, building the path list dynamically), use `LoadConfigFile` or `LoadConfigFiles` in a PreValidate hook:
 
 ```go
 type AppConfig struct {
@@ -308,7 +335,16 @@ type Params struct {
 boa.CmdT[Params]{
     Use: "app",
     PreValidateFunc: func(p *Params, cmd *cobra.Command, args []string) error {
-        return boa.LoadConfigFile(p.ConfigFile, &p.AppConfig, nil)
+        // Single file:
+        // return boa.LoadConfigFile(p.ConfigFile, &p.AppConfig, nil)
+
+        // Or an overlay chain built at runtime:
+        paths := []string{
+            "/etc/myapp/config.json",
+            filepath.Join(os.Getenv("HOME"), ".myapp.json"),
+            "./myapp.local.json",
+        }
+        return boa.LoadConfigFiles(paths, &p.AppConfig, nil)
     },
     RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
         fmt.Printf("Host: %s, Port: %d\n", p.Host, p.Port)
