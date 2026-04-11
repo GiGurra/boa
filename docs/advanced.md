@@ -316,6 +316,26 @@ boa.CmdT[Params]{
 }.Run()
 ```
 
+### Loading Config From In-Memory Bytes
+
+When the config lives somewhere other than a local file — an embedded `//go:embed` asset, stdin, an HTTP response, a secrets-manager blob, or a test fixture — use `boa.LoadConfigBytes`. It shares `LoadConfigFile`'s format-resolution rules (overrides → registered format for `ext` → JSON fallback), so any format registered via `RegisterConfigFormat` works identically.
+
+```go
+//go:embed defaults.yaml
+var defaultsYAML []byte
+
+boa.CmdT[Params]{
+    Use: "app",
+    PreValidateFunc: func(p *Params, cmd *cobra.Command, args []string) error {
+        // Seed defaults from the embedded YAML blob.
+        // CLI and env vars still override whatever is loaded here.
+        return boa.LoadConfigBytes(defaultsYAML, ".yaml", p, nil)
+    },
+}.Run()
+```
+
+`ext` accepts `".yaml"`, `"yaml"`, or `""` (empty falls back to JSON). Empty or `nil` `data` is a no-op, so callers can hand in the result of an optional read without a preceding length check.
+
 ## Checking Value Sources
 
 Use `HookContext` in your run function to check how values were set:

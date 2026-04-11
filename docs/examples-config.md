@@ -653,6 +653,65 @@ func LoadConfigFile[T any](filePath string, target *T, unmarshalFunc func([]byte
 - `target`: pointer to the struct to populate
 - `unmarshalFunc`: custom unmarshal function (`nil` uses file extension detection, then falls back to `json.Unmarshal`)
 
+## Loading Config From Bytes
+
+When the config does not live on disk — for example, `//go:embed` assets, stdin, an HTTP response body, or a test fixture — use `boa.LoadConfigBytes`. It shares the same format-resolution rules as `LoadConfigFile`, so registered formats like YAML or TOML work exactly the same.
+
+```go
+package main
+
+import (
+    _ "embed"
+    "fmt"
+
+    "github.com/GiGurra/boa/pkg/boa"
+    "github.com/spf13/cobra"
+    "gopkg.in/yaml.v3"
+)
+
+//go:embed defaults.yaml
+var defaultsYAML []byte
+
+type Params struct {
+    Host string `optional:"true"`
+    Port int    `optional:"true"`
+}
+
+func main() {
+    boa.RegisterConfigFormat(".yaml", yaml.Unmarshal)
+
+    boa.CmdT[Params]{
+        Use: "app",
+        PreValidateFunc: func(p *Params, cmd *cobra.Command, args []string) error {
+            // Seed defaults from the embedded YAML blob. CLI and env vars
+            // still win over whatever is loaded here.
+            return boa.LoadConfigBytes(defaultsYAML, ".yaml", p, nil)
+        },
+        RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+            fmt.Printf("Host=%s Port=%d\n", p.Host, p.Port)
+        },
+    }.Run()
+}
+```
+
+`LoadConfigBytes` signature:
+
+```go
+func LoadConfigBytes[T any](data []byte, ext string, target *T, unmarshalFunc func([]byte, any) error) error
+```
+
+- `data`: the raw config bytes (empty or `nil` is a no-op)
+- `ext`: file extension used to pick a registered format — `".yaml"`, `"yaml"`, or `""` (empty falls back to JSON). The leading dot is optional.
+- `target`: pointer to the struct to populate
+- `unmarshalFunc`: custom unmarshal function — when non-nil, takes precedence over `ext`
+
+Typical sources:
+
+- `//go:embed` — ship a default config file inside the binary
+- Piped stdin — `data, _ := io.ReadAll(os.Stdin)`
+- HTTP / S3 / secrets manager responses — treat the response body as config bytes
+- In-memory test fixtures — no temp files required
+
 ## Mixed Config Formats
 
 Different config files can use different formats. The format is detected by file extension when using the registry.

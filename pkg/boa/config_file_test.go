@@ -317,3 +317,152 @@ func TestConfigFile_TagShorthand(t *testing.T) {
 		}
 	})
 }
+
+// --- Tests for LoadConfigBytes ---
+
+func TestLoadConfigBytes(t *testing.T) {
+	type Params struct {
+		Host string `optional:"true"`
+		Port int    `optional:"true"`
+	}
+
+	t.Run("loads JSON bytes with default format", func(t *testing.T) {
+		var p Params
+		if err := LoadConfigBytes([]byte(`{"Host":"h","Port":1234}`), "", &p, nil); err != nil {
+			t.Fatalf("LoadConfigBytes: %v", err)
+		}
+		if p.Host != "h" || p.Port != 1234 {
+			t.Errorf("unexpected parsed values: %+v", p)
+		}
+	})
+
+	t.Run("loads JSON bytes with explicit .json ext", func(t *testing.T) {
+		var p Params
+		if err := LoadConfigBytes([]byte(`{"Host":"h"}`), ".json", &p, nil); err != nil {
+			t.Fatalf("LoadConfigBytes: %v", err)
+		}
+		if p.Host != "h" {
+			t.Errorf("expected Host=h, got %q", p.Host)
+		}
+	})
+
+	t.Run("normalizes ext without leading dot", func(t *testing.T) {
+		var p Params
+		if err := LoadConfigBytes([]byte(`{"Host":"h"}`), "json", &p, nil); err != nil {
+			t.Fatalf("LoadConfigBytes: %v", err)
+		}
+		if p.Host != "h" {
+			t.Errorf("expected Host=h, got %q", p.Host)
+		}
+	})
+
+	t.Run("dispatches to registered format by extension", func(t *testing.T) {
+		registerFormatCleanup(t, ".fake", UniversalConfigFormat(fakeUnmarshal))
+
+		var p Params
+		if err := LoadConfigBytes([]byte(`{"Host":"from-fake","Port":9}`), ".fake", &p, nil); err != nil {
+			t.Fatalf("LoadConfigBytes: %v", err)
+		}
+		if p.Host != "from-fake" || p.Port != 9 {
+			t.Errorf("unexpected parsed values: %+v", p)
+		}
+	})
+
+	t.Run("unmarshalFunc overrides ext", func(t *testing.T) {
+		called := false
+		custom := func(data []byte, target any) error {
+			called = true
+			return json.Unmarshal(data, target)
+		}
+		var p Params
+		if err := LoadConfigBytes([]byte(`{"Host":"x"}`), ".yaml", &p, custom); err != nil {
+			t.Fatalf("LoadConfigBytes: %v", err)
+		}
+		if !called {
+			t.Error("expected custom unmarshal func to be called")
+		}
+		if p.Host != "x" {
+			t.Errorf("expected Host=x, got %q", p.Host)
+		}
+	})
+
+	t.Run("empty bytes is a no-op", func(t *testing.T) {
+		var p Params
+		if err := LoadConfigBytes(nil, "", &p, nil); err != nil {
+			t.Fatalf("nil: %v", err)
+		}
+		if err := LoadConfigBytes([]byte{}, "", &p, nil); err != nil {
+			t.Fatalf("empty: %v", err)
+		}
+		if p.Host != "" || p.Port != 0 {
+			t.Errorf("expected zero params, got %+v", p)
+		}
+	})
+
+	t.Run("malformed bytes return error", func(t *testing.T) {
+		var p Params
+		err := LoadConfigBytes([]byte(`{not json`), "", &p, nil)
+		if err == nil {
+			t.Fatal("expected error for malformed bytes")
+		}
+	})
+
+	t.Run("works inside PreValidateFunc with embed-like input", func(t *testing.T) {
+		// Simulates //go:embed or stdin pipes feeding bytes into a hook.
+		type CmdParams struct {
+			Host string `optional:"true"`
+			Port int    `optional:"true"`
+		}
+		embedded := []byte(`{"Host":"embedded","Port":4242}`)
+
+		ran := false
+		CmdT[CmdParams]{
+			Use: "test",
+			PreValidateFunc: func(params *CmdParams, cmd *cobra.Command, args []string) error {
+				return LoadConfigBytes(embedded, ".json", params, nil)
+			},
+			RunFunc: func(params *CmdParams, cmd *cobra.Command, args []string) {
+				ran = true
+				if params.Host != "embedded" {
+					t.Errorf("expected Host='embedded', got %q", params.Host)
+				}
+				if params.Port != 4242 {
+					t.Errorf("expected Port=4242, got %d", params.Port)
+				}
+			},
+		}.RunArgs([]string{})
+
+		if !ran {
+			t.Fatal("command did not run")
+		}
+	})
+
+	t.Run("CLI overrides bytes config in PreValidateFunc", func(t *testing.T) {
+		type CmdParams struct {
+			Host string `optional:"true"`
+			Port int    `optional:"true"`
+		}
+		embedded := []byte(`{"Host":"from-bytes","Port":3000}`)
+
+		ran := false
+		CmdT[CmdParams]{
+			Use: "test",
+			PreValidateFunc: func(params *CmdParams, cmd *cobra.Command, args []string) error {
+				return LoadConfigBytes(embedded, "", params, nil)
+			},
+			RunFunc: func(params *CmdParams, cmd *cobra.Command, args []string) {
+				ran = true
+				if params.Host != "from-cli" {
+					t.Errorf("expected Host='from-cli' (CLI wins), got %q", params.Host)
+				}
+				if params.Port != 3000 {
+					t.Errorf("expected Port=3000 (from bytes), got %d", params.Port)
+				}
+			},
+		}.RunArgs([]string{"--host", "from-cli"})
+
+		if !ran {
+			t.Fatal("command did not run")
+		}
+	})
+}

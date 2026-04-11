@@ -514,6 +514,36 @@ func LoadConfigFile[T any](filePath string, target *T, unmarshalFunc func([]byte
 	return err
 }
 
+// LoadConfigBytes unmarshals raw config bytes into the target struct, using
+// the same format-resolution rules as LoadConfigFile. This is the in-memory
+// counterpart for cases where the bytes do not come from a local file —
+// typical callers are //go:embed assets, stdin pipes, HTTP response bodies,
+// and test fixtures.
+//
+// ext selects the registered format (e.g. ".yaml", ".toml"). A leading dot is
+// optional — "yaml" and ".yaml" both work. Pass "" to use the default JSON
+// parser. If unmarshalFunc is non-nil it takes precedence over ext.
+//
+// Passing an empty data slice is a no-op (returns nil) so callers can hand in
+// the result of an optional read without a preceding len check.
+//
+// CLI and env var values still take precedence when this is used inside
+// PreValidateFunc, exactly as with LoadConfigFile.
+func LoadConfigBytes[T any](data []byte, ext string, target *T, unmarshalFunc func([]byte, any) error) error {
+	if len(data) == 0 {
+		return nil
+	}
+	override := ConfigFormat{}
+	if unmarshalFunc != nil {
+		override.Unmarshal = unmarshalFunc
+	}
+	if ext != "" && !strings.HasPrefix(ext, ".") {
+		ext = "." + ext
+	}
+	_, err := loadConfigBytesInto(data, ext, target, override)
+	return err
+}
+
 // ConfigFormat describes how to parse and introspect a config file format.
 //
 // boa ships with a built-in handler for JSON only. To support other formats
@@ -731,26 +761,40 @@ func loadConfigFileInto(filePath string, target any, override ConfigFormat) ([]b
 	if err != nil {
 		return nil, ConfigFormat{}, fmt.Errorf("failed to read config file %s: %w", filePath, err)
 	}
-	effective := resolveConfigFormat(filePath, override)
-	if err := effective.Unmarshal(fileContents, target); err != nil {
+	effective, err := loadConfigBytesInto(fileContents, filepath.Ext(filePath), target, override)
+	if err != nil {
 		return nil, effective, fmt.Errorf("failed to unmarshal config file %s: %w", filePath, err)
 	}
 	return fileContents, effective, nil
 }
 
-// resolveConfigFormat picks the ConfigFormat to use for a given file, honouring
-// the precedence override → extension-registered → JSON fallback. The returned
-// ConfigFormat always has a non-nil Unmarshal.
-func resolveConfigFormat(filePath string, override ConfigFormat) ConfigFormat {
+// loadConfigBytesInto is the shared bytes-level core used by both file and
+// in-memory loaders. It resolves the effective ConfigFormat the same way as
+// loadConfigFileInto and runs the unmarshaler against the supplied bytes.
+func loadConfigBytesInto(data []byte, ext string, target any, override ConfigFormat) (ConfigFormat, error) {
+	effective := resolveConfigFormatByExt(ext, override)
+	if err := effective.Unmarshal(data, target); err != nil {
+		return effective, err
+	}
+	return effective, nil
+}
+
+// resolveConfigFormatByExt picks the ConfigFormat to use for a given extension,
+// honouring the precedence override → extension-registered → JSON fallback.
+// The returned ConfigFormat always has a non-nil Unmarshal. ext should be
+// dot-prefixed (filepath.Ext form); an empty string means "no hint" and falls
+// through to the JSON default.
+func resolveConfigFormatByExt(ext string, override ConfigFormat) ConfigFormat {
 	if override.Unmarshal != nil {
 		return override
 	}
-	ext := filepath.Ext(filePath)
-	configFormatsMu.RLock()
-	cf, ok := configFormats[ext]
-	configFormatsMu.RUnlock()
-	if ok && cf.Unmarshal != nil {
-		return cf
+	if ext != "" {
+		configFormatsMu.RLock()
+		cf, ok := configFormats[ext]
+		configFormatsMu.RUnlock()
+		if ok && cf.Unmarshal != nil {
+			return cf
+		}
 	}
 	return ConfigFormat{Unmarshal: json.Unmarshal, KeyTree: jsonKeyTree}
 }
