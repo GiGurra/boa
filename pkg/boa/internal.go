@@ -192,6 +192,16 @@ type Param interface {
 	// cobra flag binding and env parsing.
 	SetIgnored(bool)
 
+	// IsConfigFile reports whether this string parameter is the auto-loaded
+	// config-file path for its enclosing struct. Mirrors `configfile:"true"`.
+	IsConfigFile() bool
+	// SetConfigFile marks the parameter as the config-file path for its
+	// enclosing struct. The underlying field must be a string. Must be
+	// called before cobra flag binding (i.e. from InitFunc / InitFuncCtx)
+	// to take effect — the configfile registry is built at the end of the
+	// init phase, right after these hooks run.
+	SetConfigFile(bool)
+
 	// GetDescription / SetDescription expose the help/descr text.
 	GetDescription() string
 	SetDescription(string)
@@ -1436,12 +1446,25 @@ func positionalSkipError(name, skipKind string) error {
 	return fmt.Errorf("param '%s': `boa:\"%s\"` cannot be combined with positional args — a positional arg is, by definition, a CLI arg", name, skipKind)
 }
 
-// isBoaIgnored reports whether a field is fully ignored by boa — no mirror,
-// no traversal. Only `boa:"ignore"` (aliases: `ignored`, `-`) triggers this.
+// isBoaIgnored reports whether a field should be skipped entirely by boa
+// traversal — no mirror, no preallocation, no CLI / env / config wiring.
+// Triggered by either:
+//   - `boa:"ignore"` (aliases: `ignored`, `-`) — explicit user opt-out, or
+//   - an unexported field — reflect cannot take the address of unexported
+//     fields without unsafe games, and by Go convention they are private
+//     implementation state owned by the declaring package. Embedding an
+//     unexported type (e.g. `type Wrapper struct { internalCfg }`) creates
+//     such a field; silently skipping it is friendlier than panicking deep
+//     in preallocateStructPtrs with `reflect.Value.Interface: cannot return
+//     value obtained from unexported field`.
+//
 // `boa:"configonly"` is deliberately NOT ignored: it produces a mirror and
 // runs validation, but is suppressed from CLI and env (see the enrichment
 // loop where it is translated to SetNoFlag+SetNoEnv).
 func isBoaIgnored(field reflect.StructField) bool {
+	if !field.IsExported() {
+		return true
+	}
 	boaTags := getBoaTags(field)
 	return slices.Contains(boaTags, "ignore") ||
 		slices.Contains(boaTags, "ignored") ||
@@ -1860,10 +1883,16 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 				return positionalSkipError(param.GetName(), skipKind)
 			}
 
-			// Detect configfile tag
+			// Detect configfile — either from the tag or a programmatic
+			// SetConfigFile(true) call made during InitFunc / InitFuncCtx.
+			// The tag is normalized onto the flag first so downstream checks
+			// only need to read param.IsConfigFile().
 			if cfgTag, ok := tags.Lookup("configfile"); ok && cfgTag == "true" {
+				param.SetConfigFile(true)
+			}
+			if param.IsConfigFile() {
 				if param.GetType().Kind() != reflect.String {
-					return fmt.Errorf("configfile tag on param %s: must be a string field", param.GetName())
+					return fmt.Errorf("configfile on param %s: must be a string field", param.GetName())
 				}
 				// The target struct path is the parent of the configfile param's own path.
 				// Read it directly from paramMeta.pathKey (stashed during traverse) —

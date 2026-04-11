@@ -311,6 +311,7 @@ Every struct-tag feature has a matching method. The table below is the complete 
 | `boa:"noenv"` | `SetNoEnv(bool)` |
 | `boa:"configonly"` | `SetNoFlag(true)` + `SetNoEnv(true)` |
 | `boa:"ignore"` | `SetIgnored(bool)` (post-traversal equivalent) |
+| `configfile:"true"` | `SetConfigFile(bool)` — field must be a string |
 
 All of these must be called from a hook that runs **before cobra flag binding** — that is, `InitFunc`, `InitFuncCtx`, or the `CfgStructInit` / `CfgStructInitCtx` interfaces. Calling them later (in `PostCreate*` or `RunFunc`) is too late: the flags are already wired up.
 
@@ -342,11 +343,113 @@ InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
 },
 ```
 
+## Auto-config-file loading for an external struct
+
+You have **two ways** to point `configfile` at a field inside an external struct:
+
+1. **Programmatic `SetConfigFile(true)`** — add a plain string field to the params struct (or to a wrapper) and mark it from `InitFuncCtx`.
+2. **Anonymous embedding** — wrap the external struct in your own type and put a `configfile:"true"` field on the wrapper.
+
+Both end up at the same place (BOA's config-file registry); pick whichever reads better for the call site. Below are three flavors of the embedding variant, from most-ceremonial to least.
+
+### Variant A — named wrapper type
+
+Anonymous embedding lets you bolt a tagged config-file field onto an external struct without modifying it. The wrapper becomes your params type; boa walks the embedded fields at the root level (no prefix), and JSON/YAML/TOML unmarshal flattens embedded fields the same way, so a single config file populates them directly:
+
+```go
+// externalpkg.Settings is third-party — no boa tags, no configfile field.
+//
+// type Settings struct {
+//     Host string
+//     Port int
+// }
+
+type Params struct {
+    externalpkg.Settings        // anonymous embed — fields land at the root
+    ConfigFile           string `configfile:"true" optional:"true" descr:"path to config file"`
+}
+
+func main() {
+    boa.CmdT[Params]{
+        Use: "app",
+        ParamEnrich: boa.ParamEnricherCombine(
+            boa.ParamEnricherName,
+            boa.ParamEnricherEnv,
+            boa.ParamEnricherBool,
+        ),
+        InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+            // Descriptions / defaults / validation for the embedded fields come
+            // from the programmatic API since you can't tag them.
+            boa.GetParamT(ctx, &p.Host).SetDefaultT("localhost")
+            port := boa.GetParamT(ctx, &p.Port)
+            port.SetDefaultT(5432)
+            port.SetMinT(1)
+            port.SetMaxT(65535)
+            return nil
+        },
+        RunFunc: func(p *Params, cmd *cobra.Command, args []string) {
+            fmt.Printf("%s:%d\n", p.Host, p.Port)
+        },
+    }.Run()
+}
+```
+
+Now `app --config-file app.json` works, `--host` / `--port` / `$HOST` / `$PORT` work, and CLI still beats config-file — the full precedence chain is preserved because boa treats the embedded fields exactly like fields declared on the wrapper itself.
+
+### Variant B — inline anonymous struct
+
+If the wrapper is only used in a single `CmdT` call, you don't even need to name it. Declare it inline at the call site:
+
+```go
+boa.CmdT[struct {
+    externalpkg.Settings
+    ConfigFile string `configfile:"true" optional:"true"`
+}]{
+    Use: "app",
+    RunFunc: func(p *struct {
+        externalpkg.Settings
+        ConfigFile string `configfile:"true" optional:"true"`
+    }, cmd *cobra.Command, args []string) {
+        fmt.Printf("%s:%d\n", p.Host, p.Port)
+    },
+}.Run()
+```
+
+Same semantics as the named version — just fewer declarations. The tradeoff is that you have to repeat the anonymous type in each hook's signature (Go has no type-alias shortcut here), which gets noisy past one or two hooks. Fine for throwaway commands; for anything with `InitFuncCtx`, name the type.
+
+### Variant C — programmatic, no wrapper at all
+
+If the external struct already has the exact shape you want to expose, skip wrapping and configure the tagless struct directly. Add a `ConfigFile` field to a surrounding struct (or use the wrapper pattern above), then flip the flag from `InitFuncCtx`:
+
+```go
+type Params struct {
+    ConfigFile string `optional:"true" descr:"path to config file"`
+    externalpkg.Settings
+}
+
+boa.CmdT[Params]{
+    InitFuncCtx: func(ctx *boa.HookContext, p *Params, cmd *cobra.Command) error {
+        // Equivalent to `configfile:"true"` on Params.ConfigFile, but set
+        // at runtime — useful when the surrounding struct comes from a
+        // package you don't want to add boa-specific tags to.
+        boa.GetParamT(ctx, &p.ConfigFile).SetConfigFile(true)
+        return nil
+    },
+    // ...
+}.Run()
+```
+
+`SetConfigFile(true)` is the programmatic equivalent of `configfile:"true"` — the field must still be a string, and the call must happen in `InitFunc` / `InitFuncCtx` (before boa builds the config-file registry). Calling it on a non-string field produces a clean user-input-style error, not a panic.
+
+### Caveats
+
+- **The embedded type must be exported** (`externalpkg.Settings`, not `externalpkg.settings`). Anonymous embedding of an unexported type produces an unexported field, which boa silently skips along with all of its children — CLI flags and env binding for those fields simply won't register. (Earlier versions panicked here; the current build skips cleanly.)
+- **Name collisions** between the wrapper's own fields and the embedded type's fields are resolved by Go's shallower-wins rule at the type level, but BOA registers flags by field name — so if both the wrapper and the embedded struct declare a `Name` field, boa will error on duplicate flag registration. Rename one, or switch to a named (non-anonymous) field, which auto-prefixes the embedded children and eliminates the collision.
+
 ## Limitations
 
-A handful of features are **not** currently available programmatically:
+A smaller handful of things are **not** currently available programmatically:
 
-- **`configfile:"true"` has no setter.** If you need auto-config-file loading pointed at a field inside an external struct, you'll need to add your own config-file param in a surrounding struct.
 - **`boa:"ignore"` at the tag level skips traversal entirely** so the mirror never exists; the programmatic equivalent `SetIgnored(true)` marks an existing mirror as ignored instead. The observable behavior is the same (no CLI, no env, no validation — only raw config-file unmarshal writes), but there's one subtle difference: with the tag, the field is not even walked, so deeply nested ignored sub-trees have zero cost at startup.
 - **`InitFuncCtx` only sees fields from the live params tree.** If the third-party struct contains its own nested pointer fields that start as `nil`, BOA preallocates them before `InitFuncCtx` runs (so you can take `&p.DB.Inner.Field` freely), but if the third-party code itself reassigns one of those pointers later, the mirror index may go stale — call into boa early in the lifecycle and let it own the tree.
 

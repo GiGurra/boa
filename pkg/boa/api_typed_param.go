@@ -89,6 +89,14 @@ type ParamT[T any] interface {
 	// validation). Config-file unmarshal can still write to the field.
 	SetIgnored(ignored bool)
 
+	// SetConfigFile marks this string parameter as the auto-loaded config-file
+	// path for its enclosing struct. Mirrors `configfile:"true"`. The field
+	// must be a string; calling this on a non-string field is detected after
+	// hooks return and produces a user-input-style error. Must be called from
+	// InitFunc / InitFuncCtx so it takes effect before the config-file
+	// registry is built.
+	SetConfigFile(isConfigFile bool)
+
 	// SetDescription sets the help/description text for this parameter.
 	SetDescription(descr string)
 
@@ -276,6 +284,12 @@ func (w *ParamTView[T]) SetNoEnv(noEnv bool) {
 // SetIgnored fully excludes the parameter from boa processing.
 func (w *ParamTView[T]) SetIgnored(ignored bool) {
 	w.param.SetIgnored(ignored)
+}
+
+// SetConfigFile marks this string parameter as the auto-loaded config-file
+// path for its enclosing struct. Equivalent to the `configfile:"true"` tag.
+func (w *ParamTView[T]) SetConfigFile(isConfigFile bool) {
+	w.param.SetConfigFile(isConfigFile)
 }
 
 // SetDescription sets the help/description text.
