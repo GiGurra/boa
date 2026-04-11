@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"unsafe"
 
 	"github.com/spf13/cobra"
 )
@@ -334,8 +333,20 @@ type CmdIfc interface {
 // HookContext provides access to parameter mirrors and advanced configuration APIs
 // within startup hooks. This allows hooks to access and modify parameters
 // programmatically (SetDefault, SetAlternatives, SetRequiredFn, etc.).
+//
+// Internally, mirrors are stored keyed by their declared-index path from the root
+// parameters struct. This keeps the identity of a mirror stable even when pointer
+// substructs are reassigned, and makes subtree operations efficient string-prefix
+// queries rather than address walks. The address → path cache exists solely to
+// support the ergonomic GetParam(&params.Field) API.
 type HookContext struct {
-	rawAddrToMirror map[unsafe.Pointer]Param
+	ctx *processingContext
+}
+
+// newHookContext wraps a processingContext for hook exposure.
+// Returns a usable (even if empty) HookContext — it never returns nil.
+func newHookContext(pctx *processingContext) *HookContext {
+	return &HookContext{ctx: pctx}
 }
 
 // GetParam returns the Param for any field pointer.
@@ -359,21 +370,37 @@ func (c *HookContext) GetParam(fieldPtr any) Param {
 	if param, ok := fieldPtr.(Param); ok {
 		return param
 	}
-	if c.rawAddrToMirror == nil {
+	if c == nil || c.ctx == nil || c.ctx.mirrorByPath == nil {
 		return nil
 	}
 	addr := reflect.ValueOf(fieldPtr).UnsafePointer()
-	return c.rawAddrToMirror[addr]
+	// Rebuild the address cache if it was invalidated (e.g., after a subtree removal).
+	if c.ctx.addrToPath == nil {
+		c.ctx.rebuildAddrToPath()
+	}
+	if path, ok := c.ctx.addrToPath[addr]; ok {
+		return c.ctx.mirrorByPath[path]
+	}
+	// Fallback: walk the root to discover a matching leaf address. This handles
+	// the case where the user reassigned a substruct after the cache was built.
+	if c.ctx.rootStructPtr != nil {
+		if path, ok := c.ctx.findPathByAddr(addr); ok {
+			return c.ctx.mirrorByPath[path]
+		}
+	}
+	return nil
 }
 
-// AllMirrors returns all parameter mirrors in the context.
+// AllMirrors returns all parameter mirrors in the context in declaration/insertion order.
 func (c *HookContext) AllMirrors() []Param {
-	if c.rawAddrToMirror == nil {
+	if c == nil || c.ctx == nil || c.ctx.mirrorByPath == nil {
 		return nil
 	}
-	result := make([]Param, 0, len(c.rawAddrToMirror))
-	for _, param := range c.rawAddrToMirror {
-		result = append(result, param)
+	result := make([]Param, 0, len(c.ctx.pathOrder))
+	for _, p := range c.ctx.pathOrder {
+		if m, ok := c.ctx.mirrorByPath[p]; ok {
+			result = append(result, m)
+		}
 	}
 	return result
 }
