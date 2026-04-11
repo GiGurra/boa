@@ -779,6 +779,41 @@ func LoadConfigFile[T any](filePath string, target *T, unmarshalFunc func([]byte
 	return err
 }
 
+// LoadConfigFiles reads a left-to-right overlay chain of config files and
+// unmarshals each one into the target struct. Later files overlay earlier
+// ones at the key level — keys present in file N replace the values loaded
+// from files 0..N-1, while keys only present in earlier files are left
+// alone. This is the classic 12-factor `config.json` + `config.local.json`
+// pattern, or `base.yaml` + `production.yaml`:
+//
+//	boa.LoadConfigFiles([]string{"config.json", "config.local.json"}, p, nil)
+//
+// Empty-string entries are skipped silently, so callers can hand in a list
+// that includes an optional override without a preceding filter. A nil or
+// empty paths slice is a no-op.
+//
+// Slices and maps are fully replaced by the later file — json.Unmarshal
+// overwrites the whole field when a key appears, it does not merge. If the
+// base file has `Tags: [a, b]` and the overlay has `Tags: [c]`, the final
+// value is `[c]`. (Deep merging is deliberately out of scope here; the
+// cascading replace semantics are what most users expect for configfile
+// overlays and map/slice merging is hard to make unsurprising.)
+//
+// Format resolution is per-file, so a chain may mix formats (e.g. a
+// registered .yaml base with a .json overlay) as long as both formats
+// have registered unmarshalers.
+func LoadConfigFiles[T any](paths []string, target *T, unmarshalFunc func([]byte, any) error) error {
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		if err := LoadConfigFile(p, target, unmarshalFunc); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // LoadConfigBytes unmarshals raw config bytes into the target struct, using
 // the same format-resolution rules as LoadConfigFile. This is the in-memory
 // counterpart for cases where the bytes do not come from a local file —

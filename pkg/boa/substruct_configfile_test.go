@@ -495,8 +495,8 @@ func TestProgrammaticSetConfigFile_NonStringRejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for SetConfigFile on int field, got nil")
 	}
-	if !strings.Contains(err.Error(), "must be a string field") {
-		t.Errorf("expected 'must be a string field' error, got %v", err)
+	if !strings.Contains(err.Error(), "must be a string or []string field") {
+		t.Errorf("expected 'must be a string or []string field' error, got %v", err)
 	}
 }
 

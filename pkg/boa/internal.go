@@ -237,9 +237,31 @@ type Param interface {
 
 // configFileEntry tracks a configfile:"true" field and the struct it should load into.
 type configFileEntry struct {
-	mirror     Param     // the string param holding the file path
+	mirror     Param     // the string / []string param holding the file path(s)
 	target     any       // pointer to the struct to unmarshal into
 	targetPath fieldPath // path from root to the target struct (empty for root)
+}
+
+// configFilePathsFromMirror reads the current value of a configfile mirror and
+// returns the ordered list of file paths to load. A string-typed mirror yields
+// at most one path; a []string-typed mirror yields the slice verbatim (empty
+// entries are the caller's responsibility to skip). Any other type indicates
+// a bug — the traversal-time guard should have rejected it already.
+func configFilePathsFromMirror(mirror Param) []string {
+	ptr := mirror.valuePtrF()
+	switch v := ptr.(type) {
+	case *string:
+		if v == nil || *v == "" {
+			return nil
+		}
+		return []string{*v}
+	case *[]string:
+		if v == nil {
+			return nil
+		}
+		return *v
+	}
+	return nil
 }
 
 // fieldPath is the dot-separated sequence of struct-field declaration indices
@@ -1971,8 +1993,14 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 				param.SetConfigFile(true)
 			}
 			if param.IsConfigFile() {
-				if param.GetType().Kind() != reflect.String {
-					return fmt.Errorf("configfile on param %s: must be a string field", param.GetName())
+				// Accept either `string` (single config file) or `[]string`
+				// (overlay chain: later paths override earlier at the key
+				// level). Any other type is a programmer error.
+				pt := param.GetType()
+				isString := pt.Kind() == reflect.String
+				isStringSlice := pt.Kind() == reflect.Slice && pt.Elem().Kind() == reflect.String
+				if !isString && !isStringSlice {
+					return fmt.Errorf("configfile on param %s: must be a string or []string field", param.GetName())
 				}
 				// The target struct path is the parent of the configfile param's own path.
 				// Read it directly from paramMeta.pathKey (stashed during traverse) —
@@ -2189,30 +2217,45 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 						subEntries = append(subEntries, entry)
 					}
 				}
+				loadEntry := func(entry configFileEntry) error {
+					if !entry.mirror.HasValue() {
+						return nil
+					}
+					// String fields load one file; []string fields load a
+					// left-to-right overlay chain where each file's keys
+					// cascade into the target struct. Later files overlay
+					// earlier at the key level — missing keys leave the
+					// previous value alone because json.Unmarshal only
+					// writes fields that appear in the input.
+					paths := configFilePathsFromMirror(entry.mirror)
+					for _, filePath := range paths {
+						if filePath == "" {
+							continue
+						}
+						rawData, effective, err := loadConfigFileInto(filePath, entry.target, cmdOverride)
+						if err != nil {
+							return NewUserInputError(fmt.Errorf("configfile %s: %w", entry.mirror.GetName(), err))
+						}
+						configResults = append(configResults, configLoadResult{
+							target:     entry.target,
+							targetPath: entry.targetPath,
+							rawData:    rawData,
+							format:     effective,
+							ext:        filepath.Ext(filePath),
+						})
+					}
+					return nil
+				}
 				// Load substruct configs first
 				for _, entry := range subEntries {
-					if entry.mirror.HasValue() {
-						filePath := *(entry.mirror.valuePtrF().(*string))
-						if filePath != "" {
-							rawData, effective, err := loadConfigFileInto(filePath, entry.target, cmdOverride)
-							if err != nil {
-								return NewUserInputError(fmt.Errorf("configfile %s: %w", entry.mirror.GetName(), err))
-							}
-							configResults = append(configResults, configLoadResult{target: entry.target, targetPath: entry.targetPath, rawData: rawData, format: effective, ext: filepath.Ext(filePath)})
-						}
+					if err := loadEntry(entry); err != nil {
+						return err
 					}
 				}
 				// Then load root config (overrides substruct values)
 				for _, entry := range rootEntries {
-					if entry.mirror.HasValue() {
-						filePath := *(entry.mirror.valuePtrF().(*string))
-						if filePath != "" {
-							rawData, effective, err := loadConfigFileInto(filePath, entry.target, cmdOverride)
-							if err != nil {
-								return NewUserInputError(fmt.Errorf("configfile %s: %w", entry.mirror.GetName(), err))
-							}
-							configResults = append(configResults, configLoadResult{target: entry.target, targetPath: entry.targetPath, rawData: rawData, format: effective, ext: filepath.Ext(filePath)})
-						}
+					if err := loadEntry(entry); err != nil {
+						return err
 					}
 				}
 				syncMirrors(ctx)
