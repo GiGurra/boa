@@ -596,8 +596,8 @@ boa.CmdT[ThirdPartyConfig]{
         token.SetDescription("API token")   // like descr:"API token"
 
         port := boa.GetParamT(ctx, &p.Port)
-        port.SetMin(1)                      // like min:"1"
-        port.SetMax(65535)                  // like max:"65535"
+        port.SetMinT(1)                     // like min:"1"
+        port.SetMaxT(65535)                 // like max:"65535"
         port.SetRequired(true)              // like required:"true"
         return nil
     },
@@ -616,8 +616,8 @@ boa.CmdT[ThirdPartyConfig]{
 | `optional` / `opt` | `SetRequired(false)` |
 | `alts` / `alternatives` | `SetAlternatives([]string)`, `SetAlternativesFunc(...)` |
 | `strict` / `strict-alts` | `SetStrictAlts(bool)` |
-| `min` | `SetMin(float64)` (use `ClearMin()` to remove) |
-| `max` | `SetMax(float64)` (use `ClearMax()` to remove) |
+| `min` | `ParamT[T].SetMinT(T)` for numeric, `SetMinLen(int)` for string/slice/map. `ClearMin()` removes. Non-generic `Param.SetMin(any)` accepts any numeric (coerced to `*int64` / `*float64` / `*int` per field kind). |
+| `max` | `ParamT[T].SetMaxT(T)` / `SetMaxLen(int)` / `ClearMax()`. Symmetric with `min`. |
 | `pattern` | `SetPattern(string)` |
 | `boa:"noflag"` / `"nocli"` | `SetNoFlag(bool)` |
 | `boa:"noenv"` | `SetNoEnv(bool)` |
