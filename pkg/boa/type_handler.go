@@ -1,6 +1,7 @@
 package boa
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -181,6 +182,138 @@ func registerBuiltinTypes() {
 		},
 		parse: func(name, strVal string) (any, error) {
 			v, err := strconv.ParseInt(strVal, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
+			}
+			return &v, nil
+		},
+	}
+
+	kindHandlers[reflect.Int8] = &typeHandler{
+		baseType: reflect.TypeOf(int8(0)),
+		bindFlag: func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+			def := int8(0)
+			if defaultVal != nil {
+				def = int8(reflect.ValueOf(defaultVal).Elem().Int())
+			}
+			return cmd.Flags().Int8P(name, short, def, descr)
+		},
+		parse: func(name, strVal string) (any, error) {
+			v, err := strconv.ParseInt(strVal, 10, 8)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
+			}
+			result := int8(v)
+			return &result, nil
+		},
+	}
+
+	kindHandlers[reflect.Int16] = &typeHandler{
+		baseType: reflect.TypeOf(int16(0)),
+		bindFlag: func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+			def := int16(0)
+			if defaultVal != nil {
+				def = int16(reflect.ValueOf(defaultVal).Elem().Int())
+			}
+			return cmd.Flags().Int16P(name, short, def, descr)
+		},
+		parse: func(name, strVal string) (any, error) {
+			v, err := strconv.ParseInt(strVal, 10, 16)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
+			}
+			result := int16(v)
+			return &result, nil
+		},
+	}
+
+	kindHandlers[reflect.Uint] = &typeHandler{
+		baseType: reflect.TypeOf(uint(0)),
+		bindFlag: func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+			def := uint(0)
+			if defaultVal != nil {
+				def = uint(reflect.ValueOf(defaultVal).Elem().Uint())
+			}
+			return cmd.Flags().UintP(name, short, def, descr)
+		},
+		parse: func(name, strVal string) (any, error) {
+			v, err := strconv.ParseUint(strVal, 10, 0)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
+			}
+			result := uint(v)
+			return &result, nil
+		},
+	}
+
+	kindHandlers[reflect.Uint8] = &typeHandler{
+		baseType: reflect.TypeOf(uint8(0)),
+		bindFlag: func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+			def := uint8(0)
+			if defaultVal != nil {
+				def = uint8(reflect.ValueOf(defaultVal).Elem().Uint())
+			}
+			return cmd.Flags().Uint8P(name, short, def, descr)
+		},
+		parse: func(name, strVal string) (any, error) {
+			v, err := strconv.ParseUint(strVal, 10, 8)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
+			}
+			result := uint8(v)
+			return &result, nil
+		},
+	}
+
+	kindHandlers[reflect.Uint16] = &typeHandler{
+		baseType: reflect.TypeOf(uint16(0)),
+		bindFlag: func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+			def := uint16(0)
+			if defaultVal != nil {
+				def = uint16(reflect.ValueOf(defaultVal).Elem().Uint())
+			}
+			return cmd.Flags().Uint16P(name, short, def, descr)
+		},
+		parse: func(name, strVal string) (any, error) {
+			v, err := strconv.ParseUint(strVal, 10, 16)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
+			}
+			result := uint16(v)
+			return &result, nil
+		},
+	}
+
+	kindHandlers[reflect.Uint32] = &typeHandler{
+		baseType: reflect.TypeOf(uint32(0)),
+		bindFlag: func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+			def := uint32(0)
+			if defaultVal != nil {
+				def = uint32(reflect.ValueOf(defaultVal).Elem().Uint())
+			}
+			return cmd.Flags().Uint32P(name, short, def, descr)
+		},
+		parse: func(name, strVal string) (any, error) {
+			v, err := strconv.ParseUint(strVal, 10, 32)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
+			}
+			result := uint32(v)
+			return &result, nil
+		},
+	}
+
+	kindHandlers[reflect.Uint64] = &typeHandler{
+		baseType: reflect.TypeOf(uint64(0)),
+		bindFlag: func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+			def := uint64(0)
+			if defaultVal != nil {
+				def = reflect.ValueOf(defaultVal).Elem().Uint()
+			}
+			return cmd.Flags().Uint64P(name, short, def, descr)
+		},
+		parse: func(name, strVal string) (any, error) {
+			v, err := strconv.ParseUint(strVal, 10, 64)
 			if err != nil {
 				return nil, fmt.Errorf("invalid value for param %s: %s", name, err.Error())
 			}
@@ -512,6 +645,46 @@ func registerBuiltinTypes() {
 		},
 	}
 
+	sliceKindHandlers[reflect.Uint] = &typeHandler{
+		baseType: reflect.SliceOf(reflect.TypeOf(uint(0))),
+		bindFlag: func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+			return cmd.Flags().UintSliceP(name, short, toTypedSlice[uint](derefSliceDefault(defaultVal)), descr)
+		},
+		parse: func(name, strVal string) (any, error) {
+			return parseSliceWith(strVal, func(s string) (uint, error) {
+				v, err := strconv.ParseUint(s, 10, 0)
+				return uint(v), err
+			})
+		},
+	}
+
+	// pflag has no native Uint8/Uint16/Uint32/Uint64/Int8/Int16 slice flags.
+	// For these, register a typed pflag.Value via Var() — outward shape matches
+	// Int32SliceP / Int64SliceP (proper element type in --help, no string round-trip).
+	sliceKindHandlers[reflect.Int8] = makeIntSliceFallbackHandler(reflect.TypeOf(int8(0)), "int8Slice",
+		func(s string) (int8, error) { v, err := strconv.ParseInt(s, 10, 8); return int8(v), err },
+		func(v int8) string { return strconv.FormatInt(int64(v), 10) })
+
+	sliceKindHandlers[reflect.Int16] = makeIntSliceFallbackHandler(reflect.TypeOf(int16(0)), "int16Slice",
+		func(s string) (int16, error) { v, err := strconv.ParseInt(s, 10, 16); return int16(v), err },
+		func(v int16) string { return strconv.FormatInt(int64(v), 10) })
+
+	sliceKindHandlers[reflect.Uint8] = makeIntSliceFallbackHandler(reflect.TypeOf(uint8(0)), "uint8Slice",
+		func(s string) (uint8, error) { v, err := strconv.ParseUint(s, 10, 8); return uint8(v), err },
+		func(v uint8) string { return strconv.FormatUint(uint64(v), 10) })
+
+	sliceKindHandlers[reflect.Uint16] = makeIntSliceFallbackHandler(reflect.TypeOf(uint16(0)), "uint16Slice",
+		func(s string) (uint16, error) { v, err := strconv.ParseUint(s, 10, 16); return uint16(v), err },
+		func(v uint16) string { return strconv.FormatUint(uint64(v), 10) })
+
+	sliceKindHandlers[reflect.Uint32] = makeIntSliceFallbackHandler(reflect.TypeOf(uint32(0)), "uint32Slice",
+		func(s string) (uint32, error) { v, err := strconv.ParseUint(s, 10, 32); return uint32(v), err },
+		func(v uint32) string { return strconv.FormatUint(uint64(v), 10) })
+
+	sliceKindHandlers[reflect.Uint64] = makeIntSliceFallbackHandler(reflect.TypeOf(uint64(0)), "uint64Slice",
+		func(s string) (uint64, error) { return strconv.ParseUint(s, 10, 64) },
+		func(v uint64) string { return strconv.FormatUint(v, 10) })
+
 	sliceKindHandlers[reflect.Float32] = &typeHandler{
 		baseType: reflect.SliceOf(reflect.TypeOf(float32(0))),
 		bindFlag: func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
@@ -739,6 +912,125 @@ func buildMapParse(mapType, valType reflect.Type, valHandler *typeHandler) func(
 		ptr.Elem().Set(result)
 		return ptr.Interface(), nil
 	}
+}
+
+// typedIntSliceValue is a pflag.Value / pflag.SliceValue implementation for integer
+// slice types pflag has no native slice flag for (uint8, uint16, uint32, uint64,
+// int8, int16). Same outward behavior as Int32SliceP / Int64SliceP: comma-split,
+// repeated-flag, CSV-with-quotes — pflag handles all of that via Set().
+type typedIntSliceValue[T any] struct {
+	value      *[]T
+	changed    bool
+	parseElem  func(string) (T, error)
+	formatElem func(T) string
+	typeName   string
+}
+
+func (s *typedIntSliceValue[T]) Set(val string) error {
+	parts, err := readAsCSV(val)
+	if err != nil {
+		return err
+	}
+	parsed := make([]T, 0, len(parts))
+	for _, p := range parts {
+		v, err := s.parseElem(p)
+		if err != nil {
+			return err
+		}
+		parsed = append(parsed, v)
+	}
+	if !s.changed {
+		*s.value = parsed
+	} else {
+		*s.value = append(*s.value, parsed...)
+	}
+	s.changed = true
+	return nil
+}
+
+func (s *typedIntSliceValue[T]) Type() string { return s.typeName }
+
+func (s *typedIntSliceValue[T]) String() string {
+	parts := make([]string, len(*s.value))
+	for i, v := range *s.value {
+		parts[i] = s.formatElem(v)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
+}
+
+func (s *typedIntSliceValue[T]) Append(val string) error {
+	v, err := s.parseElem(val)
+	if err != nil {
+		return err
+	}
+	*s.value = append(*s.value, v)
+	return nil
+}
+
+func (s *typedIntSliceValue[T]) Replace(vals []string) error {
+	parsed := make([]T, 0, len(vals))
+	for _, str := range vals {
+		v, err := s.parseElem(str)
+		if err != nil {
+			return err
+		}
+		parsed = append(parsed, v)
+	}
+	*s.value = parsed
+	return nil
+}
+
+func (s *typedIntSliceValue[T]) GetSlice() []string {
+	parts := make([]string, len(*s.value))
+	for i, v := range *s.value {
+		parts[i] = s.formatElem(v)
+	}
+	return parts
+}
+
+// makeIntSliceFallbackHandler builds a slice handler for integer types pflag has no
+// native slice flag for. Uses Var() with a typedIntSliceValue so the resulting flag
+// is a proper typed slice (same shape as Int32SliceP) — no string round-trip, no
+// convert function needed.
+func makeIntSliceFallbackHandler[T any](
+	elemType reflect.Type,
+	typeName string,
+	parseElem func(string) (T, error),
+	formatElem func(T) string,
+) *typeHandler {
+	return &typeHandler{
+		baseType: reflect.SliceOf(elemType),
+		bindFlag: func(cmd *cobra.Command, name, short, descr string, defaultVal any) any {
+			storage := new([]T)
+			if defaultVal != nil {
+				if typed := toTypedSlice[T](derefSliceDefault(defaultVal)); typed != nil {
+					*storage = typed
+				}
+			}
+			v := &typedIntSliceValue[T]{
+				value:      storage,
+				parseElem:  parseElem,
+				formatElem: formatElem,
+				typeName:   typeName,
+			}
+			cmd.Flags().VarP(v, name, short, descr)
+			return storage
+		},
+		parse: func(name, strVal string) (any, error) {
+			return parseSliceWith(strVal, parseElem)
+		},
+	}
+}
+
+// readAsCSV parses one value pflag receives from the command line into individual
+// elements, using csv rules so quoted commas survive (matches pflag's own
+// stringSliceValue behavior).
+func readAsCSV(val string) ([]string, error) {
+	if val == "" {
+		return nil, nil
+	}
+	stringReader := csv.NewReader(strings.NewReader(val))
+	return stringReader.Read()
 }
 
 // derefSliceDefault dereferences a defaultVal pointer (e.g., *[]string → []string) for slice handlers.
