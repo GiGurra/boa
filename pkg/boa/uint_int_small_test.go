@@ -430,3 +430,97 @@ func TestCustomUintTypeAliases(t *testing.T) {
 		t.Fatal("run func was not called")
 	}
 }
+
+// ==================== slice: CSV / env / default coverage ====================
+
+// Locks in typedIntSliceValue.Set's CSV-split path when a single --flag carries
+// multiple comma-separated values (the repeated-flag cases above only hit the
+// "first value" branch).
+func TestSliceUint16_CSVSingleFlag(t *testing.T) {
+	type P struct {
+		Vals []uint16 `descr:"vals"`
+	}
+	wasRun := false
+	if err := (CmdT[P]{
+		Use: "test",
+		RunFunc: func(p *P, cmd *cobra.Command, args []string) {
+			wasRun = true
+			if len(p.Vals) != 3 || p.Vals[0] != 1 || p.Vals[1] != 2 || p.Vals[2] != 3 {
+				t.Errorf("unexpected vals: %v", p.Vals)
+			}
+		},
+	}).RunArgsE([]string{"--vals", "1,2,3"}); err != nil {
+		t.Fatalf("RunArgsE: %v", err)
+	}
+	if !wasRun {
+		t.Fatal("run func was not called")
+	}
+}
+
+// Locks in the parseSliceWith path used by env-var ingestion for slice types
+// without a native pflag slice flag.
+func TestSliceUint16_EnvVar(t *testing.T) {
+	type P struct {
+		Vals []uint16 `descr:"vals" env:"TEST_UINT16_VALS"`
+	}
+	t.Setenv("TEST_UINT16_VALS", "10,20,30")
+	wasRun := false
+	if err := (CmdT[P]{
+		Use: "test",
+		RunFunc: func(p *P, cmd *cobra.Command, args []string) {
+			wasRun = true
+			if len(p.Vals) != 3 || p.Vals[0] != 10 || p.Vals[1] != 20 || p.Vals[2] != 30 {
+				t.Errorf("unexpected vals: %v", p.Vals)
+			}
+		},
+	}).RunArgsE([]string{}); err != nil {
+		t.Fatalf("RunArgsE: %v", err)
+	}
+	if !wasRun {
+		t.Fatal("run func was not called")
+	}
+}
+
+// Locks in the default-tag path through parseSliceWith.
+func TestSliceUint8_Default(t *testing.T) {
+	type P struct {
+		Bytes []uint8 `descr:"bytes" default:"0,127,255" optional:"true"`
+	}
+	wasRun := false
+	if err := (CmdT[P]{
+		Use: "test",
+		RunFunc: func(p *P, cmd *cobra.Command, args []string) {
+			wasRun = true
+			if len(p.Bytes) != 3 || p.Bytes[0] != 0 || p.Bytes[1] != 127 || p.Bytes[2] != 255 {
+				t.Errorf("unexpected bytes: %v", p.Bytes)
+			}
+		},
+	}).RunArgsE([]string{}); err != nil {
+		t.Fatalf("RunArgsE: %v", err)
+	}
+	if !wasRun {
+		t.Fatal("run func was not called")
+	}
+}
+
+// Same as above but with the bracketed [a,b,c] form parseSliceWith also accepts.
+func TestSliceInt16_DefaultBracketed(t *testing.T) {
+	type P struct {
+		Vals []int16 `descr:"vals" default:"[-1,0,1]" optional:"true"`
+	}
+	wasRun := false
+	if err := (CmdT[P]{
+		Use: "test",
+		RunFunc: func(p *P, cmd *cobra.Command, args []string) {
+			wasRun = true
+			if len(p.Vals) != 3 || p.Vals[0] != -1 || p.Vals[1] != 0 || p.Vals[2] != 1 {
+				t.Errorf("unexpected vals: %v", p.Vals)
+			}
+		},
+	}).RunArgsE([]string{}); err != nil {
+		t.Fatalf("RunArgsE: %v", err)
+	}
+	if !wasRun {
+		t.Fatal("run func was not called")
+	}
+}
