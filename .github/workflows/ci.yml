@@ -21,11 +21,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26.1'
+          go-version: '1.26.2'
           check-latest: true
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
 
@@ -46,7 +46,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26.1'
+          go-version: '1.26.2'
 
       - name: Generate version
         id: version
@@ -69,7 +69,7 @@ jobs:
           git push origin ${{ steps.version.outputs.new_version }}
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.new_version }}
           name: Release ${{ steps.version.outputs.new_version }}
