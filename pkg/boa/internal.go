@@ -395,7 +395,7 @@ func preallocateStructPtrs(ctx *processingContext, structPtr any, path []int) {
 			continue
 		}
 		// Preallocate nil struct pointer fields
-		if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct && !isSupportedType(field.Type) {
+		if field.Type.Kind() == reflect.Pointer && field.Type.Elem().Kind() == reflect.Struct && !isSupportedType(field.Type) {
 			fieldVal := val.Field(i)
 			if fieldVal.IsNil() {
 				fieldVal.Set(reflect.New(field.Type.Elem()))
@@ -446,7 +446,7 @@ func cleanupPreallocatedPtrs(ctx *processingContext) {
 			structVal := reflect.ValueOf(structPtr).Elem()
 			for i := 0; i < structVal.NumField(); i++ {
 				f := structVal.Field(i)
-				if f.Kind() == reflect.Ptr && !f.IsNil() && f.Elem().Kind() == reflect.Struct {
+				if f.Kind() == reflect.Pointer && !f.IsNil() && f.Elem().Kind() == reflect.Struct {
 					anySet = true
 					break
 				}
@@ -516,7 +516,7 @@ func canonicalizeKeyTree(raw map[string]any, targetType reflect.Type, tag string
 	if raw == nil {
 		return nil
 	}
-	for targetType != nil && targetType.Kind() == reflect.Ptr {
+	for targetType != nil && targetType.Kind() == reflect.Pointer {
 		targetType = targetType.Elem()
 	}
 	if targetType == nil || targetType.Kind() != reflect.Struct {
@@ -543,7 +543,7 @@ func canonicalizeKeyTree(raw map[string]any, targetType reflect.Type, tag string
 		// Recurse into nested struct / *struct fields so their sub-keys
 		// also end up keyed by Go field name before the walker sees them.
 		ft := sf.Type
-		for ft.Kind() == reflect.Ptr {
+		for ft.Kind() == reflect.Pointer {
 			ft = ft.Elem()
 		}
 		if ft.Kind() == reflect.Struct && !isSupportedType(sf.Type) {
@@ -664,7 +664,7 @@ func markConfigKeysPresentInStruct(ctx *processingContext, structPtr any, keys m
 		}
 		fieldVal := val.Field(i)
 		// If this is a struct pointer field and it's preallocated (non-nil)
-		if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct && !isSupportedType(field.Type) && !fieldVal.IsNil() {
+		if field.Type.Kind() == reflect.Pointer && field.Type.Elem().Kind() == reflect.Struct && !isSupportedType(field.Type) && !fieldVal.IsNil() {
 			// The config mentioned this struct — mark it as present so the
 			// pointer survives cleanup, even if the object is empty `{}`.
 			// Individual fields only get setByConfig if they appear as keys.
@@ -841,7 +841,7 @@ func collectAndCheck(ctx *processingContext, structPtr any, path []int, anySet *
 			continue
 		}
 		// Recurse into non-nil pointer structs
-		if field.Type.Kind() == reflect.Ptr && !fieldVal.IsNil() && field.Type.Elem().Kind() == reflect.Struct {
+		if field.Type.Kind() == reflect.Pointer && !fieldVal.IsNil() && field.Type.Elem().Kind() == reflect.Struct {
 			collectAndCheck(ctx, fieldVal.Interface(), childPath, anySet)
 		}
 	}
@@ -1066,7 +1066,7 @@ func validateMinMaxPattern(pm *paramMeta, valPtr any) error {
 	}
 
 	v := reflect.ValueOf(valPtr)
-	if v.Kind() == reflect.Ptr && !v.IsNil() {
+	if v.Kind() == reflect.Pointer && !v.IsNil() {
 		v = v.Elem()
 	}
 
@@ -1130,7 +1130,7 @@ func ptrToAnyToString(ptr any) string {
 	}
 
 	val := reflect.ValueOf(ptr)
-	if val.Kind() != reflect.Ptr {
+	if val.Kind() != reflect.Pointer {
 		panic("ptrToAnyToString called with non-pointer")
 	}
 
@@ -1629,7 +1629,7 @@ func traverseAt(
 ) error {
 	prefix := strings.Join(prefixParts, "")
 
-	if reflect.TypeOf(structPtr).Kind() != reflect.Ptr {
+	if reflect.TypeOf(structPtr).Kind() != reflect.Pointer {
 		return fmt.Errorf("expected pointer to struct")
 	}
 
@@ -1692,7 +1692,7 @@ func traverseAt(
 			}
 
 			// check if it is a pointer to a struct (but not *url.URL or pointer-to-supported-type)
-			if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct && !isSupportedType(field.Type) {
+			if field.Type.Kind() == reflect.Pointer && field.Type.Elem().Kind() == reflect.Struct && !isSupportedType(field.Type) {
 				if !fieldAddr.IsNil() && !fieldAddr.Elem().IsNil() {
 					childPrefix := prefix
 					if !field.Anonymous {
@@ -2564,7 +2564,7 @@ func (ctx *processingContext) resolveFieldValue(path fieldPath) (reflect.Value, 
 	v := reflect.ValueOf(ctx.rootStructPtr).Elem()
 	idx := splitPath(path)
 	for _, i := range idx {
-		for v.Kind() == reflect.Ptr {
+		for v.Kind() == reflect.Pointer {
 			if v.IsNil() {
 				return reflect.Value{}, false
 			}

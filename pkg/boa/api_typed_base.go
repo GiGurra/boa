@@ -99,7 +99,7 @@ func (b CmdT[Struct]) ToCmd() Cmd {
 	}
 
 	// Validate that Params is a struct
-	if reflect.TypeOf(b.Params).Kind() != reflect.Ptr {
+	if reflect.TypeOf(b.Params).Kind() != reflect.Pointer {
 		panic(fmt.Errorf("expected pointer to struct"))
 	}
 	if reflect.TypeOf(b.Params).Elem().Kind() != reflect.Struct {

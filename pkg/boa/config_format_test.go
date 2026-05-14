@@ -772,7 +772,7 @@ func miniKVUnmarshal(data []byte, target any) error {
 		return err
 	}
 	v := reflect.ValueOf(target)
-	if v.Kind() != reflect.Ptr || v.IsNil() {
+	if v.Kind() != reflect.Pointer || v.IsNil() {
 		return fmt.Errorf("mini-kv: target must be a non-nil pointer")
 	}
 	return miniKVAssign(v.Elem(), tree)
@@ -808,7 +808,7 @@ func miniKVKeyTree(data []byte) (map[string]any, error) {
 }
 
 func miniKVAssign(v reflect.Value, tree map[string]any) error {
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			v.Set(reflect.New(v.Type().Elem()))
 		}
@@ -852,7 +852,7 @@ func miniKVAssign(v reflect.Value, tree map[string]any) error {
 		// Nested struct / *struct: recurse when the raw value is a map.
 		ft := sf.Type
 		inner := fv
-		if ft.Kind() == reflect.Ptr {
+		if ft.Kind() == reflect.Pointer {
 			if fv.IsNil() {
 				fv.Set(reflect.New(ft.Elem()))
 			}

@@ -19,7 +19,7 @@ import (
 // Supports string, int, and bool fields. For testing config format registry.
 func iniUnmarshal(data []byte, target any) error {
 	v := reflect.ValueOf(target)
-	if v.Kind() != reflect.Ptr || v.Elem().Kind() != reflect.Struct {
+	if v.Kind() != reflect.Pointer || v.Elem().Kind() != reflect.Struct {
 		return fmt.Errorf("ini: target must be a pointer to struct")
 	}
 	v = v.Elem()

@@ -87,7 +87,7 @@ func RegisterType[T any](def TypeDef[T]) {
 			def := ""
 			if defaultVal != nil {
 				v := reflect.ValueOf(defaultVal)
-				if v.Kind() == reflect.Ptr && !v.IsNil() {
+				if v.Kind() == reflect.Pointer && !v.IsNil() {
 					def = formatFn(v.Elem().Interface().(T))
 				}
 			}
@@ -759,7 +759,7 @@ func jsonFallbackHandler(t reflect.Type) *typeHandler {
 			if defaultVal != nil {
 				// Marshal the default to JSON for display
 				v := reflect.ValueOf(defaultVal)
-				if v.Kind() == reflect.Ptr && !v.IsNil() {
+				if v.Kind() == reflect.Pointer && !v.IsNil() {
 					b, err := json.Marshal(v.Elem().Interface())
 					if err == nil {
 						def = string(b)
@@ -1040,7 +1040,7 @@ func derefSliceDefault(defaultVal any) any {
 		return nil
 	}
 	v := reflect.ValueOf(defaultVal)
-	if v.Kind() == reflect.Ptr && !v.IsNil() {
+	if v.Kind() == reflect.Pointer && !v.IsNil() {
 		return v.Elem().Interface()
 	}
 	return defaultVal
