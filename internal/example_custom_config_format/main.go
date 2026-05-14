@@ -118,7 +118,7 @@ func assignDotted(v reflect.Value, segments []string, val string) error {
 	}
 	// Follow a pointer-to-struct if present (boa preallocates these for
 	// optional parameter groups, so deref is always safe here).
-	if field.Kind() == reflect.Ptr && field.Type().Elem().Kind() == reflect.Struct {
+	if field.Kind() == reflect.Pointer && field.Type().Elem().Kind() == reflect.Struct {
 		if field.IsNil() {
 			field.Set(reflect.New(field.Type().Elem()))
 		}

@@ -416,7 +416,7 @@ func (c *HookContext) GetParam(fieldPtr any) Param {
 		return nil
 	}
 	rv := reflect.ValueOf(fieldPtr)
-	if rv.Kind() != reflect.Ptr {
+	if rv.Kind() != reflect.Pointer {
 		slog.Error("boa.HookContext.GetParam: fieldPtr must be a pointer to a struct field",
 			"got_type", fmt.Sprintf("%T", fieldPtr))
 		return nil
@@ -750,7 +750,7 @@ func (c *HookContext) buildSetValueTree(tagName string) (map[string]any, error) 
 		return nil, fmt.Errorf("boa: HookContext: no root parameters struct")
 	}
 	rv := reflect.ValueOf(c.ctx.rootStructPtr)
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return nil, fmt.Errorf("boa: HookContext: root parameters struct is nil")
 		}
@@ -800,7 +800,7 @@ func shouldEmitInDump(f Param, v reflect.Value) bool {
 // key names (see structTagForExt); an empty tagName means "use the Go
 // field name".
 func buildSetValueMapNode(v reflect.Value, ctx *processingContext, pathIdx []int, tagName string) map[string]any {
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return nil
 		}
@@ -857,7 +857,7 @@ func buildSetValueMapNode(v reflect.Value, ctx *processingContext, pathIdx []int
 					out[name] = sub
 				}
 			}
-		case reflect.Ptr:
+		case reflect.Pointer:
 			if !fv.IsNil() && fv.Elem().Kind() == reflect.Struct {
 				if sub := buildSetValueMapNode(fv, ctx, childIdx, tagName); len(sub) > 0 {
 					if sf.Anonymous {

@@ -209,7 +209,7 @@ func (f *paramMeta) SetDefault(val any) {
 	valRef := reflect.ValueOf(val)
 
 	// val should be a pointer (*T) — dereference to get the value
-	if valRef.Kind() == reflect.Ptr && !valRef.IsNil() {
+	if valRef.Kind() == reflect.Pointer && !valRef.IsNil() {
 		elem := valRef.Elem()
 
 		// Direct type match
@@ -327,7 +327,7 @@ func (f *paramMeta) customValidatorOfPtr() func(any) error {
 			return nil
 		}
 		v := reflect.ValueOf(val)
-		if v.Kind() == reflect.Ptr && !v.IsNil() {
+		if v.Kind() == reflect.Pointer && !v.IsNil() {
 			if f.isPointer {
 				// For pointer fields (*int, *string, etc.), pass the pointer value
 				// so the validator receives the same type the user declared.
@@ -407,7 +407,7 @@ func coerceBound(raw any, bk boundKind) (any, error) {
 	}
 	rv := reflect.ValueOf(raw)
 	// Unwrap a single level of pointer, e.g. caller passed *int64.
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return nil, fmt.Errorf("nil bound")
 		}
@@ -594,7 +594,7 @@ func (f *paramMeta) MarshalJSON() ([]byte, error) {
 	}
 	if f.valuePtr != nil {
 		val := reflect.ValueOf(f.valuePtr)
-		if val.Kind() == reflect.Ptr && !val.IsNil() {
+		if val.Kind() == reflect.Pointer && !val.IsNil() {
 			return json.Marshal(val.Elem().Interface())
 		}
 		return json.Marshal(nil)

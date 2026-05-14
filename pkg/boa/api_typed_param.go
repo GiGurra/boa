@@ -209,7 +209,7 @@ func (w *ParamTView[T]) SetCustomValidatorT(fn func(T) error) {
 		default:
 			// Try reflection-based conversion for type aliases
 			valReflect := reflect.ValueOf(val)
-			if valReflect.Kind() == reflect.Ptr && !valReflect.IsNil() {
+			if valReflect.Kind() == reflect.Pointer && !valReflect.IsNil() {
 				valReflect = valReflect.Elem()
 			}
 			var zero T
