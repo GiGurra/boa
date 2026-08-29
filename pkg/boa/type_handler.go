@@ -1022,6 +1022,101 @@ func makeIntSliceFallbackHandler[T any](
 	}
 }
 
+// reflectArrayValue implements pflag.Value for array collection mode. Unlike
+// the normal slice values, Set parses its entire argument as one scalar. The
+// first CLI occurrence replaces defaults and later occurrences append, which
+// matches pflag's native StringArray behavior.
+type reflectArrayValue struct {
+	value       reflect.Value // pointer to a canonical []T
+	elemHandler *typeHandler
+	name        string
+	typeName    string
+	changed     bool
+}
+
+func (v *reflectArrayValue) Set(raw string) error {
+	parsed, err := v.elemHandler.parse(v.name, raw)
+	if err != nil {
+		return err
+	}
+	elem := reflect.ValueOf(parsed).Elem()
+	slice := v.value.Elem()
+	if !v.changed {
+		slice = reflect.MakeSlice(slice.Type(), 0, 1)
+	}
+	v.value.Elem().Set(reflect.Append(slice, elem))
+	v.changed = true
+	return nil
+}
+
+func (v *reflectArrayValue) Type() string { return v.typeName + "Array" }
+
+func (v *reflectArrayValue) String() string {
+	parts := v.GetSlice()
+	return "[" + strings.Join(parts, ",") + "]"
+}
+
+func (v *reflectArrayValue) Append(raw string) error {
+	parsed, err := v.elemHandler.parse(v.name, raw)
+	if err != nil {
+		return err
+	}
+	v.value.Elem().Set(reflect.Append(v.value.Elem(), reflect.ValueOf(parsed).Elem()))
+	return nil
+}
+
+func (v *reflectArrayValue) Replace(values []string) error {
+	v.value.Elem().Set(reflect.MakeSlice(v.value.Elem().Type(), 0, len(values)))
+	for _, raw := range values {
+		parsed, err := v.elemHandler.parse(v.name, raw)
+		if err != nil {
+			return err
+		}
+		v.value.Elem().Set(reflect.Append(v.value.Elem(), reflect.ValueOf(parsed).Elem()))
+	}
+	return nil
+}
+
+func (v *reflectArrayValue) GetSlice() []string {
+	slice := v.value.Elem()
+	parts := make([]string, slice.Len())
+	for i := range parts {
+		parts[i] = fmt.Sprint(slice.Index(i).Interface())
+	}
+	return parts
+}
+
+// bindArrayFlag binds one-value-per-occurrence semantics for every scalar
+// slice type Boa supports. []string deliberately uses pflag's native helper;
+// other scalar slices use reflectArrayValue because pflag has no matching
+// Array helpers.
+func bindArrayFlag(cmd *cobra.Command, name, short, descr string, elemType reflect.Type, defaultVal any) (any, error) {
+	if elemType == reflect.TypeOf("") {
+		return cmd.Flags().StringArrayP(name, short, toTypedSlice[string](derefSliceDefault(defaultVal)), descr), nil
+	}
+
+	elemHandler, _ := lookupHandler(elemType)
+	if elemHandler == nil {
+		return nil, fmt.Errorf("collection mode %q is not supported for slice param %s with element type %s", CollectionArray, name, elemType)
+	}
+	storageType := reflect.SliceOf(elemHandler.baseType)
+	storage := reflect.New(storageType)
+	if defaultVal != nil {
+		def := reflect.ValueOf(defaultVal).Elem()
+		if def.Type().ConvertibleTo(storageType) {
+			storage.Elem().Set(def.Convert(storageType))
+		}
+	}
+	value := &reflectArrayValue{
+		value:       storage,
+		elemHandler: elemHandler,
+		name:        name,
+		typeName:    elemHandler.baseType.String(),
+	}
+	cmd.Flags().VarP(value, name, short, descr)
+	return storage.Interface(), nil
+}
+
 // readAsCSV parses one value pflag receives from the command line into individual
 // elements, using csv rules so quoted commas survive (matches pflag's own
 // stringSliceValue behavior).

@@ -233,7 +233,23 @@ type Param interface {
 	// optional regardless of the original tag. Equivalent to
 	// SetRequiredFn(func() bool { return val }).
 	SetRequired(bool)
+
+	// GetCollection / SetCollection control how repeated slice flags consume
+	// command-line values. CollectionSlice is the backwards-compatible CSV
+	// mode; CollectionArray appends one opaque scalar per flag occurrence.
+	// Environment, config-file, default, and positional parsing are unaffected.
+	GetCollection() CollectionMode
+	SetCollection(CollectionMode)
 }
+
+// CollectionMode controls the command-line occurrence semantics of slice
+// flags. The zero value is CollectionSlice for backwards compatibility.
+type CollectionMode string
+
+const (
+	CollectionSlice CollectionMode = "slice"
+	CollectionArray CollectionMode = "array"
+)
 
 // configFileEntry tracks a configfile:"true" field and the struct it should load into.
 type configFileEntry struct {
@@ -1185,6 +1201,13 @@ func toTypedSlice[T any](slice any) []T {
 }
 
 func connect(f Param, cmd *cobra.Command, posArgs []Param, ctx *processingContext) error {
+	collection := f.GetCollection()
+	if collection != CollectionSlice && collection != CollectionArray {
+		return fmt.Errorf("invalid collection mode %q for param %s", collection, f.GetName())
+	}
+	if collection == CollectionArray && f.GetKind() != reflect.Slice {
+		return fmt.Errorf("collection mode %q on param %s requires a slice field", CollectionArray, f.GetName())
+	}
 
 	// Params marked noflag or ignored are not registered with cobra at all.
 	// They still participate in env-var reading (unless ignored), config-file
@@ -1399,11 +1422,25 @@ func connect(f Param, cmd *cobra.Command, posArgs []Param, ctx *processingContex
 				}
 				defVal = f.defaultValuePtr()
 			}
-			f.setValuePtr(sliceHandler.bindFlag(cmd, f.GetName(), f.GetShort(), descr, defVal))
+			switch f.GetCollection() {
+			case "", CollectionSlice:
+				f.setValuePtr(sliceHandler.bindFlag(cmd, f.GetName(), f.GetShort(), descr, defVal))
+			case CollectionArray:
+				valuePtr, err := bindArrayFlag(cmd, f.GetName(), f.GetShort(), descr, f.GetType().Elem(), defVal)
+				if err != nil {
+					return err
+				}
+				f.setValuePtr(valuePtr)
+			default:
+				return fmt.Errorf("invalid collection mode %q for param %s", f.GetCollection(), f.GetName())
+			}
 			return nil
 		}
 
 		// JSON fallback for complex slice types (nested slices, etc.)
+		if f.GetCollection() == CollectionArray {
+			return fmt.Errorf("collection mode %q is not supported for slice param %s with element type %s", CollectionArray, f.GetName(), elemType)
+		}
 		fallback := jsonFallbackHandler(f.GetType())
 		var defVal any
 		if f.hasDefaultValue() {
@@ -1942,6 +1979,19 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 			}
 			if strictAlts, ok := tags.Lookup("strict"); ok {
 				param.SetStrictAlts(strictAlts == "true")
+			}
+
+			if collection, ok := tags.Lookup("collection"); ok {
+				mode := CollectionMode(strings.TrimSpace(collection))
+				switch mode {
+				case CollectionSlice, CollectionArray:
+					if param.GetKind() != reflect.Slice {
+						return fmt.Errorf("collection on param %s: only slice fields support collection modes", param.GetName())
+					}
+					param.SetCollection(mode)
+				default:
+					return fmt.Errorf("invalid collection mode %q for param %s (expected %q or %q)", collection, param.GetName(), CollectionSlice, CollectionArray)
+				}
 			}
 
 			if !param.hasDefaultValue() {

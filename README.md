@@ -78,14 +78,15 @@ All standard Go types work out of the box:
 
 ```go
 type Params struct {
-    Host    string            `descr:"server host"`                    // required by default
-    Port    int               `descr:"port" default:"8080"`            // with default
-    Name    *string           `descr:"user name"`                      // pointer = optional, nil = not set
-    Tags    []string          `descr:"tags" default:"[a,b,c]"`         // --tags a,b,c
-    Labels  map[string]string `descr:"labels"`                         // --labels env=prod,team=backend
-    Input   string            `positional:"true"`                      // positional arg
-    Timeout time.Duration     `descr:"timeout" default:"30s"`          // durations, IPs, URLs, etc.
-    Matrix  [][]int           `descr:"matrix" optional:"true"`         // complex types use JSON: '[[1,2],[3,4]]'
+    Host      string            `descr:"server host"`                    // required by default
+    Port      int               `descr:"port" default:"8080"`            // with default
+    Name      *string           `descr:"user name"`                      // pointer = optional, nil = not set
+    Tags      []string          `descr:"tags" default:"[a,b,c]"`         // --tags a,b,c
+    LabelList []string          `long:"label" collection:"array"`        // --label 'one,opaque' --label two
+    Labels    map[string]string `descr:"labels"`                         // --labels env=prod,team=backend
+    Input     string            `positional:"true"`                      // positional arg
+    Timeout   time.Duration     `descr:"timeout" default:"30s"`          // durations, IPs, URLs, etc.
+    Matrix    [][]int           `descr:"matrix" optional:"true"`         // complex types use JSON: '[[1,2],[3,4]]'
 }
 ```
 
@@ -485,6 +486,7 @@ boa.CmdT[Params]{
 | `min` | Min value or min length | `min:"1"` |
 | `max` | Max value or max length | `max:"65535"` |
 | `pattern` | Regex pattern | `pattern:"^[a-z]+$"` |
+| `collection` | Slice CLI parsing: `slice` (CSV, default) or `array` (one scalar per occurrence) | `collection:"array"` |
 | `configfile` | Auto-load config from path | `configfile:"true"` |
 | `boa` | Special directives | `boa:"ignore"` (no mirror), `boa:"configonly"` (no CLI/env, mirror + validation preserved), `boa:"noflag"` / `"nocli"`, `boa:"noenv"` |
 

@@ -70,6 +70,7 @@ type Params struct {
 - `min` - Minimum value (numeric) or minimum length (string/slice)
 - `max` - Maximum value (numeric) or maximum length (string/slice)
 - `pattern` - Regex pattern for string validation
+- `collection` - Slice CLI parsing mode: `slice` (CSV, default) or `array` (one opaque scalar per repeated flag occurrence); env/config/default parsing is unchanged
 - `configfile` - Auto-load config file from this field's path (works in root and nested structs)
 - `boa:"ignore"` (aliases `boa:"ignored"`, `boa:"-"`) - Fully excluded from boa: no mirror, no CLI flag, no env read, no validation. Only raw config-file unmarshal writes to the field. Use for opaque blobs.
 - `boa:"configonly"` - Hidden from CLI and env but the **mirror is preserved**: `min`/`max`/`pattern`, custom validators, and required checks still run. Desugars to `noflag + noenv`. Use for validated config-file-only fields. (Was an alias for `boa:"ignore"` in older releases — the current semantics are strictly more useful.)
@@ -88,6 +89,7 @@ Every struct-tag feature has a matching method on `Param` / `ParamT[T]` so field
 - `SetNoEnv(bool)` / `IsNoEnv() bool` — mirrors `boa:"noenv"`
 - `SetIgnored(bool)` / `IsIgnored() bool` — post-traversal equivalent of `boa:"ignore"` (the tag itself skips traversal entirely, so the mirror never exists; the programmatic form marks an existing mirror as ignored so CLI/env/validation/sync are all skipped). For `boa:"configonly"`, call `SetNoFlag(true)` + `SetNoEnv(true)` instead.
 - `SetConfigFile(bool)` / `IsConfigFile() bool` — programmatic equivalent of `configfile:"true"`. Field must be a string; tag-processing pass normalizes both tag and programmatic flag into a single config-file registry entry, so either source works identically. Non-string fields produce a clean user-input error rather than a panic.
+- `SetCollection(CollectionMode)` / `GetCollection() CollectionMode` — controls slice CLI occurrence semantics (`CollectionSlice` or `CollectionArray`) without changing env/config/default parsing.
 - `SetMinT(T)` / `SetMaxT(T)` on `ParamT[T]` for numeric `T` (stores at full int64/float64 precision). `SetMinLen(int)` / `SetMaxLen(int)` for string / slice / map fields. `ClearMin()` / `ClearMax()` on both. The non-generic `Param` exposes `GetMin() any` / `SetMin(any)` / `ClearMin()` (same for Max), returning a typed pointer: `*int64` for signed ints, `*float64` for floats, `*int` for length-based fields. `SetPattern(string)` / `GetPattern() string` unchanged.
 - `SetDefault(any)` / typed `ParamT[T].SetDefaultT(T)`
 - `SetAlternatives([]string)`, `SetAlternativesFunc(...)`, `SetStrictAlts(bool)`

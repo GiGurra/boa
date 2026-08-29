@@ -19,6 +19,7 @@ Quick reference for all BOA struct tags.
 | `min` | | Min value (numeric) or min length (string/slice) | `min:"1"` |
 | `max` | | Max value (numeric) or max length (string/slice) | `max:"65535"` |
 | `pattern` | | Regex pattern (strings only) | `pattern:"^[a-z]+$"` |
+| `collection` | | Slice CLI parsing: `slice` (CSV, default) or `array` (one scalar per occurrence) | `collection:"array"` |
 | `configfile` | | Auto-load config file (root or substruct) | `configfile:"true"` |
 | `boa` | | Special directives | `boa:"ignore"`, `boa:"configonly"`, `boa:"noflag"`, `boa:"nocli"`, `boa:"noenv"` |
 
@@ -105,7 +106,7 @@ boa.CmdT[ExternalConfig]{
 }
 ```
 
-Available setters include `SetDescription`, `SetName`, `SetShort`, `SetEnv`, `SetPositional`, `SetRequired(bool)` / `SetRequiredFn`, `SetNoFlag`, `SetNoEnv`, `SetIgnored`, `SetMinT(T)` / `SetMaxT(T)` for numeric fields, `SetMinLen(int)` / `SetMaxLen(int)` for string/slice/map fields, `ClearMin` / `ClearMax`, `SetPattern`, `SetAlternatives`, `SetAlternativesFunc`, `SetStrictAlts`, `SetDefault` / `SetDefaultT`, `SetCustomValidator` / `SetCustomValidatorT`, and `SetIsEnabledFn`. The numeric setters store at the field's natural precision (e.g. `int64` bounds past 2^53 round-trip losslessly), unlike the older float64-only API.
+Available setters include `SetDescription`, `SetName`, `SetShort`, `SetEnv`, `SetPositional`, `SetRequired(bool)` / `SetRequiredFn`, `SetNoFlag`, `SetNoEnv`, `SetIgnored`, `SetCollection`, `SetMinT(T)` / `SetMaxT(T)` for numeric fields, `SetMinLen(int)` / `SetMaxLen(int)` for string/slice/map fields, `ClearMin` / `ClearMax`, `SetPattern`, `SetAlternatives`, `SetAlternativesFunc`, `SetStrictAlts`, `SetDefault` / `SetDefaultT`, `SetCustomValidator` / `SetCustomValidatorT`, and `SetIsEnabledFn`. The numeric setters store at the field's natural precision (e.g. `int64` bounds past 2^53 round-trip losslessly), unlike the older float64-only API.
 
 All programmatic setters must be called from `InitFunc` / `InitFuncCtx` (or `CfgStructInit` / `CfgStructInitCtx`) so they take effect before cobra flag binding and env parsing.
 
