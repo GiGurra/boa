@@ -21,6 +21,7 @@ type paramMeta struct {
 	descr      string
 	positional bool
 	collection CollectionMode
+	persistent bool
 
 	alternatives     []string
 	alternativesFunc func(cmd *cobra.Command, args []string, toComplete string) []string
@@ -168,6 +169,14 @@ func (f *paramMeta) isPositional() bool {
 
 func (f *paramMeta) setPositional(state bool) {
 	f.positional = state
+}
+
+func (f *paramMeta) isPersistent() bool {
+	return f.persistent
+}
+
+func (f *paramMeta) setPersistent(state bool) {
+	f.persistent = state
 }
 
 func (f *paramMeta) wasSetPositionally() bool {
@@ -585,6 +594,8 @@ func (f *paramMeta) GetDescription() string      { return f.descr }
 func (f *paramMeta) SetDescription(descr string) { f.descr = descr }
 func (f *paramMeta) IsPositional() bool          { return f.positional }
 func (f *paramMeta) SetPositional(state bool)    { f.positional = state }
+func (f *paramMeta) IsPersistent() bool          { return f.persistent }
+func (f *paramMeta) SetPersistent(state bool)    { f.persistent = state }
 
 // SetRequired pins the parameter as required/optional regardless of any
 // earlier tag or SetRequiredFn. It is equivalent to

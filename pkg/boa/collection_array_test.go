@@ -159,6 +159,28 @@ func TestCollectionArray_ProgrammaticConfiguration(t *testing.T) {
 	}
 }
 
+func TestCollectionArray_PersistentFlagIsInherited(t *testing.T) {
+	type Params struct {
+		Labels []string `long:"label" collection:"array" persistent:"true" optional:"true"`
+	}
+
+	params := Params{}
+	leaf := &cobra.Command{Use: "leaf", Run: func(*cobra.Command, []string) {}}
+	root := (CmdT[Params]{
+		Use:     "root",
+		Params:  &params,
+		SubCmds: []*cobra.Command{leaf},
+	}).ToCobra()
+	root.SetArgs([]string{"leaf", "--label", "a,b", "--label", "second"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := []string{"a,b", "second"}; !reflect.DeepEqual(params.Labels, want) {
+		t.Fatalf("want %#v, got %#v", want, params.Labels)
+	}
+}
+
 func TestCollectionTagRejectsInvalidUses(t *testing.T) {
 	t.Run("unknown mode", func(t *testing.T) {
 		type Params struct {
