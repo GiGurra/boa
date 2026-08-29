@@ -305,6 +305,40 @@ func TestPersistentFlag_AutoShortDoesNotCollideWithDescendant(t *testing.T) {
 	}
 }
 
+func TestPersistentFlag_AutoShortRetainedWithoutConflict(t *testing.T) {
+	type RootParams struct {
+		DB string `long:"db" persistent:"true" optional:"true"`
+	}
+	type ChildParams struct {
+		Name string `long:"name" optional:"true"`
+	}
+
+	rootParams := RootParams{}
+	child := (CmdT[ChildParams]{
+		Use:     "create",
+		RunFunc: func(params *ChildParams, cmd *cobra.Command, args []string) {},
+	}).ToCobra()
+	root, err := (CmdT[RootParams]{
+		Use:     "root",
+		Params:  &rootParams,
+		SubCmds: []*cobra.Command{child},
+	}).ToCobraE()
+	if err != nil {
+		t.Fatalf("ToCobraE() error = %v", err)
+	}
+	if got := root.PersistentFlags().Lookup("db").Shorthand; got != "d" {
+		t.Fatalf("persistent --db shorthand = %q, want d", got)
+	}
+
+	root.SetArgs([]string{"create", "-d", "app.db"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if rootParams.DB != "app.db" {
+		t.Errorf("root DB = %q, want app.db", rootParams.DB)
+	}
+}
+
 func TestPersistentFlag_ExplicitShortCollisionIsConstructionError(t *testing.T) {
 	type RootParams struct {
 		DB string `long:"db" short:"d" persistent:"true" optional:"true"`

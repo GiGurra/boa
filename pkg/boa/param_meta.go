@@ -17,6 +17,7 @@ type paramMeta struct {
 	// Metadata
 	name       string
 	short      string
+	autoShort  bool
 	env        string
 	descr      string
 	positional bool
@@ -189,10 +190,17 @@ func (f *paramMeta) markSetPositionally() {
 
 // --- Name / Short / Env / Description ---
 
-func (f *paramMeta) GetName() string             { return f.name }
-func (f *paramMeta) SetName(val string)          { f.name = val }
-func (f *paramMeta) GetShort() string            { return f.short }
-func (f *paramMeta) SetShort(val string)         { f.short = val }
+func (f *paramMeta) GetName() string    { return f.name }
+func (f *paramMeta) SetName(val string) { f.name = val }
+func (f *paramMeta) GetShort() string   { return f.short }
+func (f *paramMeta) SetShort(val string) {
+	f.short = val
+	f.autoShort = false
+}
+func (f *paramMeta) setAutoShort(val string) {
+	f.short = val
+	f.autoShort = val != ""
+}
 func (f *paramMeta) GetEnv() string              { return f.env }
 func (f *paramMeta) SetEnv(val string)           { f.env = val }
 func (f *paramMeta) getDescr() string            { return f.descr }

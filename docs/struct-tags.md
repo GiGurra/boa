@@ -107,12 +107,13 @@ still apply to the root field. Persistent flags can be declared at any command
 level. They cannot be positional arguments. A descendant local flag with the
 same name follows Cobra's normal shadowing behavior.
 
-The default enricher does not auto-generate short names for persistent flags,
-because a persistent shorthand must be unique throughout its command subtree.
-Set one explicitly with `short:"x"` or `SetShort("x")` when desired. Boa
-validates explicit persistent shorthands after assembling the command tree and
-returns a construction error if one conflicts with a local or persistent flag
-on a descendant command.
+The default enricher auto-generates a short name for a persistent flag only when
+that shorthand is unique throughout the assembled command subtree. If a
+descendant already uses it, Boa omits the persistent flag's automatic shorthand
+while leaving the descendant shorthand intact. Explicit persistent shorthands
+set with `short:"x"` or `SetShort("x")` are never silently removed; Boa returns
+a construction error if one conflicts with a local or persistent descendant
+flag.
 
 ### Programmatic parity
 

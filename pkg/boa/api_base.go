@@ -163,13 +163,10 @@ var (
 	// ParamEnricherShort sets a short name (single character) for a parameter
 	// using the first character of the parameter name if available.
 	// Skips setting if the character would be 'h' (reserved for help) or
-	// if another parameter already uses that character. Persistent parameters
-	// are also skipped because their shorthand namespace spans the full command
-	// subtree, which cannot be known while a child command is being converted.
+	// if another parameter already uses that character. Auto-derived persistent
+	// shorthands are finalized against the assembled command subtree before
+	// flag binding and omitted if they would conflict with a descendant flag.
 	ParamEnricherShort ParamEnricher = func(alreadyProcessed []Param, param Param, paramFieldName string) error {
-		if param.IsPersistent() {
-			return nil
-		}
 		if param.GetShort() == "" && param.GetName() != "" {
 			wantShort := string(param.GetName()[0])
 			if wantShort == "h" {
@@ -182,7 +179,7 @@ var (
 				}
 			}
 			if shortAvailable {
-				param.SetShort(wantShort)
+				param.(*paramMeta).setAutoShort(wantShort)
 			}
 		}
 		return nil

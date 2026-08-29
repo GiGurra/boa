@@ -1867,6 +1867,56 @@ type commandFlagRef struct {
 	persistent bool
 }
 
+// resolvePersistentAutoShorthands keeps auto-derived persistent shorthands
+// only when they are unique across the declaring command and its assembled
+// descendant tree. Resolution happens before the persistent flag is bound, so
+// pflag's internal shorthand index is never populated for an omitted short.
+// Explicit shorts and non-persistent auto shorts take precedence; any conflict
+// involving explicit persistent shorts is reported later by
+// validateTreeShorthands.
+func resolvePersistentAutoShorthands(cmd *cobra.Command, params []Param) {
+	used := make(map[string]bool)
+
+	var collectCommandFlags func(*cobra.Command)
+	collectCommandFlags = func(current *cobra.Command) {
+		current.Flags().VisitAll(func(flag *pflag.Flag) {
+			if flag.Shorthand != "" {
+				used[flag.Shorthand] = true
+			}
+		})
+		current.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
+			if flag.Shorthand != "" {
+				used[flag.Shorthand] = true
+			}
+		})
+		for _, child := range current.Commands() {
+			collectCommandFlags(child)
+		}
+	}
+	collectCommandFlags(cmd)
+
+	// Reserve every explicit short and every local auto-derived short first,
+	// so an automatic persistent short always yields to a concrete flag in its
+	// inheritance scope regardless of struct field order.
+	for _, param := range params {
+		pm := param.(*paramMeta)
+		if pm.short != "" && (!pm.persistent || !pm.autoShort) {
+			used[pm.short] = true
+		}
+	}
+	for _, param := range params {
+		pm := param.(*paramMeta)
+		if !pm.persistent || !pm.autoShort || pm.short == "" {
+			continue
+		}
+		if used[pm.short] {
+			pm.setAutoShort("")
+			continue
+		}
+		used[pm.short] = true
+	}
+}
+
 // validateTreeShorthands checks shorthand uniqueness after the complete Cobra
 // tree has been assembled. pflag detects these collisions only while merging
 // inherited flags during execution, where it panics. Boa reports them as a
@@ -2326,6 +2376,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 				positional = append(positional, param)
 			}
 		}
+		resolvePersistentAutoShorthands(cmd, processed)
 
 		// Check that no required positional arg exists after on optional positional arg
 		numReqPositional := 0
