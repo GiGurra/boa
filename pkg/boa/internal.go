@@ -1776,6 +1776,47 @@ func traverseAt(
 	return nil
 }
 
+// prependPersistentPipelineToDescendants composes a declaring command's Boa
+// parameter pipeline with persistent hooks already installed below it. Cobra
+// normally executes only the nearest persistent hook, so without this
+// composition an intermediate hook would suppress the declaring ancestor's
+// sourcing and validation. Descendants without their own persistent hook need
+// no wrapper: Cobra naturally finds the nearest composed ancestor hook.
+func prependPersistentPipelineToDescendants(cmd *cobra.Command, pipeline func(*cobra.Command, []string) error) {
+	for _, child := range cmd.Commands() {
+		if child.PersistentPreRunE != nil {
+			next := child.PersistentPreRunE
+			child.PersistentPreRunE = func(executed *cobra.Command, args []string) error {
+				// When callers explicitly enable Cobra's global traversal, Cobra
+				// invokes the ancestor pipeline itself. Skip the composed prefix
+				// in that mode so each hook still runs exactly once.
+				if !cobra.EnableTraverseRunHooks {
+					if err := pipeline(executed, args); err != nil {
+						return err
+					}
+				}
+				return next(executed, args)
+			}
+		} else if child.PersistentPreRun != nil {
+			next := child.PersistentPreRun
+			child.PersistentPreRunE = func(executed *cobra.Command, args []string) error {
+				if !cobra.EnableTraverseRunHooks {
+					if err := pipeline(executed, args); err != nil {
+						return err
+					}
+				}
+				next(executed, args)
+				return nil
+			}
+		}
+
+		// Prefix only this declaring pipeline at each level. A descendant Boa
+		// command has already composed its own pipeline into hooks below it;
+		// prefixing the accumulated chain here would run those pipelines twice.
+		prependPersistentPipelineToDescendants(child, pipeline)
+	}
+}
+
 // toCobraBase sets up the cobra command with all common configuration (flags, validation, lifecycle hooks)
 // but does NOT set the Run/RunE function. Returns both the command and the processing context
 // so callers can set up the appropriate run function with access to the context.
@@ -2457,6 +2498,7 @@ func (b Cmd) toCobraBase() (*cobra.Command, *processingContext, error) {
 	}
 	if hasPersistentParams {
 		cmd.PersistentPreRunE = paramPipeline
+		prependPersistentPipelineToDescendants(cmd, paramPipeline)
 	} else {
 		cmd.PreRunE = paramPipeline
 	}

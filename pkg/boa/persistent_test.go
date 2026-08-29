@@ -104,6 +104,60 @@ func TestPersistentFlag_DeclaredAtSubtreeNode(t *testing.T) {
 	}
 }
 
+func TestPersistentFlag_ComposesRootAndIntermediatePipelines(t *testing.T) {
+	type RootParams struct {
+		DB string `long:"db" persistent:"true"`
+	}
+	type MiddleParams struct {
+		Region string `long:"region" persistent:"true"`
+	}
+
+	rootParams := RootParams{}
+	middleParams := MiddleParams{}
+	var pipelineOrder []string
+	leafRan := false
+	leaf := &cobra.Command{
+		Use: "leaf",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			pipelineOrder = append(pipelineOrder, "leaf")
+			return nil
+		},
+		Run: func(cmd *cobra.Command, args []string) { leafRan = true },
+	}
+	middle := (CmdT[MiddleParams]{
+		Use:     "middle",
+		Params:  &middleParams,
+		SubCmds: []*cobra.Command{leaf},
+		PreValidateFunc: func(params *MiddleParams, cmd *cobra.Command, args []string) error {
+			pipelineOrder = append(pipelineOrder, "middle")
+			return nil
+		},
+	}).ToCobra()
+	root := (CmdT[RootParams]{
+		Use:     "root",
+		Params:  &rootParams,
+		SubCmds: []*cobra.Command{middle},
+		PreValidateFunc: func(params *RootParams, cmd *cobra.Command, args []string) error {
+			pipelineOrder = append(pipelineOrder, "root")
+			return nil
+		},
+	}).ToCobra()
+	root.SetArgs([]string{"middle", "leaf", "--db", "app.db", "--region", "eu-north"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !leafRan {
+		t.Error("leaf did not run")
+	}
+	if rootParams.DB != "app.db" || middleParams.Region != "eu-north" {
+		t.Errorf("params = {DB:%q Region:%q}, want {DB:app.db Region:eu-north}", rootParams.DB, middleParams.Region)
+	}
+	if got := strings.Join(pipelineOrder, ","); got != "root,middle,leaf" {
+		t.Errorf("pipeline order = %q, want root,middle,leaf", got)
+	}
+}
+
 func TestPersistentFlag_ChildLocalFlagShadowsParent(t *testing.T) {
 	type RootParams struct {
 		Value string `long:"value" persistent:"true" optional:"true"`
