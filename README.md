@@ -478,6 +478,7 @@ boa.CmdT[Params]{
 | `env` | Environment variable name | `env:"PORT"` |
 | `short` | Short flag (single char) | `short:"p"` |
 | `positional` / `pos` | Marks positional argument | `positional:"true"` |
+| `persistent` | Makes a flag inherited by descendant commands | `persistent:"true"` |
 | `required` / `req` | Marks as required | `required:"true"` |
 | `optional` / `opt` | Marks as optional | `optional:"true"` |
 | `alts` | Allowed values (enum) | `alts:"debug,info,warn,error"` |

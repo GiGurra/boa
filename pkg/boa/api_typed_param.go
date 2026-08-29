@@ -104,6 +104,11 @@ type ParamT[T any] interface {
 	// rather than a named flag. Cannot be combined with SetNoFlag(true).
 	SetPositional(positional bool)
 
+	// SetPersistent toggles whether this parameter is registered as a Cobra
+	// persistent flag and inherited by descendant commands. It cannot be
+	// combined with SetPositional(true).
+	SetPersistent(persistent bool)
+
 	// SetMinT / SetMaxT set a typed numeric bound. Works on numeric fields
 	// (signed int, unsigned int, float). Panics on non-numeric T — use
 	// SetMinLen / SetMaxLen for string / slice / map fields instead. The
@@ -300,6 +305,11 @@ func (w *ParamTView[T]) SetDescription(descr string) {
 // SetPositional toggles positional-argument mode.
 func (w *ParamTView[T]) SetPositional(positional bool) {
 	w.param.SetPositional(positional)
+}
+
+// SetPersistent toggles persistent-flag mode.
+func (w *ParamTView[T]) SetPersistent(persistent bool) {
+	w.param.SetPersistent(persistent)
 }
 
 // SetMinT sets a typed numeric lower bound. Panics if T is not numeric —

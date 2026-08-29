@@ -20,15 +20,16 @@ type paramMeta struct {
 	env        string
 	descr      string
 	positional bool
+	persistent bool
 
 	alternatives     []string
 	alternativesFunc func(cmd *cobra.Command, args []string, toComplete string) []string
 	strictAlts       *bool
 
 	// Required/Enabled (unifies the old required[T] vs optional[T] split)
-	defaultRequired bool         // set at creation from struct tags + globalConfig
-	requiredFn      func() bool  // if set, overrides defaultRequired
-	enabledFn       func() bool  // if set, checked for IsEnabled()
+	defaultRequired bool        // set at creation from struct tags + globalConfig
+	requiredFn      func() bool // if set, overrides defaultRequired
+	enabledFn       func() bool // if set, checked for IsEnabled()
 
 	// Type info
 	fieldType reflect.Type // the VALUE type (string for *string fields, *url.URL for *url.URL fields)
@@ -52,7 +53,7 @@ type paramMeta struct {
 	setByConfig     bool
 	setPositionally bool
 	injected        bool
-	valuePtr        any            // cobra flag pointer (e.g., *string from StringP)
+	valuePtr        any // cobra flag pointer (e.g., *string from StringP)
 	parent          *cobra.Command
 
 	// Validation
@@ -169,6 +170,14 @@ func (f *paramMeta) setPositional(state bool) {
 	f.positional = state
 }
 
+func (f *paramMeta) isPersistent() bool {
+	return f.persistent
+}
+
+func (f *paramMeta) setPersistent(state bool) {
+	f.persistent = state
+}
+
 func (f *paramMeta) wasSetPositionally() bool {
 	return f.setPositionally
 }
@@ -179,13 +188,13 @@ func (f *paramMeta) markSetPositionally() {
 
 // --- Name / Short / Env / Description ---
 
-func (f *paramMeta) GetName() string  { return f.name }
-func (f *paramMeta) SetName(val string)  { f.name = val }
-func (f *paramMeta) GetShort() string { return f.short }
-func (f *paramMeta) SetShort(val string) { f.short = val }
-func (f *paramMeta) GetEnv() string   { return f.env }
-func (f *paramMeta) SetEnv(val string)   { f.env = val }
-func (f *paramMeta) getDescr() string { return f.descr }
+func (f *paramMeta) GetName() string             { return f.name }
+func (f *paramMeta) SetName(val string)          { f.name = val }
+func (f *paramMeta) GetShort() string            { return f.short }
+func (f *paramMeta) SetShort(val string)         { f.short = val }
+func (f *paramMeta) GetEnv() string              { return f.env }
+func (f *paramMeta) SetEnv(val string)           { f.env = val }
+func (f *paramMeta) getDescr() string            { return f.descr }
 func (f *paramMeta) setDescription(descr string) { f.descr = descr }
 
 // --- Type info ---
@@ -575,6 +584,8 @@ func (f *paramMeta) GetDescription() string      { return f.descr }
 func (f *paramMeta) SetDescription(descr string) { f.descr = descr }
 func (f *paramMeta) IsPositional() bool          { return f.positional }
 func (f *paramMeta) SetPositional(state bool)    { f.positional = state }
+func (f *paramMeta) IsPersistent() bool          { return f.persistent }
+func (f *paramMeta) SetPersistent(state bool)    { f.persistent = state }
 
 // SetRequired pins the parameter as required/optional regardless of any
 // earlier tag or SetRequiredFn. It is equivalent to

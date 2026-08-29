@@ -14,6 +14,7 @@ Quick reference for all BOA struct tags.
 | `required` | `req` | Mark as required | `required:"true"` |
 | `optional` | `opt` | Mark as optional | `optional:"true"` |
 | `positional` | `pos` | Positional argument | `positional:"true"` |
+| `persistent` | | Flag inherited by descendant commands | `persistent:"true"` |
 | `alts` | `alternatives` | Allowed values | `alts:"a,b,c"` |
 | `strict-alts` | `strict` | Validate alts | `strict:"true"` |
 | `min` | | Min value (numeric) or min length (string/slice) | `min:"1"` |
@@ -84,6 +85,27 @@ type Params struct {
 // With ParamEnricherEnv: $HOST populates Host, but $INTERNAL is ignored.
 ```
 
+### Persistent Flags
+
+Use `persistent:"true"` to register a field on the declaring Cobra command's
+persistent flag set. Descendant commands inherit the flag, and may accept it
+either before or after the subcommand path:
+
+```go
+type RootParams struct {
+    DB string `long:"db" persistent:"true" optional:"true"`
+}
+// Both forms work:
+// myapp --db app.db child
+// myapp child --db app.db
+```
+
+Boa runs the declaring command's sourcing and validation pipeline when a
+descendant executes, so env/config/default handling and required validation
+still apply to the root field. Persistent flags can be declared at any command
+level. They cannot be positional arguments. A descendant local flag with the
+same name follows Cobra's normal shadowing behavior.
+
 ### Programmatic parity
 
 Anything configurable with a struct tag is also configurable programmatically through `HookContext.GetParam(&p.Field)` (or the typed `GetParamT`). This is the escape hatch for parameter structs you don't own and can't add tags to:
@@ -105,7 +127,7 @@ boa.CmdT[ExternalConfig]{
 }
 ```
 
-Available setters include `SetDescription`, `SetName`, `SetShort`, `SetEnv`, `SetPositional`, `SetRequired(bool)` / `SetRequiredFn`, `SetNoFlag`, `SetNoEnv`, `SetIgnored`, `SetMinT(T)` / `SetMaxT(T)` for numeric fields, `SetMinLen(int)` / `SetMaxLen(int)` for string/slice/map fields, `ClearMin` / `ClearMax`, `SetPattern`, `SetAlternatives`, `SetAlternativesFunc`, `SetStrictAlts`, `SetDefault` / `SetDefaultT`, `SetCustomValidator` / `SetCustomValidatorT`, and `SetIsEnabledFn`. The numeric setters store at the field's natural precision (e.g. `int64` bounds past 2^53 round-trip losslessly), unlike the older float64-only API.
+Available setters include `SetDescription`, `SetName`, `SetShort`, `SetEnv`, `SetPositional`, `SetPersistent`, `SetRequired(bool)` / `SetRequiredFn`, `SetNoFlag`, `SetNoEnv`, `SetIgnored`, `SetMinT(T)` / `SetMaxT(T)` for numeric fields, `SetMinLen(int)` / `SetMaxLen(int)` for string/slice/map fields, `ClearMin` / `ClearMax`, `SetPattern`, `SetAlternatives`, `SetAlternativesFunc`, `SetStrictAlts`, `SetDefault` / `SetDefaultT`, `SetCustomValidator` / `SetCustomValidatorT`, and `SetIsEnabledFn`. The numeric setters store at the field's natural precision (e.g. `int64` bounds past 2^53 round-trip losslessly), unlike the older float64-only API.
 
 All programmatic setters must be called from `InitFunc` / `InitFuncCtx` (or `CfgStructInit` / `CfgStructInitCtx`) so they take effect before cobra flag binding and env parsing.
 
