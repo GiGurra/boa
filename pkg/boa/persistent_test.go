@@ -264,3 +264,89 @@ func TestPersistentFlag_InvalidTagValue(t *testing.T) {
 		t.Fatalf("ToCobraE() error = %v, want invalid persistent value error", err)
 	}
 }
+
+func TestPersistentFlag_AutoShortDoesNotCollideWithDescendant(t *testing.T) {
+	type RootParams struct {
+		DB string `long:"db" persistent:"true" optional:"true"`
+	}
+	type ChildParams struct {
+		Description string `long:"description" optional:"true"`
+	}
+
+	rootParams := RootParams{}
+	childParams := ChildParams{}
+	child := (CmdT[ChildParams]{
+		Use:     "create",
+		Params:  &childParams,
+		RunFunc: func(params *ChildParams, cmd *cobra.Command, args []string) {},
+	}).ToCobra()
+	root, err := (CmdT[RootParams]{
+		Use:     "root",
+		Params:  &rootParams,
+		SubCmds: []*cobra.Command{child},
+	}).ToCobraE()
+	if err != nil {
+		t.Fatalf("ToCobraE() error = %v", err)
+	}
+
+	if got := root.PersistentFlags().Lookup("db").Shorthand; got != "" {
+		t.Errorf("persistent --db shorthand = %q, want none", got)
+	}
+	if got := child.Flags().Lookup("description").Shorthand; got != "d" {
+		t.Errorf("local --description shorthand = %q, want d", got)
+	}
+
+	root.SetArgs([]string{"create", "-d", "created through shorthand"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if childParams.Description != "created through shorthand" {
+		t.Errorf("child description = %q", childParams.Description)
+	}
+}
+
+func TestPersistentFlag_ExplicitShortCollisionIsConstructionError(t *testing.T) {
+	type RootParams struct {
+		DB string `long:"db" short:"d" persistent:"true" optional:"true"`
+	}
+	type ChildParams struct {
+		Description string `long:"description" optional:"true"`
+	}
+
+	child := (CmdT[ChildParams]{
+		Use:     "create",
+		RunFunc: func(params *ChildParams, cmd *cobra.Command, args []string) {},
+	}).ToCobra()
+	_, err := (CmdT[RootParams]{
+		Use:     "root",
+		SubCmds: []*cobra.Command{child},
+	}).ToCobraE()
+	if err == nil {
+		t.Fatal("ToCobraE() error = nil, want shorthand collision")
+	}
+	for _, want := range []string{"shorthand -d", "--description", "--db", `command "root create"`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("ToCobraE() error = %q, want substring %q", err, want)
+		}
+	}
+}
+
+func TestPersistentFlag_ExplicitShortAllowsLongNameShadow(t *testing.T) {
+	type RootParams struct {
+		DB string `long:"db" short:"d" persistent:"true" optional:"true"`
+	}
+	type ChildParams struct {
+		DB string `long:"db" short:"d" optional:"true"`
+	}
+
+	child := (CmdT[ChildParams]{
+		Use:     "create",
+		RunFunc: func(params *ChildParams, cmd *cobra.Command, args []string) {},
+	}).ToCobra()
+	if _, err := (CmdT[RootParams]{
+		Use:     "root",
+		SubCmds: []*cobra.Command{child},
+	}).ToCobraE(); err != nil {
+		t.Fatalf("ToCobraE() error = %v, want Cobra long-name shadowing", err)
+	}
+}

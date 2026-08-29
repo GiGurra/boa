@@ -107,6 +107,13 @@ still apply to the root field. Persistent flags can be declared at any command
 level. They cannot be positional arguments. A descendant local flag with the
 same name follows Cobra's normal shadowing behavior.
 
+The default enricher does not auto-generate short names for persistent flags,
+because a persistent shorthand must be unique throughout its command subtree.
+Set one explicitly with `short:"x"` or `SetShort("x")` when desired. Boa
+validates explicit persistent shorthands after assembling the command tree and
+returns a construction error if one conflicts with a local or persistent flag
+on a descendant command.
+
 ### Programmatic parity
 
 Anything configurable with a struct tag is also configurable programmatically through `HookContext.GetParam(&p.Field)` (or the typed `GetParamT`). This is the escape hatch for parameter structs you don't own and can't add tags to:
